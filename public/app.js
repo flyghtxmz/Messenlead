@@ -1,4 +1,4 @@
-const STORAGE_KEY = "messenlead.messenger.workspace.v1";
+const STORAGE_KEY = "messenlead.messenger.workspace.v2";
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
@@ -100,8 +100,8 @@ function seedWorkspace() {
 
   return {
     settings: {
-      pageName: "Messenlead Messenger",
-      pageId: "1234567890",
+      pageName: "",
+      pageId: "",
       greeting: "Oi {{first_name}}, posso te ajudar pelo Messenger?",
       defaultReply: "Recebi sua mensagem. Um atendente vai assumir a conversa se a automação não resolver.",
       verifyToken: "messenlead-verify-token",
@@ -251,72 +251,8 @@ function seedWorkspace() {
         ]
       }
     ],
-    contacts: [
-      {
-        id: makeId("contact"),
-        name: "Ana Souza",
-        psid: "PSID_1029384756",
-        status: "open",
-        tag: "lead-quente",
-        source: "Messenger plugin",
-        lastSeen: now,
-        messages: [
-          { from: "contact", text: "Oi, quero uma proposta.", at: now },
-          { from: "automation", text: "Oi Ana! Sou o assistente da página. Você quer uma proposta, tirar uma dúvida ou falar com uma pessoa?", at: now },
-          { from: "page", text: "Perfeito, Ana. Qual volume você precisa atender por mês?", at: now }
-        ]
-      },
-      {
-        id: makeId("contact"),
-        name: "Marcos Lima",
-        psid: "PSID_5647382910",
-        status: "open",
-        tag: "novo-assinante",
-        source: "Botão Começar",
-        lastSeen: now,
-        messages: [
-          { from: "contact", text: "Tenho uma dúvida sobre atendimento automático.", at: now },
-          { from: "automation", text: "Claro. Pode me dizer qual é a dúvida principal?", at: now }
-        ]
-      },
-      {
-        id: makeId("contact"),
-        name: "Clara Nunes",
-        psid: "PSID_0192837465",
-        status: "closed",
-        tag: "cliente",
-        source: "Anúncio Click-to-Messenger",
-        lastSeen: now,
-        messages: [
-          { from: "contact", text: "Obrigada, já resolvi.", at: now },
-          { from: "page", text: "Qualquer coisa é só chamar por aqui.", at: now }
-        ]
-      }
-    ],
-    campaigns: [
-      {
-        id: makeId("campaign"),
-        name: "Lembrete de proposta",
-        audienceTag: "lead-quente",
-        message: "Oi {{first_name}}, posso te enviar a proposta completa por aqui?",
-        status: "scheduled",
-        sent: 0,
-        delivered: 0,
-        replies: 0,
-        scheduledAt: "Hoje 17:00"
-      },
-      {
-        id: makeId("campaign"),
-        name: "Novidade para clientes",
-        audienceTag: "cliente",
-        message: "Temos uma novidade disponível no Messenger. Quer receber os detalhes?",
-        status: "draft",
-        sent: 0,
-        delivered: 0,
-        replies: 0,
-        scheduledAt: "Rascunho"
-      }
-    ]
+    contacts: [],
+    campaigns: []
   };
 }
 
@@ -338,7 +274,7 @@ function saveState() {
 
 function getInitialView() {
   const hash = location.hash.replace("#", "").split("?")[0];
-  return navItems.some((item) => item.id === hash) ? hash : "dashboard";
+  return navItems.some((item) => item.id === hash) ? hash : "pages";
 }
 
 function oauthErrorFromHash() {
@@ -1074,7 +1010,7 @@ function renderSettings() {
         <div class="panel-body stack">
           <p class="muted">Este painel salva dados no localStorage. Em produção, use Cloudflare KV, D1 ou um banco externo para assinantes, conversas e auditoria.</p>
           <button class="secondary-button" type="button" data-action="export-json">${icons.copy}<span>Exportar backup</span></button>
-          <button class="danger-button" type="button" data-action="reset-demo">${icons.trash}<span>Restaurar dados demo</span></button>
+          <button class="danger-button" type="button" data-action="reset-workspace">${icons.trash}<span>Restaurar modelo inicial</span></button>
         </div>
       </aside>
     </div>
@@ -1400,7 +1336,7 @@ function handleWorkspaceClick(event) {
   if (action === "copy-flow-json") return copyText(compactFlowJson(), "JSON dos fluxos copiado.");
   if (action === "download-flow-json") return downloadFile("messenlead-flows.json", JSON.stringify({ flows: state.flows }, null, 2), "application/json");
   if (action === "export-json") return exportWorkspace();
-  if (action === "reset-demo") return resetDemo();
+  if (action === "reset-workspace") return resetWorkspace();
 }
 
 function handleWorkspaceInput(event) {
@@ -1775,7 +1711,7 @@ function renderConnections(flow) {
       if (!node.next) return "";
       const target = flow.nodes.find((item) => item.id === node.next);
       if (!target) return "";
-      const x1 = node.x + 238;
+      const x1 = node.x + 228;
       const y1 = node.y + 70;
       const x2 = target.x;
       const y2 = target.y + 70;
@@ -2096,8 +2032,8 @@ async function copyText(text, message) {
   }
 }
 
-function resetDemo() {
-  if (!confirm("Restaurar dados de demonstração e apagar o workspace local?")) return;
+function resetWorkspace() {
+  if (!confirm("Restaurar o modelo inicial e apagar o workspace local?")) return;
   state = seedWorkspace();
   selectedFlowId = state.flows[0]?.id;
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
