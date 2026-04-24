@@ -19,6 +19,13 @@ const nodeLabels = {
   action: "Ação"
 };
 
+const CANVAS_WIDTH = 1500;
+const CANVAS_HEIGHT = 980;
+const NODE_WIDTH = 228;
+const NODE_CENTER_Y = 70;
+const ZOOM_MIN = 0.45;
+const ZOOM_MAX = 1.15;
+
 const icons = {
   dashboard: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h7V4H4v9Zm9 7h7V4h-7v16ZM4 20h7v-5H4v5Z"/></svg>`,
   pages: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h10l4 4v14H4Z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h6"/></svg>`,
@@ -56,6 +63,11 @@ let selectedNodeId = state.flows[0]?.nodes[0]?.id;
 let selectedContactId = state.contacts[0]?.id;
 let searchQuery = "";
 let simLog = [];
+const storedCanvasZoom = localStorage.getItem("messenlead.canvas.zoom");
+let canvasZoom = Number(storedCanvasZoom) || 0.78;
+let shouldAutoFitCanvas = !storedCanvasZoom;
+let showFlowList = localStorage.getItem("messenlead.canvas.flowList") === "true";
+let showInspector = localStorage.getItem("messenlead.canvas.inspector") === "true";
 let metaState = {
   authChecked: false,
   profile: null,
@@ -628,16 +640,20 @@ function renderFlows() {
 
   const node = selectedNode(flow) || flow.nodes[0];
   if (node) selectedNodeId = node.id;
+  canvasZoom = clamp(canvasZoom, ZOOM_MIN, ZOOM_MAX);
 
   workspace.innerHTML = `
-    <div class="page-grid">
+    <div class="page-grid canvas-focused ${showFlowList ? "show-flow-list" : ""} ${showInspector ? "show-inspector" : ""}">
       <section class="panel flow-sidebar">
         <div class="panel-header">
           <div>
             <h2>Fluxos Messenger</h2>
             <span>Gatilhos, mensagens, condições e handoff</span>
           </div>
-          <button class="icon-button" type="button" data-action="new-flow" title="Novo fluxo">${icons.plus}</button>
+          <div class="button-row">
+            <button class="icon-button" type="button" data-action="new-flow" title="Novo fluxo">${icons.plus}</button>
+            <button class="icon-button" type="button" data-action="toggle-flow-list" title="Fechar lista">&times;</button>
+          </div>
         </div>
         <div class="panel-body flow-list">
           ${filteredFlows
@@ -662,6 +678,10 @@ function renderFlows() {
             <input class="field-input" data-flow-field="name" value="${attr(flow.name)}" aria-label="Nome do fluxo" />
             <span class="muted">${escapeHtml(flow.goal)}</span>
           </div>
+          <div class="canvas-panel-controls" aria-label="Painéis do canvas">
+            <button class="secondary-button ${showFlowList ? "active" : ""}" type="button" data-action="toggle-flow-list">${icons.workflow}<span>Fluxos</span></button>
+            <button class="secondary-button ${showInspector ? "active" : ""}" type="button" data-action="toggle-inspector">${icons.settings}<span>Editar</span></button>
+          </div>
           <div class="canvas-actions">
             ${nodeAddButton("message", "Mensagem")}
             ${nodeAddButton("condition", "Condição")}
@@ -669,12 +689,22 @@ function renderFlows() {
             ${nodeAddButton("action", "Ação")}
             <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
           </div>
+          <div class="canvas-zoom" aria-label="Zoom do canvas">
+            <button class="icon-button" type="button" data-action="canvas-zoom-out" title="Diminuir zoom">-</button>
+            <button class="secondary-button" type="button" data-action="canvas-fit"><span>Ajustar</span></button>
+            <span>${Math.round(canvasZoom * 100)}%</span>
+            <button class="icon-button" type="button" data-action="canvas-zoom-in" title="Aumentar zoom">+</button>
+          </div>
         </div>
-        <div class="flow-canvas" id="flowCanvas">
-          <svg class="connection-layer" viewBox="0 0 1400 900" aria-hidden="true">
-            ${renderConnections(flow)}
-          </svg>
-          ${flow.nodes.map((item) => renderNode(item, item.id === node?.id)).join("")}
+        <div class="flow-canvas" id="flowCanvas" style="--canvas-zoom:${canvasZoom}">
+          <div class="canvas-world" style="width:${CANVAS_WIDTH * canvasZoom}px; height:${CANVAS_HEIGHT * canvasZoom}px">
+            <div class="canvas-stage" style="width:${CANVAS_WIDTH}px; height:${CANVAS_HEIGHT}px">
+              <svg class="connection-layer" viewBox="0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}" aria-hidden="true">
+                ${renderConnections(flow)}
+              </svg>
+              ${flow.nodes.map((item) => renderNode(item, item.id === node?.id)).join("")}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -684,10 +714,13 @@ function renderFlows() {
             <h2>Inspetor</h2>
             <span>${node ? nodeLabels[node.type] : "Selecione um bloco"}</span>
           </div>
-          <div class="segmented" aria-label="Status do fluxo">
-            ${["draft", "active", "paused"]
-              .map((status) => `<button class="${flow.status === status ? "active" : ""}" type="button" data-action="set-flow-status" data-status="${status}">${statusLabel(status)}</button>`)
-              .join("")}
+          <div class="button-row">
+            <div class="segmented" aria-label="Status do fluxo">
+              ${["draft", "active", "paused"]
+                .map((status) => `<button class="${flow.status === status ? "active" : ""}" type="button" data-action="set-flow-status" data-status="${status}">${statusLabel(status)}</button>`)
+                .join("")}
+            </div>
+            <button class="icon-button" type="button" data-action="toggle-inspector" title="Fechar inspetor">&times;</button>
           </div>
         </div>
         <div class="panel-body stack">
@@ -699,6 +732,10 @@ function renderFlows() {
   `;
 
   enableNodeDragging(flow);
+  if (shouldAutoFitCanvas) {
+    shouldAutoFitCanvas = false;
+    requestAnimationFrame(() => fitCanvasToViewport());
+  }
 }
 
 function renderInbox() {
@@ -1282,6 +1319,8 @@ function handleWorkspaceClick(event) {
   if (action === "go-flows") return navigate("flows");
   if (action === "go-pages") return navigate("pages");
   if (action === "go-setup") return navigate("setup");
+  if (action === "toggle-flow-list") return toggleFlowList();
+  if (action === "toggle-inspector") return toggleInspector();
   if (action === "connect-facebook") {
     window.location.href = "/api/auth/facebook/start";
     return;
@@ -1305,6 +1344,8 @@ function handleWorkspaceClick(event) {
   }
   if (action === "select-node") {
     selectedNodeId = id;
+    showInspector = true;
+    localStorage.setItem("messenlead.canvas.inspector", "true");
     return render();
   }
   if (action === "add-node") return addNode(button.dataset.type);
@@ -1312,6 +1353,9 @@ function handleWorkspaceClick(event) {
   if (action === "duplicate-flow") return duplicateFlow();
   if (action === "delete-flow") return deleteFlow();
   if (action === "delete-node") return deleteNode();
+  if (action === "canvas-zoom-in") return setCanvasZoom(canvasZoom + 0.08);
+  if (action === "canvas-zoom-out") return setCanvasZoom(canvasZoom - 0.08);
+  if (action === "canvas-fit") return fitCanvasToViewport();
   if (action === "start-sim") return startSimulation();
   if (action === "send-sim") return sendSimulationMessage();
   if (action === "new-contact") return createContact();
@@ -1513,6 +1557,54 @@ function deleteNode() {
   render();
 }
 
+function setCanvasZoom(value) {
+  canvasZoom = clamp(value, ZOOM_MIN, ZOOM_MAX);
+  localStorage.setItem("messenlead.canvas.zoom", String(canvasZoom));
+  render();
+}
+
+function toggleFlowList() {
+  showFlowList = !showFlowList;
+  localStorage.setItem("messenlead.canvas.flowList", String(showFlowList));
+  render();
+}
+
+function toggleInspector() {
+  showInspector = !showInspector;
+  localStorage.setItem("messenlead.canvas.inspector", String(showInspector));
+  render();
+}
+
+function fitCanvasToViewport() {
+  const canvas = document.querySelector("#flowCanvas");
+  const flow = selectedFlow();
+  if (!canvas || !flow?.nodes?.length) return;
+
+  const bounds = flow.nodes.reduce(
+    (box, node) => ({
+      minX: Math.min(box.minX, node.x),
+      minY: Math.min(box.minY, node.y),
+      maxX: Math.max(box.maxX, node.x + NODE_WIDTH + 120),
+      maxY: Math.max(box.maxY, node.y + 190)
+    }),
+    { minX: Infinity, minY: Infinity, maxX: 0, maxY: 0 }
+  );
+
+  const width = Math.max(520, bounds.maxX - Math.max(0, bounds.minX - 40));
+  const height = Math.max(360, bounds.maxY - Math.max(0, bounds.minY - 40));
+  const nextZoom = Math.min((canvas.clientWidth - 28) / width, (canvas.clientHeight - 28) / height, ZOOM_MAX);
+  canvasZoom = clamp(nextZoom, ZOOM_MIN, ZOOM_MAX);
+  localStorage.setItem("messenlead.canvas.zoom", String(canvasZoom));
+  render();
+
+  requestAnimationFrame(() => {
+    const refreshed = document.querySelector("#flowCanvas");
+    if (!refreshed) return;
+    refreshed.scrollLeft = Math.max(0, (Math.max(0, bounds.minX - 40) * canvasZoom) - 14);
+    refreshed.scrollTop = Math.max(0, (Math.max(0, bounds.minY - 40) * canvasZoom) - 14);
+  });
+}
+
 function createContact() {
   const name = prompt("Nome do assinante Messenger", "Novo assinante");
   if (!name) return;
@@ -1675,18 +1767,19 @@ function enableNodeDragging(flow) {
       const node = flow.nodes.find((item) => item.id === element.dataset.id);
       if (!node) return;
       selectedNodeId = node.id;
-      const rect = element.getBoundingClientRect();
-      const canvasRect = canvas.getBoundingClientRect();
-      const offsetX = event.clientX - rect.left;
-      const offsetY = event.clientY - rect.top;
+      const zoom = canvasZoom || 1;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startNodeX = node.x;
+      const startNodeY = node.y;
       element.setPointerCapture(event.pointerId);
       element.classList.add("selected");
 
       const onMove = (moveEvent) => {
-        const x = moveEvent.clientX - canvasRect.left + canvas.scrollLeft - offsetX;
-        const y = moveEvent.clientY - canvasRect.top + canvas.scrollTop - offsetY;
-        node.x = Math.max(20, Math.min(1140, Math.round(x)));
-        node.y = Math.max(20, Math.min(740, Math.round(y)));
+        const x = startNodeX + (moveEvent.clientX - startX) / zoom;
+        const y = startNodeY + (moveEvent.clientY - startY) / zoom;
+        node.x = Math.max(20, Math.min(CANVAS_WIDTH - NODE_WIDTH - 40, Math.round(x)));
+        node.y = Math.max(20, Math.min(CANVAS_HEIGHT - 190, Math.round(y)));
         element.style.left = `${node.x}px`;
         element.style.top = `${node.y}px`;
       };
@@ -1711,10 +1804,10 @@ function renderConnections(flow) {
       if (!node.next) return "";
       const target = flow.nodes.find((item) => item.id === node.next);
       if (!target) return "";
-      const x1 = node.x + 228;
-      const y1 = node.y + 70;
+      const x1 = node.x + NODE_WIDTH;
+      const y1 = node.y + NODE_CENTER_Y;
       const x2 = target.x;
-      const y2 = target.y + 70;
+      const y2 = target.y + NODE_CENTER_Y;
       const mid = Math.max(60, Math.abs(x2 - x1) / 2);
       return `<path d="M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}" />`;
     })
@@ -1815,6 +1908,10 @@ function normalize(value) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function keywordMatches(keywords, text) {
