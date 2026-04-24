@@ -1,4 +1,5 @@
 import { getManagedPages, getMetaConfig, getSession, json } from "../../_lib/meta.js";
+import { upsertConnectedPages } from "../../_lib/pages.js";
 
 export async function onRequestGet({ request, env }) {
   const session = await getSession(request, env);
@@ -10,6 +11,7 @@ export async function onRequestGet({ request, env }) {
   try {
     const config = getMetaConfig(request, env);
     const pages = await getManagedPages(session.accessToken, config);
+    await upsertConnectedPages(env, session.user?.id, pages);
     return json({
       pages: pages.map((page) => ({
         id: page.id,

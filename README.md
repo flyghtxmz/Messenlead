@@ -7,6 +7,7 @@ Ferramenta Messenger-only inspirada em builders como Manychat, feita para Cloudf
 - Builder visual de fluxos para Facebook Messenger.
 - Login Meta para listar as Páginas administradas pela conta conectada.
 - Inbox real por Página usando Graph API e Page Access Token resolvido no servidor.
+- Tokens das Páginas salvos no D1 após o login Meta.
 - Persistência de fluxos no Cloudflare D1 por Página.
 - Blocos de gatilho, mensagem, condição, espera e ação.
 - Inbox local para conversas da Página.
@@ -39,6 +40,8 @@ D1 database: messenlead-db
 
 As Functions criam a tabela `flows` automaticamente quando a API é chamada. O arquivo [migrations/0001_flows.sql](migrations/0001_flows.sql) existe caso você prefira aplicar a migração manualmente.
 
+As Páginas conectadas via OAuth ficam na tabela `connected_pages`; os Page Access Tokens são usados pelo webhook para responder mensagens de cada Página. O arquivo [migrations/0002_connected_pages.sql](migrations/0002_connected_pages.sql) existe para aplicação manual.
+
 ## Rodar localmente
 
 Como a interface é estática, você pode abrir `public/index.html` no navegador.
@@ -67,7 +70,6 @@ META_APP_SECRET=app-secret-da-meta
 SESSION_SECRET=uma-chave-longa-aleatoria
 META_REDIRECT_URI=https://seu-projeto.pages.dev/api/auth/facebook/callback
 META_SCOPES=pages_show_list,pages_read_engagement,pages_messaging,pages_manage_metadata
-MESSENGER_PAGE_ACCESS_TOKEN=EAAB...
 MESSENGER_VERIFY_TOKEN=messenlead-verify-token
 MESSENGER_APP_SECRET=app-secret-da-meta
 MESSENLEAD_OPERATOR_TOKEN=um-token-forte-para-operador
@@ -77,7 +79,7 @@ MESSENLEAD_FLOW_JSON={"flows":[]}
 
 `MESSENLEAD_FLOW_JSON` agora é fallback. Em produção, os fluxos do canvas são salvos no D1 por Página.
 
-`MESSENGER_PAGE_ACCESS_TOKEN` continua útil para o webhook fixo. Para o painel multi-Página, o app usa Facebook Login e resolve o Page Access Token da Página selecionada no servidor.
+Para multi-Página, `MESSENGER_PAGE_ACCESS_TOKEN` não é obrigatório: o app usa Facebook Login, busca as Páginas autorizadas e salva os Page Access Tokens no D1. Você só precisa de `MESSENGER_PAGE_ACCESS_TOKEN` se quiser operar uma única Página manualmente sem OAuth.
 
 ## Configurar na Meta
 
@@ -92,16 +94,15 @@ No Meta for Developers:
 https://seu-projeto.pages.dev/api/auth/facebook/callback
 ```
 
-5. Conecte a Página do Facebook.
-6. Gere o Page Access Token se quiser usar o webhook fixo.
-7. Configure o webhook:
+5. Conecte as Páginas pelo botão `Entrar com Facebook` dentro do Messenlead.
+6. Configure o webhook:
 
 ```txt
 https://seu-projeto.pages.dev/api/messenger/webhook
 ```
 
-8. Use o mesmo `MESSENGER_VERIFY_TOKEN` configurado no Cloudflare.
-9. Assine os campos:
+7. Use o mesmo `MESSENGER_VERIFY_TOKEN` configurado no Cloudflare.
+8. Assine os campos:
 
 ```txt
 messages, messaging_postbacks, messaging_optins

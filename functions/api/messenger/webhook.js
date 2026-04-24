@@ -1,4 +1,5 @@
 import { listFlows } from "../../_lib/flows.js";
+import { getStoredPageAccessToken } from "../../_lib/pages.js";
 
 const DEFAULT_REPLY = "Recebi sua mensagem. Um atendente vai assumir a conversa se a automação não resolver.";
 
@@ -55,7 +56,7 @@ async function handleMessengerEvent(event, env, pageId) {
   const replies = await buildReplies(inputText, env, pageId);
 
   for (const reply of replies.slice(0, 3)) {
-    await sendMessengerMessage(psid, reply.text, reply.quickReplies || [], env);
+    await sendMessengerMessage(psid, reply.text, reply.quickReplies || [], env, pageId);
   }
 }
 
@@ -124,8 +125,8 @@ function keywordMatches(keywords, normalizedInput) {
   return list.some((keyword) => normalizedInput.includes(keyword) || keyword.includes(normalizedInput));
 }
 
-async function sendMessengerMessage(psid, text, quickReplies, env) {
-  const pageAccessToken = env.MESSENGER_PAGE_ACCESS_TOKEN;
+async function sendMessengerMessage(psid, text, quickReplies, env, pageId) {
+  const pageAccessToken = (pageId ? await getStoredPageAccessToken(env, pageId) : "") || env.MESSENGER_PAGE_ACCESS_TOKEN;
   if (!pageAccessToken) return;
 
   const graphUrl = env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages";
