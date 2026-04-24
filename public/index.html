@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Messenlead | Automação de conversas</title>
+    <meta
+      name="description"
+      content="Builder estático de automações, campanhas e inbox para canais de mensagem, pronto para Cloudflare Pages."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegação principal">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">ML</span>
+          <div>
+            <strong>Messenlead</strong>
+            <span>Automation desk</span>
+          </div>
+        </div>
+
+        <nav class="main-nav" id="mainNav"></nav>
+
+        <div class="workspace-health">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div>
+            <strong id="healthTitle">Pronto para publicar</strong>
+            <span id="healthCopy">Cloudflare Pages, sem backend obrigatório.</span>
+          </div>
+        </div>
+      </aside>
+
+      <div class="content-frame">
+        <header class="topbar">
+          <div class="topbar-title">
+            <span id="pageEyebrow">Fluxos</span>
+            <h1 id="pageTitle">Automação visual</h1>
+          </div>
+
+          <div class="topbar-actions">
+            <label class="search-box" aria-label="Buscar">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m21 21-4.3-4.3m1.3-5.2a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" />
+              </svg>
+              <input id="globalSearch" type="search" placeholder="Buscar fluxo, contato, campanha" />
+            </label>
+            <button class="icon-button" id="exportButton" type="button" title="Exportar dados">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+              </svg>
+            </button>
+            <button class="icon-button" id="importButton" type="button" title="Importar dados">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 21V9m0 0 4 4m-4-4-4 4M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
+            <input id="importFile" type="file" accept="application/json" hidden />
+          </div>
+        </header>
+
+        <main id="workspace" class="workspace" tabindex="-1"></main>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

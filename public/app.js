@@ -1,0 +1,1709 @@
+const STORAGE_KEY = "messenlead.messenger.workspace.v1";
+
+const navItems = [
+  { id: "dashboard", label: "Painel", icon: "dashboard" },
+  { id: "flows", label: "Fluxos", icon: "workflow" },
+  { id: "inbox", label: "Inbox", icon: "inbox" },
+  { id: "subscribers", label: "Assinantes", icon: "users" },
+  { id: "broadcasts", label: "Disparos", icon: "send" },
+  { id: "setup", label: "Messenger", icon: "plug" },
+  { id: "settings", label: "Ajustes", icon: "settings" }
+];
+
+const nodeLabels = {
+  trigger: "Gatilho",
+  message: "Mensagem",
+  condition: "Condição",
+  delay: "Espera",
+  action: "Ação"
+};
+
+const icons = {
+  dashboard: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h7V4H4v9Zm9 7h7V4h-7v16ZM4 20h7v-5H4v5Z"/></svg>`,
+  workflow: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h.01M18 6h.01M6 18h.01M7 6h10M6 7v10m1 1h10m1-11v10"/><path d="M4 4h4v4H4V4Zm12 0h4v4h-4V4ZM4 16h4v4H4v-4Zm12 0h4v4h-4v-4Z"/></svg>`,
+  inbox: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M3 15h5l2 3h4l2-3h5L18 4H6L3 15Z"/></svg>`,
+  users: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  send: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>`,
+  plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2m6 6V2M6 8h12v5a6 6 0 0 1-12 0V8Z"/></svg>`,
+  settings: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.1.36.66 1 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></svg>`,
+  play: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7V5Z"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-1 5v6M9 11v6M5 6l1 15h12l1-15"/></svg>`,
+  copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h12v12H8V8Z"/><path d="M4 16V4h12"/></svg>`,
+  message: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/></svg>`,
+  condition: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9 9-9Z"/><path d="M12 8v4l3 3"/></svg>`,
+  delay: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+  action: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h8l-1 8 11-13h-8l1-7Z"/></svg>`,
+  trigger: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0"/><path d="M12 13V5m0 8 4-4m-4 4-4-4"/><path d="M5 19h14"/></svg>`
+};
+
+const workspace = document.querySelector("#workspace");
+const mainNav = document.querySelector("#mainNav");
+const pageTitle = document.querySelector("#pageTitle");
+const pageEyebrow = document.querySelector("#pageEyebrow");
+const globalSearch = document.querySelector("#globalSearch");
+const exportButton = document.querySelector("#exportButton");
+const importButton = document.querySelector("#importButton");
+const importFile = document.querySelector("#importFile");
+const toast = document.querySelector("#toast");
+
+let state = loadState();
+let activeView = getInitialView();
+let selectedFlowId = state.flows[0]?.id;
+let selectedNodeId = state.flows[0]?.nodes[0]?.id;
+let selectedContactId = state.contacts[0]?.id;
+let searchQuery = "";
+let simLog = [];
+
+mainNav.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-view]");
+  if (!button) return;
+  activeView = button.dataset.view;
+  history.replaceState(null, "", `#${activeView}`);
+  render();
+});
+
+workspace.addEventListener("click", handleWorkspaceClick);
+workspace.addEventListener("input", handleWorkspaceInput);
+workspace.addEventListener("change", handleWorkspaceChange);
+workspace.addEventListener("keydown", handleWorkspaceKeydown);
+
+globalSearch.addEventListener("input", (event) => {
+  searchQuery = event.target.value.trim().toLowerCase();
+  render();
+});
+
+exportButton.addEventListener("click", exportWorkspace);
+importButton.addEventListener("click", () => importFile.click());
+importFile.addEventListener("change", importWorkspace);
+window.addEventListener("hashchange", () => {
+  activeView = getInitialView();
+  render();
+});
+
+render();
+
+function seedWorkspace() {
+  const now = new Date().toISOString();
+
+  return {
+    settings: {
+      pageName: "Messenlead Messenger",
+      pageId: "1234567890",
+      greeting: "Oi {{first_name}}, posso te ajudar pelo Messenger?",
+      defaultReply: "Recebi sua mensagem. Um atendente vai assumir a conversa se a automação não resolver.",
+      verifyToken: "messenlead-verify-token",
+      operatorToken: "troque-por-um-token-forte",
+      businessHours: "Segunda a sexta, 09:00-18:00",
+      timezone: "America/Sao_Paulo"
+    },
+    flows: [
+      {
+        id: makeId("flow"),
+        name: "Boas-vindas da Página",
+        status: "active",
+        trigger: "GET_STARTED",
+        goal: "Receber novos assinantes do Messenger e separar intenção comercial.",
+        updatedAt: now,
+        nodes: [
+          {
+            id: makeId("node"),
+            type: "trigger",
+            title: "Começar conversa",
+            message: "Botão Começar, postback GET_STARTED ou primeira mensagem.",
+            keyword: "oi",
+            next: "welcome_message",
+            x: 70,
+            y: 105
+          },
+          {
+            id: "welcome_message",
+            type: "message",
+            title: "Saudação",
+            message: "Oi {{first_name}}! Sou o assistente da página. Você quer uma proposta, tirar uma dúvida ou falar com uma pessoa?",
+            quickReplies: ["Quero uma proposta", "Tenho uma dúvida", "Falar com humano"],
+            next: "qualify_intent",
+            x: 370,
+            y: 105
+          },
+          {
+            id: "qualify_intent",
+            type: "condition",
+            title: "Detectar proposta",
+            message: "Se a resposta contém proposta, orçamento, preço ou plano, seguir para lead quente.",
+            keyword: "proposta, orçamento, preço, plano",
+            next: "hot_lead",
+            x: 670,
+            y: 105
+          },
+          {
+            id: "hot_lead",
+            type: "action",
+            title: "Marcar lead quente",
+            message: "Aplicar tag lead-quente, abrir conversa e avisar atendimento.",
+            tag: "lead-quente",
+            next: "human_handoff",
+            x: 970,
+            y: 105
+          },
+          {
+            id: "human_handoff",
+            type: "message",
+            title: "Transferência",
+            message: "Perfeito. Vou chamar uma pessoa do time para continuar por aqui.",
+            quickReplies: [],
+            next: null,
+            x: 970,
+            y: 315
+          }
+        ]
+      },
+      {
+        id: makeId("flow"),
+        name: "Qualificação rápida",
+        status: "active",
+        trigger: "mensagem contém orçamento",
+        goal: "Coletar necessidade e urgência antes do atendimento humano.",
+        updatedAt: now,
+        nodes: [
+          {
+            id: makeId("node"),
+            type: "trigger",
+            title: "Pedido de orçamento",
+            message: "Qualquer mensagem com orçamento, preço ou cotação.",
+            keyword: "orçamento, preço, cotação",
+            next: "ask_need",
+            x: 80,
+            y: 145
+          },
+          {
+            id: "ask_need",
+            type: "message",
+            title: "Perguntar necessidade",
+            message: "Claro. Para eu te direcionar melhor, qual é o serviço ou produto que você procura?",
+            quickReplies: ["Serviço", "Produto", "Ainda estou pesquisando"],
+            next: "short_delay",
+            x: 380,
+            y: 145
+          },
+          {
+            id: "short_delay",
+            type: "delay",
+            title: "Aguardar resposta",
+            message: "Esperar até 20 minutos antes de lembrar.",
+            delayMinutes: 20,
+            next: "reminder",
+            x: 680,
+            y: 145
+          },
+          {
+            id: "reminder",
+            type: "message",
+            title: "Lembrete",
+            message: "Ainda estou por aqui. Quer que eu chame alguém para te ajudar?",
+            quickReplies: ["Sim", "Depois"],
+            next: null,
+            x: 980,
+            y: 145
+          }
+        ]
+      },
+      {
+        id: makeId("flow"),
+        name: "Reativação 24h",
+        status: "draft",
+        trigger: "tag lead-frio",
+        goal: "Reengajar conversas abertas dentro da janela permitida do Messenger.",
+        updatedAt: now,
+        nodes: [
+          {
+            id: makeId("node"),
+            type: "trigger",
+            title: "Lead sem resposta",
+            message: "Contato marcado como lead-frio dentro da janela de 24 horas.",
+            keyword: "lead-frio",
+            next: "reactivation_message",
+            x: 90,
+            y: 180
+          },
+          {
+            id: "reactivation_message",
+            type: "message",
+            title: "Retomada",
+            message: "Passando para saber se você ainda quer ajuda. Posso te enviar as opções por aqui?",
+            quickReplies: ["Pode enviar", "Agora não"],
+            next: null,
+            x: 395,
+            y: 180
+          }
+        ]
+      }
+    ],
+    contacts: [
+      {
+        id: makeId("contact"),
+        name: "Ana Souza",
+        psid: "PSID_1029384756",
+        status: "open",
+        tag: "lead-quente",
+        source: "Messenger plugin",
+        lastSeen: now,
+        messages: [
+          { from: "contact", text: "Oi, quero uma proposta.", at: now },
+          { from: "automation", text: "Oi Ana! Sou o assistente da página. Você quer uma proposta, tirar uma dúvida ou falar com uma pessoa?", at: now },
+          { from: "page", text: "Perfeito, Ana. Qual volume você precisa atender por mês?", at: now }
+        ]
+      },
+      {
+        id: makeId("contact"),
+        name: "Marcos Lima",
+        psid: "PSID_5647382910",
+        status: "open",
+        tag: "novo-assinante",
+        source: "Botão Começar",
+        lastSeen: now,
+        messages: [
+          { from: "contact", text: "Tenho uma dúvida sobre atendimento automático.", at: now },
+          { from: "automation", text: "Claro. Pode me dizer qual é a dúvida principal?", at: now }
+        ]
+      },
+      {
+        id: makeId("contact"),
+        name: "Clara Nunes",
+        psid: "PSID_0192837465",
+        status: "closed",
+        tag: "cliente",
+        source: "Anúncio Click-to-Messenger",
+        lastSeen: now,
+        messages: [
+          { from: "contact", text: "Obrigada, já resolvi.", at: now },
+          { from: "page", text: "Qualquer coisa é só chamar por aqui.", at: now }
+        ]
+      }
+    ],
+    campaigns: [
+      {
+        id: makeId("campaign"),
+        name: "Lembrete de proposta",
+        audienceTag: "lead-quente",
+        message: "Oi {{first_name}}, posso te enviar a proposta completa por aqui?",
+        status: "scheduled",
+        sent: 0,
+        delivered: 0,
+        replies: 0,
+        scheduledAt: "Hoje 17:00"
+      },
+      {
+        id: makeId("campaign"),
+        name: "Novidade para clientes",
+        audienceTag: "cliente",
+        message: "Temos uma novidade disponível no Messenger. Quer receber os detalhes?",
+        status: "draft",
+        sent: 0,
+        delivered: 0,
+        replies: 0,
+        scheduledAt: "Rascunho"
+      }
+    ]
+  };
+}
+
+function loadState() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return seedWorkspace();
+    const parsed = JSON.parse(stored);
+    if (!parsed.flows || !parsed.contacts || !parsed.campaigns) return seedWorkspace();
+    return parsed;
+  } catch {
+    return seedWorkspace();
+  }
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function getInitialView() {
+  const hash = location.hash.replace("#", "");
+  return navItems.some((item) => item.id === hash) ? hash : "dashboard";
+}
+
+function render() {
+  renderNav();
+  const current = navItems.find((item) => item.id === activeView) || navItems[0];
+  pageEyebrow.textContent = "Messenger";
+  pageTitle.textContent = current.label === "Messenger" ? "Configuração do Messenger" : current.label;
+  globalSearch.placeholder = placeholderForView(activeView);
+
+  const renderers = {
+    dashboard: renderDashboard,
+    flows: renderFlows,
+    inbox: renderInbox,
+    subscribers: renderSubscribers,
+    broadcasts: renderBroadcasts,
+    setup: renderSetup,
+    settings: renderSettings
+  };
+
+  renderers[activeView]();
+}
+
+function renderNav() {
+  const counts = {
+    dashboard: "",
+    flows: state.flows.filter((flow) => flow.status === "active").length,
+    inbox: state.contacts.filter((contact) => contact.status === "open").length,
+    subscribers: state.contacts.length,
+    broadcasts: state.campaigns.filter((campaign) => campaign.status !== "sent").length,
+    setup: "",
+    settings: ""
+  };
+
+  mainNav.innerHTML = navItems
+    .map(
+      (item) => `
+        <button class="nav-button ${activeView === item.id ? "active" : ""}" type="button" data-view="${item.id}">
+          ${icons[item.icon]}
+          <span>${item.label}</span>
+          ${counts[item.id] !== "" ? `<span class="nav-count">${counts[item.id]}</span>` : ""}
+        </button>
+      `
+    )
+    .join("");
+}
+
+function renderDashboard() {
+  const open = state.contacts.filter((contact) => contact.status === "open").length;
+  const activeFlows = state.flows.filter((flow) => flow.status === "active").length;
+  const scheduled = state.campaigns.filter((campaign) => campaign.status === "scheduled").length;
+  const hotLeads = state.contacts.filter((contact) => contact.tag === "lead-quente").length;
+
+  workspace.innerHTML = `
+    <section class="metric-grid" aria-label="Indicadores">
+      ${metricCard("Assinantes Messenger", state.contacts.length, "PSIDs salvos neste workspace", "users")}
+      ${metricCard("Conversas abertas", open, "Precisam de atenção humana", "inbox")}
+      ${metricCard("Fluxos ativos", activeFlows, "Publicados no builder", "workflow")}
+      ${metricCard("Disparos agendados", scheduled, "Dentro da política Messenger", "send")}
+    </section>
+
+    <div class="two-column">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Funil do Messenger</h2>
+            <span>Resumo operacional da página conectada</span>
+          </div>
+          <button class="secondary-button" type="button" data-action="go-flows">${icons.workflow}<span>Editar fluxos</span></button>
+        </div>
+        <div class="panel-body">
+          <div class="campaign-list">
+            ${state.flows
+              .map(
+                (flow) => `
+                  <article class="campaign-item">
+                    <div class="row-between">
+                      <div>
+                        <strong>${escapeHtml(flow.name)}</strong>
+                        <span>${escapeHtml(flow.goal)}</span>
+                      </div>
+                      ${statusBadge(flow.status)}
+                    </div>
+                    <div class="progress" aria-hidden="true"><span style="width:${flow.status === "active" ? 100 : 42}%"></span></div>
+                    <span>${flow.nodes.length} blocos · gatilho: ${escapeHtml(flow.trigger)}</span>
+                  </article>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Saúde do Messenger</h2>
+            <span>Checklist para sair do protótipo e conectar na Meta</span>
+          </div>
+          <span class="badge">Pages Functions</span>
+        </div>
+        <div class="panel-body stack">
+          ${checkItem("Webhook", "/api/messenger/webhook criado para verificação e eventos.")}
+          ${checkItem("Token seguro", "Page Access Token fica em variável de ambiente, nunca no navegador.")}
+          ${checkItem("Janela 24h", "Disparos devem respeitar a política de mensagens do Messenger.")}
+          ${checkItem("Exportação", "Use o JSON dos fluxos em MESSENLEAD_FLOW_JSON no Cloudflare.")}
+        </div>
+      </aside>
+    </div>
+
+    <div class="two-column" style="margin-top:16px">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Conversas recentes</h2>
+            <span>${open} conversa${open === 1 ? "" : "s"} aberta${open === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          ${state.contacts
+            .slice(0, 4)
+            .map(
+              (contact) => `
+                <button class="contact-item" type="button" data-action="open-contact" data-id="${contact.id}">
+                  <span class="avatar">${initials(contact.name)}</span>
+                  <span>
+                    <span class="row-between"><strong>${escapeHtml(contact.name)}</strong>${tag(contact.tag)}</span>
+                    <span>${escapeHtml(lastMessage(contact)?.text || "Sem mensagens")}</span>
+                  </span>
+                </button>
+              `
+            )
+            .join("")}
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Leads quentes</h2>
+            <span>${hotLeads} contato${hotLeads === 1 ? "" : "s"} com tag lead-quente</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          <div class="code-block">Webhook URL: ${escapeHtml(webhookUrl())}
+Variáveis: MESSENGER_PAGE_ACCESS_TOKEN, MESSENGER_VERIFY_TOKEN, MESSENGER_APP_SECRET</div>
+          <button class="primary-button" type="button" data-action="go-setup">${icons.plug}<span>Configurar Messenger</span></button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderFlows() {
+  const filteredFlows = filterBySearch(state.flows, (flow) => `${flow.name} ${flow.goal} ${flow.trigger}`);
+  const flow = selectedFlow();
+  if (!flow) {
+    workspace.innerHTML = emptyState("Nenhum fluxo", "Crie um fluxo do Messenger para começar.", "workflow", "Novo fluxo", "new-flow");
+    return;
+  }
+
+  const node = selectedNode(flow) || flow.nodes[0];
+  if (node) selectedNodeId = node.id;
+
+  workspace.innerHTML = `
+    <div class="page-grid">
+      <section class="panel flow-sidebar">
+        <div class="panel-header">
+          <div>
+            <h2>Fluxos Messenger</h2>
+            <span>Gatilhos, mensagens, condições e handoff</span>
+          </div>
+          <button class="icon-button" type="button" data-action="new-flow" title="Novo fluxo">${icons.plus}</button>
+        </div>
+        <div class="panel-body flow-list">
+          ${filteredFlows
+            .map(
+              (item) => `
+                <button class="flow-item ${item.id === flow.id ? "active" : ""}" type="button" data-action="select-flow" data-id="${item.id}">
+                  <span class="row-between">
+                    <strong>${escapeHtml(item.name)}</strong>
+                    ${statusBadge(item.status)}
+                  </span>
+                  <span>${item.nodes.length} blocos · ${escapeHtml(item.trigger)}</span>
+                </button>
+              `
+            )
+            .join("")}
+        </div>
+      </section>
+
+      <section class="panel canvas-shell">
+        <div class="canvas-toolbar">
+          <div class="tight-stack">
+            <input class="field-input" data-flow-field="name" value="${attr(flow.name)}" aria-label="Nome do fluxo" />
+            <span class="muted">${escapeHtml(flow.goal)}</span>
+          </div>
+          <div class="canvas-actions">
+            ${nodeAddButton("message", "Mensagem")}
+            ${nodeAddButton("condition", "Condição")}
+            ${nodeAddButton("delay", "Espera")}
+            ${nodeAddButton("action", "Ação")}
+            <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
+          </div>
+        </div>
+        <div class="flow-canvas" id="flowCanvas">
+          <svg class="connection-layer" viewBox="0 0 1400 900" aria-hidden="true">
+            ${renderConnections(flow)}
+          </svg>
+          ${flow.nodes.map((item) => renderNode(item, item.id === node?.id)).join("")}
+        </div>
+      </section>
+
+      <aside class="panel inspector">
+        <div class="panel-header">
+          <div>
+            <h2>Inspetor</h2>
+            <span>${node ? nodeLabels[node.type] : "Selecione um bloco"}</span>
+          </div>
+          <div class="segmented" aria-label="Status do fluxo">
+            ${["draft", "active", "paused"]
+              .map((status) => `<button class="${flow.status === status ? "active" : ""}" type="button" data-action="set-flow-status" data-status="${status}">${statusLabel(status)}</button>`)
+              .join("")}
+          </div>
+        </div>
+        <div class="panel-body stack">
+          ${node ? renderInspector(flow, node) : ""}
+          ${renderSimulator()}
+        </div>
+      </aside>
+    </div>
+  `;
+
+  enableNodeDragging(flow);
+}
+
+function renderInbox() {
+  const filtered = filterBySearch(state.contacts, (contact) => `${contact.name} ${contact.psid} ${contact.tag} ${lastMessage(contact)?.text || ""}`);
+  const contact = selectedContact() || filtered[0] || state.contacts[0];
+  if (contact) selectedContactId = contact.id;
+
+  workspace.innerHTML = `
+    <div class="split-page">
+      <section class="panel flat">
+        <div class="panel-header">
+          <div>
+            <h2>Inbox da Página</h2>
+            <span>Conversas vindas do Messenger</span>
+          </div>
+          <button class="icon-button" type="button" data-action="new-contact" title="Novo contato">${icons.plus}</button>
+        </div>
+        <div class="contact-list">
+          ${filtered
+            .map(
+              (item) => `
+                <button class="contact-item ${contact?.id === item.id ? "active" : ""}" type="button" data-action="select-contact" data-id="${item.id}">
+                  <span class="avatar">${initials(item.name)}</span>
+                  <span>
+                    <span class="row-between"><strong>${escapeHtml(item.name)}</strong>${tag(item.tag)}</span>
+                    <span>${escapeHtml(lastMessage(item)?.text || "Sem mensagens")}</span>
+                  </span>
+                </button>
+              `
+            )
+            .join("") || emptyInline("Nenhum contato encontrado.")}
+        </div>
+      </section>
+
+      <section class="panel chat-panel">
+        ${
+          contact
+            ? `
+          <div class="panel-header">
+            <div class="row-between" style="width:100%">
+              <div>
+                <h2>${escapeHtml(contact.name)}</h2>
+                <span>${escapeHtml(contact.psid)} · ${escapeHtml(contact.source)}</span>
+              </div>
+              <div class="button-row">
+                ${tag(contact.tag)}
+                <button class="secondary-button" type="button" data-action="run-contact-flow">${icons.play}<span>Aplicar fluxo</span></button>
+                <button class="secondary-button" type="button" data-action="toggle-contact-status">${contact.status === "open" ? "Fechar" : "Reabrir"}</button>
+              </div>
+            </div>
+          </div>
+          <div class="conversation" id="conversation">
+            ${contact.messages
+              .map(
+                (message) => `
+                  <div class="bubble ${message.from === "contact" ? "user" : "bot"}">
+                    ${escapeHtml(message.text)}
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+          <div class="composer">
+            <textarea id="composerText" placeholder="Responder pelo Messenger"></textarea>
+            <button class="secondary-button" type="button" data-action="insert-template">${icons.message}<span>Template</span></button>
+            <button class="primary-button" type="button" data-action="send-contact-message">${icons.send}<span>Enviar</span></button>
+          </div>
+        `
+            : emptyState("Sem conversa", "Crie ou selecione um assinante Messenger.", "inbox", "Novo contato", "new-contact")
+        }
+      </section>
+    </div>
+  `;
+
+  const conversation = document.querySelector("#conversation");
+  if (conversation) conversation.scrollTop = conversation.scrollHeight;
+}
+
+function renderSubscribers() {
+  const tags = unique(state.contacts.map((contact) => contact.tag));
+  const filtered = filterBySearch(state.contacts, (contact) => `${contact.name} ${contact.psid} ${contact.tag} ${contact.source}`);
+
+  workspace.innerHTML = `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Assinantes Messenger</h2>
+          <span>Base capturada pela página e pelos fluxos</span>
+        </div>
+        <div class="button-row">
+          <button class="secondary-button" type="button" data-action="export-csv">${icons.copy}<span>CSV</span></button>
+          <button class="primary-button" type="button" data-action="new-contact">${icons.plus}<span>Novo</span></button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        ${tags.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("")}
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>PSID</th>
+              <th>Tag</th>
+              <th>Status</th>
+              <th>Origem</th>
+              <th>Última mensagem</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered
+              .map(
+                (contact) => `
+                  <tr>
+                    <td><strong>${escapeHtml(contact.name)}</strong></td>
+                    <td>${escapeHtml(contact.psid)}</td>
+                    <td>${tag(contact.tag)}</td>
+                    <td>${contact.status === "open" ? "Aberta" : "Fechada"}</td>
+                    <td>${escapeHtml(contact.source)}</td>
+                    <td>${escapeHtml(lastMessage(contact)?.text || "-")}</td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderBroadcasts() {
+  const filteredCampaigns = filterBySearch(state.campaigns, (campaign) => `${campaign.name} ${campaign.audienceTag} ${campaign.message}`);
+
+  workspace.innerHTML = `
+    <div class="two-column">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Disparos Messenger</h2>
+            <span>Use apenas para contatos elegíveis pela política da Meta</span>
+          </div>
+          <button class="primary-button" type="button" data-action="new-campaign">${icons.plus}<span>Novo disparo</span></button>
+        </div>
+        <div class="panel-body campaign-list">
+          ${filteredCampaigns
+            .map(
+              (campaign) => {
+                const audience = state.contacts.filter((contact) => contact.tag === campaign.audienceTag).length;
+                return `
+                  <article class="campaign-item">
+                    <div class="row-between">
+                      <div>
+                        <strong>${escapeHtml(campaign.name)}</strong>
+                        <span>${audience} assinante${audience === 1 ? "" : "s"} com tag ${escapeHtml(campaign.audienceTag)}</span>
+                      </div>
+                      ${statusBadge(campaign.status)}
+                    </div>
+                    <p class="muted">${escapeHtml(campaign.message)}</p>
+                    <div class="progress"><span style="width:${campaign.sent ? Math.min(100, Math.round((campaign.delivered / Math.max(campaign.sent, 1)) * 100)) : 0}%"></span></div>
+                    <div class="row-between">
+                      <span>${campaign.sent} enviados · ${campaign.delivered} entregues · ${campaign.replies} respostas</span>
+                      <div class="button-row">
+                        <button class="secondary-button" type="button" data-action="launch-campaign" data-id="${campaign.id}">${icons.send}<span>Simular envio</span></button>
+                        <button class="danger-button" type="button" data-action="delete-campaign" data-id="${campaign.id}">${icons.trash}</button>
+                      </div>
+                    </div>
+                  </article>
+                `;
+              }
+            )
+            .join("")}
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Regra importante</h2>
+            <span>Messenger Platform</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          <p class="muted">Mensagens promocionais só devem ser enviadas para usuários que aceitaram contato e dentro das janelas permitidas pela Meta. Para produção, implemente validação de política antes do envio real.</p>
+          <div class="code-block">POST /api/messenger/send
+Authorization: Bearer MESSENLEAD_OPERATOR_TOKEN
+{
+  "psid": "PSID_...",
+  "text": "Mensagem aprovada"
+}</div>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function renderSetup() {
+  const flowJson = JSON.stringify({ flows: state.flows }, null, 2);
+
+  workspace.innerHTML = `
+    <div class="settings-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Conectar Facebook Messenger</h2>
+            <span>Cloudflare Pages + Pages Functions + Meta Webhooks</span>
+          </div>
+          <span class="badge">Messenger-only</span>
+        </div>
+        <div class="panel-body stack">
+          <div class="integration-grid">
+            ${integrationCard("Webhook", "Configure esta URL no app da Meta.", webhookUrl(), "copy-webhook")}
+            ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins", "copy-fields")}
+            ${integrationCard("Verify token", "Use o mesmo valor em MESSENGER_VERIFY_TOKEN.", state.settings.verifyToken, "copy-verify")}
+            ${integrationCard("Endpoint de envio", "Envio serverless protegido por token.", `${location.origin}/api/messenger/send`, "copy-send")}
+          </div>
+
+          <div class="panel flat">
+            <div class="panel-header">
+              <div>
+                <h3>Variáveis no Cloudflare Pages</h3>
+                <span>Settings → Environment variables</span>
+              </div>
+              <button class="secondary-button" type="button" data-action="copy-env">${icons.copy}<span>Copiar</span></button>
+            </div>
+            <div class="panel-body">
+              <pre class="code-block" id="envBlock">MESSENGER_PAGE_ACCESS_TOKEN=EAAB...
+MESSENGER_VERIFY_TOKEN=${escapeHtml(state.settings.verifyToken)}
+MESSENGER_APP_SECRET=app-secret-da-meta
+MESSENLEAD_OPERATOR_TOKEN=${escapeHtml(state.settings.operatorToken)}
+MESSENLEAD_DEFAULT_REPLY=${escapeHtml(state.settings.defaultReply)}
+MESSENLEAD_FLOW_JSON=${escapeHtml(compactFlowJson())}</pre>
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button class="primary-button" type="button" data-action="copy-flow-json">${icons.copy}<span>Copiar JSON dos fluxos</span></button>
+            <button class="secondary-button" type="button" data-action="download-flow-json">${icons.send}<span>Baixar JSON</span></button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Checklist Meta</h2>
+            <span>Passos fora do Cloudflare</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          ${checkItem("Criar App", "No Meta for Developers, crie um app e adicione Messenger.")}
+          ${checkItem("Conectar Página", "Gere Page Access Token da página que receberá mensagens.")}
+          ${checkItem("Webhook", "Cole a URL desta tela e confirme com o Verify Token.")}
+          ${checkItem("Permissões", "Solicite permissões necessárias antes de produção pública.")}
+          ${checkItem("Teste", "Envie mensagem para a página e veja a resposta automática.")}
+        </div>
+      </aside>
+    </div>
+
+    <section class="panel" style="margin-top:16px">
+      <div class="panel-header">
+        <div>
+          <h2>JSON atual dos fluxos</h2>
+          <span>Também pode ser importado de volta pelo botão do topo</span>
+        </div>
+      </div>
+      <div class="panel-body">
+        <pre class="code-block">${escapeHtml(flowJson)}</pre>
+      </div>
+    </section>
+  `;
+}
+
+function renderSettings() {
+  workspace.innerHTML = `
+    <div class="settings-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Ajustes da Página</h2>
+            <span>Dados usados pelo simulador e pelas funções serverless</span>
+          </div>
+        </div>
+        <div class="panel-body inspector-form">
+          ${field("Nome da página", "pageName", state.settings.pageName)}
+          ${field("Page ID", "pageId", state.settings.pageId)}
+          ${field("Saudação", "greeting", state.settings.greeting, "textarea")}
+          ${field("Resposta padrão", "defaultReply", state.settings.defaultReply, "textarea")}
+          ${field("Verify token", "verifyToken", state.settings.verifyToken)}
+          ${field("Operator token", "operatorToken", state.settings.operatorToken)}
+          ${field("Horário de atendimento", "businessHours", state.settings.businessHours)}
+          ${field("Timezone", "timezone", state.settings.timezone)}
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Workspace local</h2>
+            <span>Persistido no navegador</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          <p class="muted">Este painel salva dados no localStorage. Em produção, use Cloudflare KV, D1 ou um banco externo para assinantes, conversas e auditoria.</p>
+          <button class="secondary-button" type="button" data-action="export-json">${icons.copy}<span>Exportar backup</span></button>
+          <button class="danger-button" type="button" data-action="reset-demo">${icons.trash}<span>Restaurar dados demo</span></button>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function renderInspector(flow, node) {
+  const options = [`<option value="">Fim do fluxo</option>`]
+    .concat(
+      flow.nodes
+        .filter((item) => item.id !== node.id)
+        .map((item) => `<option value="${item.id}" ${node.next === item.id ? "selected" : ""}>${escapeHtml(item.title)}</option>`)
+    )
+    .join("");
+
+  return `
+    <form class="inspector-form">
+      <div class="field">
+        <label for="nodeType">Tipo</label>
+        <select id="nodeType" data-node-field="type">
+          ${Object.entries(nodeLabels).map(([value, label]) => `<option value="${value}" ${node.type === value ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label for="nodeTitle">Título</label>
+        <input id="nodeTitle" data-node-field="title" value="${attr(node.title)}" />
+      </div>
+      <div class="field">
+        <label for="nodeMessage">Mensagem ou instrução</label>
+        <textarea id="nodeMessage" data-node-field="message">${escapeHtml(node.message || "")}</textarea>
+      </div>
+      <div class="inline-fields">
+        <div class="field">
+          <label for="nodeKeyword">Palavras-chave</label>
+          <input id="nodeKeyword" data-node-field="keyword" value="${attr(node.keyword || "")}" placeholder="oi, preço, suporte" />
+        </div>
+        <div class="field">
+          <label for="nodeTag">Tag</label>
+          <input id="nodeTag" data-node-field="tag" value="${attr(node.tag || "")}" placeholder="lead-quente" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="quickReplies">Respostas rápidas</label>
+        <input id="quickReplies" data-node-field="quickReplies" value="${attr((node.quickReplies || []).join(", "))}" placeholder="Sim, Não, Falar com humano" />
+      </div>
+      <div class="inline-fields">
+        <div class="field">
+          <label for="delayMinutes">Espera em minutos</label>
+          <input id="delayMinutes" type="number" min="0" data-node-field="delayMinutes" value="${attr(node.delayMinutes || 0)}" />
+        </div>
+        <div class="field">
+          <label for="nextNode">Próximo bloco</label>
+          <select id="nextNode" data-node-field="next">${options}</select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="flowGoal">Objetivo do fluxo</label>
+        <textarea id="flowGoal" data-flow-field="goal">${escapeHtml(flow.goal || "")}</textarea>
+      </div>
+      <div class="button-row">
+        <button class="danger-button" type="button" data-action="delete-node">${icons.trash}<span>Excluir bloco</span></button>
+        <button class="secondary-button" type="button" data-action="delete-flow">${icons.trash}<span>Excluir fluxo</span></button>
+      </div>
+    </form>
+  `;
+}
+
+function renderSimulator() {
+  return `
+    <div class="simulator">
+      <div class="sim-header">
+        <strong>Simulador Messenger</strong>
+        <button class="secondary-button" type="button" data-action="start-sim">${icons.play}<span>Rodar</span></button>
+      </div>
+      <div class="sim-messages">
+        ${
+          simLog.length
+            ? simLog.map((message) => `<div class="bubble ${message.from === "user" ? "user" : "bot"}">${escapeHtml(message.text)}</div>`).join("")
+            : `<div class="empty-state">${icons.message}<span>Teste palavras como "oi" ou "quero orçamento".</span></div>`
+        }
+      </div>
+      <div class="chat-input">
+        <input id="simInput" type="text" placeholder="Mensagem do assinante" />
+        <button class="icon-button" type="button" data-action="send-sim" title="Enviar">${icons.send}</button>
+      </div>
+    </div>
+  `;
+}
+
+function handleWorkspaceClick(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+
+  const action = button.dataset.action;
+  const id = button.dataset.id;
+
+  if (action === "go-flows") return navigate("flows");
+  if (action === "go-setup") return navigate("setup");
+  if (action === "open-contact") {
+    selectedContactId = id;
+    return navigate("inbox");
+  }
+  if (action === "new-flow") return createFlow();
+  if (action === "select-flow") {
+    selectedFlowId = id;
+    selectedNodeId = selectedFlow()?.nodes[0]?.id;
+    simLog = [];
+    return render();
+  }
+  if (action === "select-node") {
+    selectedNodeId = id;
+    return render();
+  }
+  if (action === "add-node") return addNode(button.dataset.type);
+  if (action === "set-flow-status") return setFlowStatus(button.dataset.status);
+  if (action === "duplicate-flow") return duplicateFlow();
+  if (action === "delete-flow") return deleteFlow();
+  if (action === "delete-node") return deleteNode();
+  if (action === "start-sim") return startSimulation();
+  if (action === "send-sim") return sendSimulationMessage();
+  if (action === "new-contact") return createContact();
+  if (action === "select-contact") {
+    selectedContactId = id;
+    return render();
+  }
+  if (action === "send-contact-message") return sendContactMessage();
+  if (action === "insert-template") return insertTemplate();
+  if (action === "run-contact-flow") return runFlowForContact();
+  if (action === "toggle-contact-status") return toggleContactStatus();
+  if (action === "export-csv") return exportSubscribersCsv();
+  if (action === "new-campaign") return createCampaign();
+  if (action === "launch-campaign") return launchCampaign(id);
+  if (action === "delete-campaign") return deleteCampaign(id);
+  if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
+  if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins", "Campos copiados.");
+  if (action === "copy-verify") return copyText(state.settings.verifyToken, "Verify token copiado.");
+  if (action === "copy-send") return copyText(`${location.origin}/api/messenger/send`, "Endpoint copiado.");
+  if (action === "copy-env") return copyText(document.querySelector("#envBlock")?.textContent || "", "Variáveis copiadas.");
+  if (action === "copy-flow-json") return copyText(compactFlowJson(), "JSON dos fluxos copiado.");
+  if (action === "download-flow-json") return downloadFile("messenlead-flows.json", JSON.stringify({ flows: state.flows }, null, 2), "application/json");
+  if (action === "export-json") return exportWorkspace();
+  if (action === "reset-demo") return resetDemo();
+}
+
+function handleWorkspaceInput(event) {
+  const target = event.target;
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+
+  if (target.dataset.nodeField && node) {
+    const fieldName = target.dataset.nodeField;
+    node[fieldName] = normalizeFieldValue(fieldName, target.value);
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
+  if (target.dataset.flowField && flow) {
+    flow[target.dataset.flowField] = target.value;
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
+  if (target.dataset.settingField) {
+    state.settings[target.dataset.settingField] = target.value;
+    saveState();
+  }
+}
+
+function handleWorkspaceChange(event) {
+  const target = event.target;
+  if (target.dataset.nodeField || target.dataset.flowField || target.dataset.settingField) {
+    render();
+  }
+}
+
+function handleWorkspaceKeydown(event) {
+  if (event.key !== "Enter") return;
+  if (event.target.id === "simInput") {
+    event.preventDefault();
+    sendSimulationMessage();
+  }
+  if (event.target.id === "composerText" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    sendContactMessage();
+  }
+}
+
+function createFlow() {
+  const name = prompt("Nome do fluxo Messenger", "Novo fluxo Messenger");
+  if (!name) return;
+  const triggerId = makeId("node");
+  const messageId = makeId("node");
+  const flow = {
+    id: makeId("flow"),
+    name,
+    status: "draft",
+    trigger: "nova mensagem",
+    goal: "Descreva o objetivo deste fluxo.",
+    updatedAt: new Date().toISOString(),
+    nodes: [
+      {
+        id: triggerId,
+        type: "trigger",
+        title: "Gatilho",
+        message: "Mensagem recebida no Messenger.",
+        keyword: "oi",
+        next: messageId,
+        x: 90,
+        y: 140
+      },
+      {
+        id: messageId,
+        type: "message",
+        title: "Resposta",
+        message: "Oi {{first_name}}, como posso ajudar?",
+        quickReplies: ["Tenho interesse", "Suporte", "Falar com humano"],
+        next: null,
+        x: 390,
+        y: 140
+      }
+    ]
+  };
+  state.flows.unshift(flow);
+  selectedFlowId = flow.id;
+  selectedNodeId = triggerId;
+  saveState();
+  toastMessage("Fluxo criado.");
+  render();
+}
+
+function addNode(type) {
+  const flow = selectedFlow();
+  if (!flow) return;
+  const node = {
+    id: makeId("node"),
+    type,
+    title: nodeLabels[type],
+    message: defaultNodeMessage(type),
+    keyword: "",
+    quickReplies: type === "message" ? ["Sim", "Não"] : [],
+    next: null,
+    x: 120 + flow.nodes.length * 36,
+    y: 130 + flow.nodes.length * 46
+  };
+  const current = selectedNode(flow);
+  if (current && !current.next) current.next = node.id;
+  flow.nodes.push(node);
+  flow.updatedAt = new Date().toISOString();
+  selectedNodeId = node.id;
+  saveState();
+  render();
+}
+
+function setFlowStatus(status) {
+  const flow = selectedFlow();
+  if (!flow) return;
+  flow.status = status;
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  toastMessage(`Fluxo marcado como ${statusLabel(status).toLowerCase()}.`);
+  render();
+}
+
+function duplicateFlow() {
+  const flow = selectedFlow();
+  if (!flow) return;
+  const copy = JSON.parse(JSON.stringify(flow));
+  const idMap = new Map();
+  copy.id = makeId("flow");
+  copy.name = `${flow.name} cópia`;
+  copy.status = "draft";
+  copy.updatedAt = new Date().toISOString();
+  copy.nodes.forEach((node) => {
+    const newId = makeId("node");
+    idMap.set(node.id, newId);
+    node.id = newId;
+    node.x += 24;
+    node.y += 24;
+  });
+  copy.nodes.forEach((node) => {
+    if (node.next) node.next = idMap.get(node.next) || null;
+  });
+  state.flows.unshift(copy);
+  selectedFlowId = copy.id;
+  selectedNodeId = copy.nodes[0]?.id;
+  saveState();
+  render();
+}
+
+function deleteFlow() {
+  const flow = selectedFlow();
+  if (!flow) return;
+  if (!confirm(`Excluir o fluxo "${flow.name}"?`)) return;
+  state.flows = state.flows.filter((item) => item.id !== flow.id);
+  selectedFlowId = state.flows[0]?.id;
+  selectedNodeId = state.flows[0]?.nodes[0]?.id;
+  saveState();
+  render();
+}
+
+function deleteNode() {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node) return;
+  if (flow.nodes.length === 1) {
+    toastMessage("O fluxo precisa ter pelo menos um bloco.");
+    return;
+  }
+  flow.nodes.forEach((item) => {
+    if (item.next === node.id) item.next = node.next || null;
+  });
+  flow.nodes = flow.nodes.filter((item) => item.id !== node.id);
+  selectedNodeId = flow.nodes[0]?.id;
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function createContact() {
+  const name = prompt("Nome do assinante Messenger", "Novo assinante");
+  if (!name) return;
+  const contact = {
+    id: makeId("contact"),
+    name,
+    psid: `PSID_${Math.random().toString().slice(2, 12)}`,
+    status: "open",
+    tag: "novo-assinante",
+    source: "Cadastro manual",
+    lastSeen: new Date().toISOString(),
+    messages: [{ from: "contact", text: "Oi, comecei uma conversa pelo Messenger.", at: new Date().toISOString() }]
+  };
+  state.contacts.unshift(contact);
+  selectedContactId = contact.id;
+  saveState();
+  navigate("inbox");
+}
+
+function sendContactMessage() {
+  const contact = selectedContact();
+  const textarea = document.querySelector("#composerText");
+  const text = textarea?.value.trim();
+  if (!contact || !text) return;
+  contact.messages.push({ from: "page", text, at: new Date().toISOString() });
+  contact.status = "open";
+  contact.lastSeen = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function insertTemplate() {
+  const textarea = document.querySelector("#composerText");
+  if (!textarea) return;
+  textarea.value = "Obrigado por chamar a página. Vou te ajudar por aqui no Messenger.";
+  textarea.focus();
+}
+
+function runFlowForContact() {
+  const contact = selectedContact();
+  const flow = state.flows.find((item) => item.status === "active") || state.flows[0];
+  if (!contact || !flow) return;
+  const messages = simulateFlow(flow, "oi", contact.name);
+  messages
+    .filter((message) => message.from === "bot")
+    .forEach((message) => contact.messages.push({ from: "automation", text: message.text, at: new Date().toISOString() }));
+  contact.status = "open";
+  saveState();
+  render();
+}
+
+function toggleContactStatus() {
+  const contact = selectedContact();
+  if (!contact) return;
+  contact.status = contact.status === "open" ? "closed" : "open";
+  saveState();
+  render();
+}
+
+function createCampaign() {
+  const name = prompt("Nome do disparo Messenger", "Novo disparo");
+  if (!name) return;
+  const audienceTag = prompt("Tag do público", "lead-quente") || "lead-quente";
+  const message = prompt("Mensagem", "Oi {{first_name}}, posso te ajudar com mais alguma coisa?") || "";
+  state.campaigns.unshift({
+    id: makeId("campaign"),
+    name,
+    audienceTag,
+    message,
+    status: "draft",
+    sent: 0,
+    delivered: 0,
+    replies: 0,
+    scheduledAt: "Rascunho"
+  });
+  saveState();
+  render();
+}
+
+function launchCampaign(id) {
+  const campaign = state.campaigns.find((item) => item.id === id);
+  if (!campaign) return;
+  const audience = state.contacts.filter((contact) => contact.tag === campaign.audienceTag);
+  campaign.status = "sent";
+  campaign.sent = audience.length;
+  campaign.delivered = Math.max(0, audience.length - (audience.length > 2 ? 1 : 0));
+  campaign.replies = Math.floor(audience.length / 3);
+  campaign.scheduledAt = "Enviado agora";
+  audience.forEach((contact) => {
+    contact.messages.push({
+      from: "page",
+      text: resolveTemplate(campaign.message, contact.name),
+      at: new Date().toISOString()
+    });
+  });
+  saveState();
+  toastMessage("Envio simulado no inbox local.");
+  render();
+}
+
+function deleteCampaign(id) {
+  if (!confirm("Excluir este disparo?")) return;
+  state.campaigns = state.campaigns.filter((campaign) => campaign.id !== id);
+  saveState();
+  render();
+}
+
+function startSimulation() {
+  const flow = selectedFlow();
+  if (!flow) return;
+  simLog = simulateFlow(flow, "GET_STARTED", "Felipe");
+  render();
+}
+
+function sendSimulationMessage() {
+  const input = document.querySelector("#simInput");
+  const text = input?.value.trim();
+  const flow = selectedFlow();
+  if (!text || !flow) return;
+  simLog = simulateFlow(flow, text, "Felipe");
+  render();
+}
+
+function simulateFlow(flow, inputText, displayName) {
+  const messages = [{ from: "user", text: inputText }];
+  const normalizedText = normalize(inputText);
+  let current =
+    flow.nodes.find((node) => node.type === "trigger" && keywordMatches(node.keyword || flow.trigger, normalizedText)) ||
+    flow.nodes.find((node) => node.type === "trigger") ||
+    flow.nodes[0];
+  let guard = 0;
+
+  while (current && guard < 12) {
+    guard += 1;
+    if (current.type === "message") {
+      messages.push({ from: "bot", text: resolveTemplate(current.message, displayName) });
+    }
+    if (current.type === "action" && current.message) {
+      messages.push({ from: "bot", text: `Ação interna: ${current.message}` });
+    }
+    if (current.type === "delay" && current.message) {
+      messages.push({ from: "bot", text: `Espera configurada: ${current.message}` });
+    }
+    current = current.next ? flow.nodes.find((node) => node.id === current.next) : null;
+  }
+
+  if (messages.length === 1) {
+    messages.push({ from: "bot", text: state.settings.defaultReply });
+  }
+
+  return messages;
+}
+
+function enableNodeDragging(flow) {
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas) return;
+  canvas.querySelectorAll(".node").forEach((element) => {
+    element.addEventListener("pointerdown", (event) => {
+      if (event.target.closest("button")) return;
+      const node = flow.nodes.find((item) => item.id === element.dataset.id);
+      if (!node) return;
+      selectedNodeId = node.id;
+      const rect = element.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      const offsetX = event.clientX - rect.left;
+      const offsetY = event.clientY - rect.top;
+      element.setPointerCapture(event.pointerId);
+      element.classList.add("selected");
+
+      const onMove = (moveEvent) => {
+        const x = moveEvent.clientX - canvasRect.left + canvas.scrollLeft - offsetX;
+        const y = moveEvent.clientY - canvasRect.top + canvas.scrollTop - offsetY;
+        node.x = Math.max(20, Math.min(1140, Math.round(x)));
+        node.y = Math.max(20, Math.min(740, Math.round(y)));
+        element.style.left = `${node.x}px`;
+        element.style.top = `${node.y}px`;
+      };
+
+      const onUp = () => {
+        element.removeEventListener("pointermove", onMove);
+        element.removeEventListener("pointerup", onUp);
+        flow.updatedAt = new Date().toISOString();
+        saveState();
+        render();
+      };
+
+      element.addEventListener("pointermove", onMove);
+      element.addEventListener("pointerup", onUp);
+    });
+  });
+}
+
+function renderConnections(flow) {
+  return flow.nodes
+    .map((node) => {
+      if (!node.next) return "";
+      const target = flow.nodes.find((item) => item.id === node.next);
+      if (!target) return "";
+      const x1 = node.x + 238;
+      const y1 = node.y + 70;
+      const x2 = target.x;
+      const y2 = target.y + 70;
+      const mid = Math.max(60, Math.abs(x2 - x1) / 2);
+      return `<path d="M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}" />`;
+    })
+    .join("");
+}
+
+function renderNode(node, selected) {
+  const icon = icons[node.type] || icons.message;
+  const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
+  return `
+    <article class="node ${node.type} ${selected ? "selected" : ""}" data-id="${node.id}" style="left:${node.x}px; top:${node.y}px">
+      <div class="node-head">
+        <div class="node-title">
+          ${icon}
+          <span>
+            <span class="node-type">${nodeLabels[node.type]}</span>
+            <strong>${escapeHtml(node.title)}</strong>
+          </span>
+        </div>
+        <button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>
+      </div>
+      <p>${escapeHtml(node.message || "")}</p>
+      <div class="node-footer">
+        <span>${node.type === "trigger" ? escapeHtml(node.keyword || "qualquer mensagem") : quickReplies}</span>
+        <span>${node.next ? "conectado" : "fim"}</span>
+      </div>
+    </article>
+  `;
+}
+
+function nodeAddButton(type, label) {
+  return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}">${icons[type]}<span>${label}</span></button>`;
+}
+
+function selectedFlow() {
+  return state.flows.find((flow) => flow.id === selectedFlowId) || state.flows[0];
+}
+
+function selectedNode(flow) {
+  return flow?.nodes.find((node) => node.id === selectedNodeId) || flow?.nodes[0];
+}
+
+function selectedContact() {
+  return state.contacts.find((contact) => contact.id === selectedContactId) || state.contacts[0];
+}
+
+function normalizeFieldValue(fieldName, value) {
+  if (fieldName === "quickReplies") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+  }
+  if (fieldName === "delayMinutes") return Math.max(0, Number(value) || 0);
+  if (fieldName === "next") return value || null;
+  return value;
+}
+
+function defaultNodeMessage(type) {
+  const messages = {
+    message: "Digite a mensagem que a página enviará no Messenger.",
+    condition: "Defina palavras-chave ou critérios para seguir este caminho.",
+    delay: "Aguardar alguns minutos antes de continuar.",
+    action: "Aplicar tag, abrir conversa ou notificar atendimento.",
+    trigger: "Mensagem recebida no Messenger."
+  };
+  return messages[type] || messages.message;
+}
+
+function navigate(view) {
+  activeView = view;
+  history.replaceState(null, "", `#${view}`);
+  render();
+}
+
+function placeholderForView(view) {
+  const placeholders = {
+    dashboard: "Buscar no painel",
+    flows: "Buscar fluxo ou gatilho",
+    inbox: "Buscar conversa Messenger",
+    subscribers: "Buscar assinante ou PSID",
+    broadcasts: "Buscar disparo",
+    setup: "Buscar configuração",
+    settings: "Buscar ajuste"
+  };
+  return placeholders[view] || "Buscar";
+}
+
+function filterBySearch(items, selector) {
+  if (!searchQuery) return items;
+  return items.filter((item) => normalize(selector(item)).includes(normalize(searchQuery)));
+}
+
+function normalize(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function keywordMatches(keywords, text) {
+  const list = String(keywords || "")
+    .split(",")
+    .map((item) => normalize(item.trim()))
+    .filter(Boolean);
+  if (!list.length) return true;
+  return list.some((keyword) => text.includes(keyword) || keyword.includes(text));
+}
+
+function resolveTemplate(text, name) {
+  const firstName = String(name || "Contato").split(" ")[0];
+  return String(text || "").replaceAll("{{first_name}}", firstName);
+}
+
+function statusLabel(status) {
+  return {
+    active: "Ativo",
+    paused: "Pausado",
+    draft: "Rascunho",
+    scheduled: "Agendado",
+    sent: "Enviado"
+  }[status] || status;
+}
+
+function statusBadge(status) {
+  return `<span class="badge ${status}">${statusLabel(status)}</span>`;
+}
+
+function tag(value) {
+  return `<span class="tag">${escapeHtml(value || "sem-tag")}</span>`;
+}
+
+function metricCard(label, value, description, iconName) {
+  return `
+    <article class="metric">
+      <span class="metric-icon">${icons[iconName]}</span>
+      <span>
+        <strong>${value}</strong>
+        <span>${label}</span>
+        <span>${description}</span>
+      </span>
+    </article>
+  `;
+}
+
+function checkItem(title, copy) {
+  return `
+    <div class="row-between">
+      <span>
+        <strong>${escapeHtml(title)}</strong>
+        <span class="muted">${escapeHtml(copy)}</span>
+      </span>
+      <span class="status-dot" aria-hidden="true"></span>
+    </div>
+  `;
+}
+
+function integrationCard(title, copy, value, action) {
+  return `
+    <article class="integration">
+      <div class="integration-head">
+        <span class="integration-icon">${icons.plug}</span>
+        <span>
+          <strong>${escapeHtml(title)}</strong>
+          <span class="muted">${escapeHtml(copy)}</span>
+        </span>
+        <button class="icon-button" type="button" data-action="${action}" title="Copiar">${icons.copy}</button>
+      </div>
+      <code>${escapeHtml(value)}</code>
+    </article>
+  `;
+}
+
+function field(label, fieldName, value, type = "input") {
+  return `
+    <div class="field">
+      <label for="${fieldName}">${label}</label>
+      ${
+        type === "textarea"
+          ? `<textarea id="${fieldName}" data-setting-field="${fieldName}">${escapeHtml(value || "")}</textarea>`
+          : `<input id="${fieldName}" data-setting-field="${fieldName}" value="${attr(value || "")}" />`
+      }
+    </div>
+  `;
+}
+
+function emptyState(title, copy, iconName, buttonLabel, action) {
+  return `
+    <section class="panel">
+      <div class="empty-state">
+        ${icons[iconName]}
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(copy)}</span>
+        <button class="primary-button" type="button" data-action="${action}">${buttonLabel}</button>
+      </div>
+    </section>
+  `;
+}
+
+function emptyInline(copy) {
+  return `<div class="empty-state"><span>${escapeHtml(copy)}</span></div>`;
+}
+
+function initials(name) {
+  return String(name || "?")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
+function lastMessage(contact) {
+  return contact.messages?.[contact.messages.length - 1];
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function makeId(prefix) {
+  return `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-4)}`;
+}
+
+function webhookUrl() {
+  const origin = location.origin === "null" ? "https://seu-projeto.pages.dev" : location.origin;
+  return `${origin}/api/messenger/webhook`;
+}
+
+function compactFlowJson() {
+  return JSON.stringify({ flows: state.flows });
+}
+
+function exportWorkspace() {
+  downloadFile("messenlead-workspace.json", JSON.stringify(state, null, 2), "application/json");
+}
+
+async function importWorkspace(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data.flows || !Array.isArray(data.flows)) throw new Error("Arquivo inválido.");
+    state = {
+      settings: data.settings || state.settings,
+      flows: data.flows,
+      contacts: data.contacts || state.contacts,
+      campaigns: data.campaigns || state.campaigns
+    };
+    selectedFlowId = state.flows[0]?.id;
+    selectedNodeId = state.flows[0]?.nodes[0]?.id;
+    selectedContactId = state.contacts[0]?.id;
+    saveState();
+    toastMessage("Workspace importado.");
+    render();
+  } catch (error) {
+    toastMessage(error.message || "Não foi possível importar.");
+  } finally {
+    event.target.value = "";
+  }
+}
+
+function exportSubscribersCsv() {
+  const header = ["name", "psid", "tag", "status", "source"].join(",");
+  const rows = state.contacts.map((contact) =>
+    [contact.name, contact.psid, contact.tag, contact.status, contact.source].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")
+  );
+  downloadFile("messenlead-assinantes.csv", [header, ...rows].join("\n"), "text/csv");
+}
+
+function downloadFile(name, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function copyText(text, message) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toastMessage(message);
+  } catch {
+    toastMessage("Copie manualmente o conteúdo exibido.");
+  }
+}
+
+function resetDemo() {
+  if (!confirm("Restaurar dados de demonstração e apagar o workspace local?")) return;
+  state = seedWorkspace();
+  selectedFlowId = state.flows[0]?.id;
+  selectedNodeId = state.flows[0]?.nodes[0]?.id;
+  selectedContactId = state.contacts[0]?.id;
+  simLog = [];
+  saveState();
+  render();
+}
+
+function toastMessage(message) {
+  toast.textContent = message;
+  toast.classList.add("show");
+  window.clearTimeout(toast.dataset.timeout);
+  toast.dataset.timeout = window.setTimeout(() => toast.classList.remove("show"), 2600);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function attr(value) {
+  return escapeHtml(value);
+}

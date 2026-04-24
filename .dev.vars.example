@@ -1,0 +1,6 @@
+MESSENGER_PAGE_ACCESS_TOKEN=EAAB...
+MESSENGER_VERIFY_TOKEN=messenlead-verify-token
+MESSENGER_APP_SECRET=app-secret-da-meta
+MESSENLEAD_OPERATOR_TOKEN=troque-por-um-token-forte
+MESSENLEAD_DEFAULT_REPLY=Recebi sua mensagem. Um atendente vai assumir se necessário.
+MESSENLEAD_FLOW_JSON={"flows":[]}
