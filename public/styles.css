@@ -905,6 +905,34 @@ svg {
   gap: 8px;
 }
 
+.campaign-item.active {
+  border-color: #8ccaa9;
+  background: #f7fcf8;
+}
+
+.live-inbox {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  min-height: calc(100vh - 188px);
+}
+
+.live-thread-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  overflow: auto;
+  max-height: calc(100vh - 188px);
+  padding: 12px;
+  border-right: 1px solid var(--line);
+  background: #fbfcfa;
+}
+
+.live-thread {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+}
+
 .progress {
   height: 8px;
   overflow: hidden;
@@ -1124,6 +1152,16 @@ svg {
 
   .chat-panel {
     min-height: 620px;
+  }
+
+  .live-inbox {
+    grid-template-columns: 1fr;
+  }
+
+  .live-thread-list {
+    max-height: 320px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 
   .integration-grid,

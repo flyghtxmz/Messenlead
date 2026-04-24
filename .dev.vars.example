@@ -1,3 +1,8 @@
+META_APP_ID=app-id-da-meta
+META_APP_SECRET=app-secret-da-meta
+SESSION_SECRET=uma-chave-longa-aleatoria
+META_REDIRECT_URI=http://127.0.0.1:8788/api/auth/facebook/callback
+META_SCOPES=pages_show_list,pages_read_engagement,pages_messaging,pages_manage_metadata
 MESSENGER_PAGE_ACCESS_TOKEN=EAAB...
 MESSENGER_VERIFY_TOKEN=messenlead-verify-token
 MESSENGER_APP_SECRET=app-secret-da-meta

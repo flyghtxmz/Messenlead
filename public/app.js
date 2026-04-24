@@ -2,6 +2,7 @@ const STORAGE_KEY = "messenlead.messenger.workspace.v1";
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
+  { id: "pages", label: "Páginas", icon: "pages" },
   { id: "flows", label: "Fluxos", icon: "workflow" },
   { id: "inbox", label: "Inbox", icon: "inbox" },
   { id: "subscribers", label: "Assinantes", icon: "users" },
@@ -20,6 +21,7 @@ const nodeLabels = {
 
 const icons = {
   dashboard: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h7V4H4v9Zm9 7h7V4h-7v16ZM4 20h7v-5H4v5Z"/></svg>`,
+  pages: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h10l4 4v14H4Z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h6"/></svg>`,
   workflow: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h.01M18 6h.01M6 18h.01M7 6h10M6 7v10m1 1h10m1-11v10"/><path d="M4 4h4v4H4V4Zm12 0h4v4h-4V4ZM4 16h4v4H4v-4Zm12 0h4v4h-4v-4Z"/></svg>`,
   inbox: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M3 15h5l2 3h4l2-3h5L18 4H6L3 15Z"/></svg>`,
   users: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
@@ -54,6 +56,16 @@ let selectedNodeId = state.flows[0]?.nodes[0]?.id;
 let selectedContactId = state.contacts[0]?.id;
 let searchQuery = "";
 let simLog = [];
+let metaState = {
+  authChecked: false,
+  profile: null,
+  pages: null,
+  selectedPageId: state.settings.pageId || "",
+  conversations: null,
+  selectedConversationId: "",
+  messages: null,
+  error: oauthErrorFromHash()
+};
 
 mainNav.addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
@@ -325,8 +337,14 @@ function saveState() {
 }
 
 function getInitialView() {
-  const hash = location.hash.replace("#", "");
+  const hash = location.hash.replace("#", "").split("?")[0];
   return navItems.some((item) => item.id === hash) ? hash : "dashboard";
+}
+
+function oauthErrorFromHash() {
+  const query = location.hash.split("?")[1] || "";
+  const error = new URLSearchParams(query).get("error");
+  return error ? `Facebook Login: ${error}` : "";
 }
 
 function render() {
@@ -338,6 +356,7 @@ function render() {
 
   const renderers = {
     dashboard: renderDashboard,
+    pages: renderPages,
     flows: renderFlows,
     inbox: renderInbox,
     subscribers: renderSubscribers,
@@ -352,6 +371,7 @@ function render() {
 function renderNav() {
   const counts = {
     dashboard: "",
+    pages: metaState.pages?.length || "",
     flows: state.flows.filter((flow) => flow.status === "active").length,
     inbox: state.contacts.filter((contact) => contact.status === "open").length,
     subscribers: state.contacts.length,
@@ -472,8 +492,191 @@ function renderDashboard() {
         <div class="panel-body stack">
           <div class="code-block">Webhook URL: ${escapeHtml(webhookUrl())}
 Variáveis: MESSENGER_PAGE_ACCESS_TOKEN, MESSENGER_VERIFY_TOKEN, MESSENGER_APP_SECRET</div>
-          <button class="primary-button" type="button" data-action="go-setup">${icons.plug}<span>Configurar Messenger</span></button>
+          <div class="button-row">
+            <button class="primary-button" type="button" data-action="go-pages">${icons.pages}<span>Ver Páginas</span></button>
+            <button class="secondary-button" type="button" data-action="go-setup">${icons.plug}<span>Configurar Messenger</span></button>
+          </div>
         </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderPages() {
+  if (!metaState.authChecked) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="empty-state">
+          ${icons.pages}
+          <strong>Verificando conexão com a Meta</strong>
+          <span>O painel vai carregar as Páginas conectadas à sua conta.</span>
+        </div>
+      </section>
+    `;
+    loadMetaProfile();
+    return;
+  }
+
+  if (!metaState.profile) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Conectar Facebook</h2>
+            <span>Entre com uma conta que administra as Páginas que você quer automatizar.</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          <p class="muted">Depois do login, o painel lista suas Páginas, mostra as conversas do Messenger e permite abrir o canvas de fluxo já associado à Página escolhida.</p>
+          <div class="button-row">
+            <button class="primary-button" type="button" data-action="connect-facebook">${icons.plug}<span>Entrar com Facebook</span></button>
+            <button class="secondary-button" type="button" data-action="go-setup">${icons.settings}<span>Ver variáveis</span></button>
+          </div>
+          ${metaState.error ? `<div class="code-block">${escapeHtml(metaState.error)}</div>` : ""}
+        </div>
+      </section>
+    `;
+    return;
+  }
+
+  if (!metaState.pages) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="empty-state">
+          ${icons.pages}
+          <strong>Carregando Páginas</strong>
+          <span>Buscando as Páginas que sua conta pode administrar.</span>
+        </div>
+      </section>
+    `;
+    loadMetaPages();
+    return;
+  }
+
+  const pages = filterBySearch(metaState.pages, (page) => `${page.name} ${page.id} ${page.category || ""}`);
+  const selectedPage = pages.find((page) => page.id === metaState.selectedPageId) || pages[0] || null;
+
+  if (selectedPage && selectedPage.id !== metaState.selectedPageId) {
+    metaState.selectedPageId = selectedPage.id;
+  }
+
+  if (selectedPage && !metaState.conversations) {
+    loadMetaConversations(selectedPage.id);
+  }
+
+  const conversations = metaState.conversations || [];
+  const selectedConversation =
+    conversations.find((conversation) => conversation.id === metaState.selectedConversationId) ||
+    conversations[0] ||
+    null;
+
+  if (selectedConversation && selectedConversation.id !== metaState.selectedConversationId) {
+    metaState.selectedConversationId = selectedConversation.id;
+  }
+
+  if (selectedPage && selectedConversation && !metaState.messages) {
+    loadMetaMessages(selectedPage.id, selectedConversation.id);
+  }
+
+  workspace.innerHTML = `
+    <div class="split-page">
+      <section class="panel flat">
+        <div class="panel-header">
+          <div>
+            <h2>Suas Páginas</h2>
+            <span>${escapeHtml(metaState.profile.name || "Conta Meta")} · ${metaState.pages.length} Página${metaState.pages.length === 1 ? "" : "s"}</span>
+          </div>
+          <button class="secondary-button" type="button" data-action="logout-facebook">Sair</button>
+        </div>
+        <div class="contact-list">
+          ${
+            pages.length
+              ? pages
+                  .map(
+                    (page) => `
+                      <button class="contact-item ${selectedPage?.id === page.id ? "active" : ""}" type="button" data-action="select-meta-page" data-id="${page.id}">
+                        <span class="avatar">${initials(page.name)}</span>
+                        <span>
+                          <span class="row-between"><strong>${escapeHtml(page.name)}</strong><span class="channel-pill">Messenger</span></span>
+                          <span>${escapeHtml(page.category || "Página")} · ${escapeHtml(page.id)}</span>
+                        </span>
+                      </button>
+                    `
+                  )
+                  .join("")
+              : emptyInline("Nenhuma Página encontrada para esta conta.")
+          }
+        </div>
+      </section>
+
+      <section class="panel chat-panel">
+        ${
+          selectedPage
+            ? `
+              <div class="panel-header">
+                <div class="row-between" style="width:100%">
+                  <div>
+                    <h2>${escapeHtml(selectedPage.name)}</h2>
+                    <span>Conversas reais do Messenger desta Página</span>
+                  </div>
+                  <div class="button-row">
+                    <button class="secondary-button" type="button" data-action="refresh-meta-conversations">${icons.inbox}<span>Atualizar</span></button>
+                    <button class="primary-button" type="button" data-action="open-page-flow">${icons.workflow}<span>Abrir canvas</span></button>
+                  </div>
+                </div>
+              </div>
+              <div class="live-inbox">
+                <aside class="live-thread-list">
+                  ${
+                    metaState.conversations
+                      ? conversations
+                          .map(
+                            (conversation) => `
+                              <button class="campaign-item ${selectedConversation?.id === conversation.id ? "active" : ""}" type="button" data-action="select-meta-conversation" data-id="${conversation.id}">
+                                <strong>${escapeHtml(conversationTitle(conversation, selectedPage.name))}</strong>
+                                <span>${escapeHtml(conversation.snippet || "Sem prévia")}</span>
+                                <span>${formatDate(conversation.updated_time)}</span>
+                              </button>
+                            `
+                          )
+                          .join("") || emptyInline("Nenhuma conversa retornada pela Graph API.")
+                      : emptyInline("Carregando conversas...")
+                  }
+                </aside>
+                <div class="live-thread">
+                  ${
+                    selectedConversation
+                      ? `
+                        <div class="conversation">
+                          ${
+                            metaState.messages
+                              ? metaState.messages
+                                  .slice()
+                                  .reverse()
+                                  .map(
+                                    (message) => `
+                                      <div class="bubble ${message.from?.id === selectedPage.id ? "bot" : "user"}">
+                                        ${escapeHtml(message.message || "[anexo ou evento sem texto]")}
+                                        <span class="muted">${escapeHtml(message.from?.name || "")}</span>
+                                      </div>
+                                    `
+                                  )
+                                  .join("")
+                              : `<div class="empty-state">${icons.inbox}<span>Carregando mensagens...</span></div>`
+                          }
+                        </div>
+                        <div class="composer">
+                          <textarea id="metaComposerText" placeholder="Responder como ${escapeHtml(selectedPage.name)}"></textarea>
+                          <button class="primary-button" type="button" data-action="send-meta-message">${icons.send}<span>Enviar</span></button>
+                        </div>
+                      `
+                      : `<div class="empty-state">${icons.inbox}<strong>Selecione uma conversa</strong><span>As mensagens aparecerão aqui.</span></div>`
+                  }
+                </div>
+              </div>
+            `
+            : emptyState("Nenhuma Página", "A conta conectada não retornou Páginas administráveis.", "pages", "Reconectar", "connect-facebook")
+        }
       </section>
     </div>
   `;
@@ -772,6 +975,7 @@ function renderSetup() {
         <div class="panel-body stack">
           <div class="integration-grid">
             ${integrationCard("Webhook", "Configure esta URL no app da Meta.", webhookUrl(), "copy-webhook")}
+            ${integrationCard("OAuth callback", "Configure em Facebook Login.", `${location.origin}/api/auth/facebook/callback`, "copy-oauth")}
             ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins", "copy-fields")}
             ${integrationCard("Verify token", "Use o mesmo valor em MESSENGER_VERIFY_TOKEN.", state.settings.verifyToken, "copy-verify")}
             ${integrationCard("Endpoint de envio", "Envio serverless protegido por token.", `${location.origin}/api/messenger/send`, "copy-send")}
@@ -786,7 +990,12 @@ function renderSetup() {
               <button class="secondary-button" type="button" data-action="copy-env">${icons.copy}<span>Copiar</span></button>
             </div>
             <div class="panel-body">
-              <pre class="code-block" id="envBlock">MESSENGER_PAGE_ACCESS_TOKEN=EAAB...
+              <pre class="code-block" id="envBlock">META_APP_ID=app-id-da-meta
+META_APP_SECRET=app-secret-da-meta
+SESSION_SECRET=uma-chave-longa-aleatoria
+META_REDIRECT_URI=${escapeHtml(`${location.origin}/api/auth/facebook/callback`)}
+META_SCOPES=pages_show_list,pages_read_engagement,pages_messaging,pages_manage_metadata
+MESSENGER_PAGE_ACCESS_TOKEN=EAAB...
 MESSENGER_VERIFY_TOKEN=${escapeHtml(state.settings.verifyToken)}
 MESSENGER_APP_SECRET=app-secret-da-meta
 MESSENLEAD_OPERATOR_TOKEN=${escapeHtml(state.settings.operatorToken)}
@@ -870,6 +1079,178 @@ function renderSettings() {
       </aside>
     </div>
   `;
+}
+
+async function loadMetaProfile() {
+  try {
+    const profile = await apiGet("/api/meta/me");
+    metaState.profile = profile.user || null;
+    metaState.error = "";
+  } catch (error) {
+    metaState.profile = null;
+    metaState.error = error.message === "Not authenticated" ? metaState.error : error.message;
+  } finally {
+    metaState.authChecked = true;
+    render();
+  }
+}
+
+async function loadMetaPages() {
+  try {
+    const result = await apiGet("/api/meta/pages");
+    metaState.pages = result.pages || [];
+    metaState.error = "";
+    if (!metaState.selectedPageId && metaState.pages[0]) {
+      metaState.selectedPageId = metaState.pages[0].id;
+    }
+  } catch (error) {
+    metaState.pages = [];
+    metaState.error = error.message;
+    toastMessage(error.message);
+  } finally {
+    render();
+  }
+}
+
+async function loadMetaConversations(pageId) {
+  try {
+    metaState.error = "";
+    const result = await apiGet(`/api/meta/conversations?pageId=${encodeURIComponent(pageId)}`);
+    metaState.conversations = result.conversations || [];
+    metaState.selectedConversationId = metaState.conversations[0]?.id || "";
+    metaState.messages = null;
+  } catch (error) {
+    metaState.conversations = [];
+    metaState.error = error.message;
+    toastMessage(error.message);
+  } finally {
+    render();
+  }
+}
+
+async function loadMetaMessages(pageId, conversationId) {
+  try {
+    const result = await apiGet(
+      `/api/meta/messages?pageId=${encodeURIComponent(pageId)}&conversationId=${encodeURIComponent(conversationId)}`
+    );
+    metaState.messages = result.messages || [];
+    metaState.error = "";
+  } catch (error) {
+    metaState.messages = [];
+    metaState.error = error.message;
+    toastMessage(error.message);
+  } finally {
+    render();
+  }
+}
+
+async function logoutFacebook() {
+  try {
+    await apiPost("/api/auth/logout", {});
+  } catch {
+    // Ignore logout failures on purpose; local UI state still needs to reset.
+  }
+
+  metaState = {
+    authChecked: true,
+    profile: null,
+    pages: null,
+    selectedPageId: "",
+    conversations: null,
+    selectedConversationId: "",
+    messages: null,
+    error: ""
+  };
+  render();
+}
+
+function selectMetaPage(pageId) {
+  const page = metaState.pages?.find((item) => item.id === pageId);
+  metaState.selectedPageId = pageId;
+  metaState.conversations = null;
+  metaState.selectedConversationId = "";
+  metaState.messages = null;
+
+  if (page) {
+    state.settings.pageId = page.id;
+    state.settings.pageName = page.name;
+    saveState();
+  }
+
+  render();
+}
+
+function refreshMetaConversations() {
+  if (!metaState.selectedPageId) return;
+  metaState.conversations = null;
+  metaState.messages = null;
+  render();
+}
+
+function selectMetaConversation(conversationId) {
+  metaState.selectedConversationId = conversationId;
+  metaState.messages = null;
+  render();
+}
+
+async function sendMetaMessage() {
+  const page = metaState.pages?.find((item) => item.id === metaState.selectedPageId);
+  const conversation = metaState.conversations?.find((item) => item.id === metaState.selectedConversationId);
+  const textarea = document.querySelector("#metaComposerText");
+  const text = textarea?.value.trim();
+  const psid = conversation ? recipientIdFromConversation(conversation, page?.id) : "";
+
+  if (!page || !conversation || !text) return;
+  if (!psid) {
+    toastMessage("Não encontrei o PSID do destinatário nesta conversa.");
+    return;
+  }
+
+  try {
+    await apiPost("/api/meta/send", { pageId: page.id, psid, text });
+    textarea.value = "";
+    metaState.messages = null;
+    toastMessage("Mensagem enviada pelo Messenger.");
+    render();
+  } catch (error) {
+    toastMessage(error.message);
+  }
+}
+
+function openPageFlow() {
+  const page = metaState.pages?.find((item) => item.id === metaState.selectedPageId);
+  if (page) {
+    state.settings.pageId = page.id;
+    state.settings.pageName = page.name;
+    saveState();
+  }
+  navigate("flows");
+}
+
+async function apiGet(path) {
+  const response = await fetch(path, { credentials: "same-origin" });
+  return parseApiResponse(response);
+}
+
+async function apiPost(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return parseApiResponse(response);
+}
+
+async function parseApiResponse(response) {
+  const text = await response.text();
+  const payload = text ? safeJson(text) : {};
+
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.message || text || `HTTP ${response.status}`);
+  }
+
+  return payload || {};
 }
 
 function renderInspector(flow, node) {
@@ -963,7 +1344,18 @@ function handleWorkspaceClick(event) {
   const id = button.dataset.id;
 
   if (action === "go-flows") return navigate("flows");
+  if (action === "go-pages") return navigate("pages");
   if (action === "go-setup") return navigate("setup");
+  if (action === "connect-facebook") {
+    window.location.href = "/api/auth/facebook/start";
+    return;
+  }
+  if (action === "logout-facebook") return logoutFacebook();
+  if (action === "select-meta-page") return selectMetaPage(id);
+  if (action === "refresh-meta-conversations") return refreshMetaConversations();
+  if (action === "select-meta-conversation") return selectMetaConversation(id);
+  if (action === "send-meta-message") return sendMetaMessage();
+  if (action === "open-page-flow") return openPageFlow();
   if (action === "open-contact") {
     selectedContactId = id;
     return navigate("inbox");
@@ -1000,6 +1392,7 @@ function handleWorkspaceClick(event) {
   if (action === "launch-campaign") return launchCampaign(id);
   if (action === "delete-campaign") return deleteCampaign(id);
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
+  if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins", "Campos copiados.");
   if (action === "copy-verify") return copyText(state.settings.verifyToken, "Verify token copiado.");
   if (action === "copy-send") return copyText(`${location.origin}/api/messenger/send`, "Endpoint copiado.");
@@ -1465,6 +1858,7 @@ function navigate(view) {
 function placeholderForView(view) {
   const placeholders = {
     dashboard: "Buscar no painel",
+    pages: "Buscar Página ou conversa",
     flows: "Buscar fluxo ou gatilho",
     inbox: "Buscar conversa Messenger",
     subscribers: "Buscar assinante ou PSID",
@@ -1603,6 +1997,31 @@ function lastMessage(contact) {
   return contact.messages?.[contact.messages.length - 1];
 }
 
+function conversationTitle(conversation, pageName) {
+  const participants = conversation.participants?.data || conversation.senders?.data || [];
+  const person = participants.find((participant) => participant.name !== pageName) || participants[0];
+  return person?.name || conversation.id;
+}
+
+function recipientIdFromConversation(conversation, pageId) {
+  const participants = conversation.participants?.data || conversation.senders?.data || [];
+  return participants.find((participant) => participant.id && participant.id !== pageId)?.id || "";
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -1706,4 +2125,12 @@ function escapeHtml(value) {
 
 function attr(value) {
   return escapeHtml(value);
+}
+
+function safeJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
