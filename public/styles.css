@@ -579,7 +579,7 @@ svg {
 
 .canvas-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 12px;
@@ -597,6 +597,33 @@ svg {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d9e0e7;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.sync-pill.synced {
+  border-color: #a8d8bf;
+  background: #effaf4;
+  color: var(--green-dark);
+}
+
+.sync-pill.local {
+  border-color: #efd6a8;
+  background: #fff8eb;
+  color: var(--amber);
 }
 
 .canvas-panel-controls .secondary-button,

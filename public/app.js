@@ -68,6 +68,13 @@ let canvasZoom = Number(storedCanvasZoom) || 0.78;
 let shouldAutoFitCanvas = !storedCanvasZoom;
 let showFlowList = localStorage.getItem("messenlead.canvas.flowList") === "true";
 let showInspector = localStorage.getItem("messenlead.canvas.inspector") === "true";
+let flowStore = {
+  pageId: "",
+  loading: false,
+  serverAvailable: null,
+  status: "Local",
+  saveTimer: null
+};
 let metaState = {
   authChecked: false,
   profile: null,
@@ -281,6 +288,11 @@ function loadState() {
 }
 
 function saveState() {
+  persistLocalState();
+  scheduleFlowSave();
+}
+
+function persistLocalState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -399,7 +411,7 @@ function renderDashboard() {
           ${checkItem("Webhook", "/api/messenger/webhook criado para verificação e eventos.")}
           ${checkItem("Token seguro", "Page Access Token fica em variável de ambiente, nunca no navegador.")}
           ${checkItem("Janela 24h", "Disparos devem respeitar a política de mensagens do Messenger.")}
-          ${checkItem("Exportação", "Use o JSON dos fluxos em MESSENLEAD_FLOW_JSON no Cloudflare.")}
+          ${checkItem("Persistência", "Vincule um banco D1 como DB para salvar os fluxos por Página.")}
         </div>
       </aside>
     </div>
@@ -631,6 +643,11 @@ function renderPages() {
 }
 
 function renderFlows() {
+  const pageId = currentFlowPageId();
+  if (flowStore.pageId !== pageId && !flowStore.loading) {
+    loadFlowsForPage(pageId);
+  }
+
   const filteredFlows = filterBySearch(state.flows, (flow) => `${flow.name} ${flow.goal} ${flow.trigger}`);
   const flow = selectedFlow();
   if (!flow) {
@@ -678,6 +695,7 @@ function renderFlows() {
             <input class="field-input" data-flow-field="name" value="${attr(flow.name)}" aria-label="Nome do fluxo" />
             <span class="muted">${escapeHtml(flow.goal)}</span>
           </div>
+          <span class="sync-pill ${flowStore.serverAvailable ? "synced" : "local"}">${escapeHtml(flowStore.loading ? "Carregando D1" : flowStore.status)}</span>
           <div class="canvas-panel-controls" aria-label="Painéis do canvas">
             <button class="secondary-button ${showFlowList ? "active" : ""}" type="button" data-action="toggle-flow-list">${icons.workflow}<span>Fluxos</span></button>
             <button class="secondary-button ${showInspector ? "active" : ""}" type="button" data-action="toggle-inspector">${icons.settings}<span>Editar</span></button>
@@ -949,6 +967,7 @@ function renderSetup() {
           <div class="integration-grid">
             ${integrationCard("Webhook", "Configure esta URL no app da Meta.", webhookUrl(), "copy-webhook")}
             ${integrationCard("OAuth callback", "Configure em Facebook Login.", `${location.origin}/api/auth/facebook/callback`, "copy-oauth")}
+            ${integrationCard("D1 binding", "Salvamento robusto dos fluxos.", "DB", "copy-db-binding")}
             ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins", "copy-fields")}
             ${integrationCard("Verify token", "Use o mesmo valor em MESSENGER_VERIFY_TOKEN.", state.settings.verifyToken, "copy-verify")}
             ${integrationCard("Endpoint de envio", "Envio serverless protegido por token.", `${location.origin}/api/messenger/send`, "copy-send")}
@@ -1148,6 +1167,8 @@ function selectMetaPage(pageId) {
     state.settings.pageId = page.id;
     state.settings.pageName = page.name;
     saveState();
+    flowStore.pageId = "";
+    loadFlowsForPage(page.id);
   }
 
   render();
@@ -1196,8 +1217,122 @@ function openPageFlow() {
     state.settings.pageId = page.id;
     state.settings.pageName = page.name;
     saveState();
+    flowStore.pageId = "";
   }
   navigate("flows");
+}
+
+async function loadFlowsForPage(pageId) {
+  const normalizedPageId = pageId || "__global__";
+  flowStore = {
+    ...flowStore,
+    pageId: normalizedPageId,
+    loading: true,
+    status: "Carregando D1"
+  };
+
+  try {
+    const result = await apiGet(`/api/flows?pageId=${encodeURIComponent(normalizedPageId)}`);
+    flowStore.serverAvailable = true;
+
+    if (Array.isArray(result.flows) && result.flows.length) {
+      state.flows = result.flows;
+      selectedFlowId = state.flows[0]?.id;
+      selectedNodeId = state.flows[0]?.nodes[0]?.id;
+      persistLocalState();
+      flowStore.status = "Salvo no D1";
+    } else if (state.flows.length) {
+      await apiPost("/api/flows", { pageId: normalizedPageId, flows: state.flows });
+      flowStore.status = "Modelo salvo no D1";
+    } else {
+      flowStore.status = "D1 sem fluxos";
+    }
+  } catch (error) {
+    flowStore.serverAvailable = false;
+    flowStore.status = flowStoreStatusFromError(error);
+  } finally {
+    flowStore.loading = false;
+    if (activeView === "flows") render();
+  }
+}
+
+function scheduleFlowSave() {
+  if (activeView !== "flows") return;
+  if (flowStore.loading) return;
+
+  const flow = selectedFlow();
+  if (!flow) return;
+
+  window.clearTimeout(flowStore.saveTimer);
+  flowStore.saveTimer = window.setTimeout(() => {
+    syncFlowToServer(flow);
+  }, 650);
+}
+
+async function syncFlowToServer(flow) {
+  const pageId = currentFlowPageId();
+  if (flowStore.serverAvailable === false && flowStore.pageId === pageId) return;
+
+  try {
+    await apiPost("/api/flows", { pageId, flow });
+    flowStore.serverAvailable = true;
+    flowStore.pageId = pageId;
+    flowStore.status = "Salvo no D1";
+    updateSyncPill();
+  } catch (error) {
+    flowStore.serverAvailable = false;
+    flowStore.status = flowStoreStatusFromError(error);
+    updateSyncPill();
+  }
+}
+
+async function syncAllFlowsToServer() {
+  const pageId = currentFlowPageId();
+  if (!state.flows.length) return;
+
+  try {
+    await apiPost("/api/flows", { pageId, flows: state.flows });
+    flowStore.serverAvailable = true;
+    flowStore.pageId = pageId;
+    flowStore.status = "Fluxos salvos no D1";
+    updateSyncPill();
+  } catch (error) {
+    flowStore.serverAvailable = false;
+    flowStore.status = flowStoreStatusFromError(error);
+    updateSyncPill();
+  }
+}
+
+async function deleteFlowFromServer(flowId, pageId) {
+  if (!flowId) return;
+  if (flowStore.serverAvailable === false && flowStore.pageId === pageId) return;
+
+  try {
+    await fetch(`/api/flows?pageId=${encodeURIComponent(pageId)}&flowId=${encodeURIComponent(flowId)}`, {
+      method: "DELETE",
+      credentials: "same-origin"
+    });
+  } catch {
+    // Local delete still succeeds; server sync status will be corrected on the next save/load.
+  }
+}
+
+function currentFlowPageId() {
+  return metaState.selectedPageId || state.settings.pageId || "__global__";
+}
+
+function flowStoreStatusFromError(error) {
+  if (error.status === 401) return "Local: faça login";
+  if (error.status === 501) return "Local: configure D1";
+  return `Local: ${error.message || "sem servidor"}`;
+}
+
+function updateSyncPill() {
+  const pill = document.querySelector(".sync-pill");
+  if (!pill) return;
+  pill.textContent = flowStore.status;
+  pill.classList.toggle("synced", Boolean(flowStore.serverAvailable));
+  pill.classList.toggle("local", !flowStore.serverAvailable);
 }
 
 async function apiGet(path) {
@@ -1220,7 +1355,9 @@ async function parseApiResponse(response) {
   const payload = text ? safeJson(text) : {};
 
   if (!response.ok) {
-    throw new Error(payload?.error || payload?.message || text || `HTTP ${response.status}`);
+    const error = new Error(payload?.error || payload?.message || text || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
 
   return payload || {};
@@ -1373,6 +1510,7 @@ function handleWorkspaceClick(event) {
   if (action === "delete-campaign") return deleteCampaign(id);
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
+  if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
   if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins", "Campos copiados.");
   if (action === "copy-verify") return copyText(state.settings.verifyToken, "Verify token copiado.");
   if (action === "copy-send") return copyText(`${location.origin}/api/messenger/send`, "Endpoint copiado.");
@@ -1532,10 +1670,13 @@ function deleteFlow() {
   const flow = selectedFlow();
   if (!flow) return;
   if (!confirm(`Excluir o fluxo "${flow.name}"?`)) return;
+  const deletedFlowId = flow.id;
+  const pageId = currentFlowPageId();
   state.flows = state.flows.filter((item) => item.id !== flow.id);
   selectedFlowId = state.flows[0]?.id;
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
   saveState();
+  deleteFlowFromServer(deletedFlowId, pageId);
   render();
 }
 
@@ -2093,6 +2234,7 @@ async function importWorkspace(event) {
     selectedNodeId = state.flows[0]?.nodes[0]?.id;
     selectedContactId = state.contacts[0]?.id;
     saveState();
+    syncAllFlowsToServer();
     toastMessage("Workspace importado.");
     render();
   } catch (error) {

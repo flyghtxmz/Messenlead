@@ -1,3 +1,5 @@
+import { listFlows } from "../../_lib/flows.js";
+
 const DEFAULT_REPLY = "Recebi sua mensagem. Um atendente vai assumir a conversa se a automação não resolver.";
 
 export async function onRequestGet({ request, env }) {
@@ -32,28 +34,34 @@ export async function onRequestPost({ request, env }) {
     return new Response("Ignored", { status: 200 });
   }
 
-  const events = payload.entry?.flatMap((entry) => entry.messaging || []) || [];
-  await Promise.all(events.map((event) => handleMessengerEvent(event, env)));
+  const work = [];
+  for (const entry of payload.entry || []) {
+    for (const event of entry.messaging || []) {
+      work.push(handleMessengerEvent(event, env, entry.id));
+    }
+  }
+  await Promise.all(work);
 
   return new Response("EVENT_RECEIVED", { status: 200 });
 }
 
-async function handleMessengerEvent(event, env) {
+async function handleMessengerEvent(event, env, pageId) {
   if (event.message?.is_echo) return;
 
   const psid = event.sender?.id;
   if (!psid) return;
 
   const inputText = event.message?.text || event.postback?.payload || event.optin?.ref || "";
-  const replies = buildReplies(inputText, env);
+  const replies = await buildReplies(inputText, env, pageId);
 
   for (const reply of replies.slice(0, 3)) {
     await sendMessengerMessage(psid, reply.text, reply.quickReplies || [], env);
   }
 }
 
-function buildReplies(inputText, env) {
-  const flows = parseFlows(env.MESSENLEAD_FLOW_JSON);
+async function buildReplies(inputText, env, pageId) {
+  const dbFlows = pageId ? await listFlows(env, pageId, { status: "active" }) : [];
+  const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
   const activeFlows = flows.filter((flow) => flow.status === "active");
   const normalizedInput = normalize(inputText);
   const flow =

@@ -7,6 +7,7 @@ Ferramenta Messenger-only inspirada em builders como Manychat, feita para Cloudf
 - Builder visual de fluxos para Facebook Messenger.
 - Login Meta para listar as Páginas administradas pela conta conectada.
 - Inbox real por Página usando Graph API e Page Access Token resolvido no servidor.
+- Persistência de fluxos no Cloudflare D1 por Página.
 - Blocos de gatilho, mensagem, condição, espera e ação.
 - Inbox local para conversas da Página.
 - Base de assinantes com PSID, tags e status.
@@ -14,6 +15,29 @@ Ferramenta Messenger-only inspirada em builders como Manychat, feita para Cloudf
 - Disparos simulados respeitando o conceito de janela/política do Messenger.
 - Exportação/importação de workspace em JSON.
 - Cloudflare Pages Functions para webhook e envio server-side.
+
+## Banco de dados
+
+Para salvar fluxos de forma robusta, crie um banco **Cloudflare D1** e vincule ao Pages com o binding:
+
+```txt
+DB
+```
+
+Pelo painel:
+
+1. Cloudflare Dashboard → Workers & Pages → D1 SQL Database.
+2. Crie um banco, por exemplo `messenlead-db`.
+3. Abra o projeto Pages `Messenlead`.
+4. Vá em `Settings` → `Functions` → `D1 database bindings`.
+5. Adicione:
+
+```txt
+Variable name: DB
+D1 database: messenlead-db
+```
+
+As Functions criam a tabela `flows` automaticamente quando a API é chamada. O arquivo [migrations/0001_flows.sql](migrations/0001_flows.sql) existe caso você prefira aplicar a migração manualmente.
 
 ## Rodar localmente
 
@@ -51,7 +75,7 @@ MESSENLEAD_DEFAULT_REPLY=Recebi sua mensagem. Um atendente vai assumir se necess
 MESSENLEAD_FLOW_JSON={"flows":[]}
 ```
 
-`MESSENLEAD_FLOW_JSON` pode ser copiado pela tela `Messenger` dentro da aplicação.
+`MESSENLEAD_FLOW_JSON` agora é fallback. Em produção, os fluxos do canvas são salvos no D1 por Página.
 
 `MESSENGER_PAGE_ACCESS_TOKEN` continua útil para o webhook fixo. Para o painel multi-Página, o app usa Facebook Login e resolve o Page Access Token da Página selecionada no servidor.
 
@@ -97,6 +121,9 @@ Login Meta e dados multi-Página:
 GET  /api/auth/facebook/start
 GET  /api/auth/facebook/callback
 POST /api/auth/logout
+GET  /api/flows?pageId=PAGE_ID
+POST /api/flows
+DELETE /api/flows?pageId=PAGE_ID&flowId=FLOW_ID
 GET  /api/meta/me
 GET  /api/meta/pages
 GET  /api/meta/conversations?pageId=PAGE_ID
@@ -119,6 +146,6 @@ Content-Type: application/json
 
 ## Observações de produção
 
-Este MVP usa `localStorage` no painel e variável de ambiente para publicar fluxos no webhook. Para operação real com muitos contatos, mova assinantes, mensagens, auditoria e estado dos fluxos para Cloudflare KV, D1, Durable Objects ou outro banco.
+Os fluxos já podem ficar no D1. O `localStorage` permanece como cache/fallback local quando o usuário ainda não fez login ou quando o binding `DB` não foi configurado. Para completar o produto, mova também assinantes, mensagens, auditoria e campanhas para D1 ou Durable Objects.
 
 Nunca coloque `MESSENGER_PAGE_ACCESS_TOKEN` no frontend.
