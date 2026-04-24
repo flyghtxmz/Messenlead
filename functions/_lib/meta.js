@@ -1,6 +1,5 @@
 const DEFAULT_SCOPES = [
   "pages_show_list",
-  "pages_read_engagement",
   "pages_messaging",
   "pages_manage_metadata"
 ].join(",");
