@@ -1,8 +1,6 @@
 import { listFlows } from "../../_lib/flows.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
 
-const DEFAULT_REPLY = "Recebi sua mensagem. Um atendente vai assumir a conversa se a automação não resolver.";
-
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const mode = url.searchParams.get("hub.mode");
@@ -54,6 +52,7 @@ async function handleMessengerEvent(event, env, pageId) {
 
   const inputText = event.message?.text || event.postback?.payload || event.optin?.ref || "";
   const replies = await buildReplies(inputText, env, pageId);
+  if (!replies.length) return;
 
   for (const reply of replies.slice(0, 3)) {
     await sendMessengerMessage(psid, reply.text, reply.quickReplies || [], env, pageId);
@@ -70,7 +69,7 @@ async function buildReplies(inputText, env, pageId) {
     activeFlows[0];
 
   if (!flow) {
-    return [{ text: env.MESSENLEAD_DEFAULT_REPLY || DEFAULT_REPLY }];
+    return [];
   }
 
   const start =
@@ -95,7 +94,7 @@ async function buildReplies(inputText, env, pageId) {
     current = current.next ? flow.nodes.find((node) => node.id === current.next) : null;
   }
 
-  return replies.length ? replies : [{ text: env.MESSENLEAD_DEFAULT_REPLY || DEFAULT_REPLY }];
+  return replies;
 }
 
 function parseFlows(rawJson) {

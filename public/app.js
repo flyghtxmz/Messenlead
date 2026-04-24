@@ -991,7 +991,6 @@ MESSENGER_PAGE_ACCESS_TOKEN=EAAB...
 MESSENGER_VERIFY_TOKEN=${escapeHtml(state.settings.verifyToken)}
 MESSENGER_APP_SECRET=app-secret-da-meta
 MESSENLEAD_OPERATOR_TOKEN=${escapeHtml(state.settings.operatorToken)}
-MESSENLEAD_DEFAULT_REPLY=${escapeHtml(state.settings.defaultReply)}
 MESSENLEAD_FLOW_JSON=${escapeHtml(compactFlowJson())}</pre>
             </div>
           </div>

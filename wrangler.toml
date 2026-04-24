@@ -2,9 +2,7 @@ name = "messenlead"
 compatibility_date = "2026-04-24"
 pages_build_output_dir = "public"
 
-# Configure o binding D1 no painel do Cloudflare Pages com o nome `DB`.
-# Se preferir usar Wrangler localmente, crie o banco e descomente/preencha:
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "messenlead-db"
-# database_id = "cole-o-database-id-aqui"
+[[d1_databases]]
+binding = "DB"
+database_name = "messenlead-db"
+database_id = "ab405875-90ab-4484-aa12-663940ba6524"

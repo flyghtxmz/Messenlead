@@ -73,11 +73,12 @@ META_SCOPES=pages_show_list,pages_read_engagement,pages_messaging,pages_manage_m
 MESSENGER_VERIFY_TOKEN=messenlead-verify-token
 MESSENGER_APP_SECRET=app-secret-da-meta
 MESSENLEAD_OPERATOR_TOKEN=um-token-forte-para-operador
-MESSENLEAD_DEFAULT_REPLY=Recebi sua mensagem. Um atendente vai assumir se necessário.
 MESSENLEAD_FLOW_JSON={"flows":[]}
 ```
 
 `MESSENLEAD_FLOW_JSON` agora é fallback. Em produção, os fluxos do canvas são salvos no D1 por Página.
+
+Se não houver fluxo ativo para uma mensagem recebida, o webhook não envia resposta automática.
 
 Para multi-Página, `MESSENGER_PAGE_ACCESS_TOKEN` não é obrigatório: o app usa Facebook Login, busca as Páginas autorizadas e salva os Page Access Tokens no D1. Você só precisa de `MESSENGER_PAGE_ACCESS_TOKEN` se quiser operar uma única Página manualmente sem OAuth.
 
