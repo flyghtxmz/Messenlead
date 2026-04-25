@@ -9,14 +9,18 @@ const STATE_COOKIE = "messenlead_oauth_state";
 
 export function getMetaConfig(request, env) {
   const origin = new URL(request.url).origin;
-  const appId = env.META_APP_ID || env.FACEBOOK_APP_ID;
-  const appSecret = env.META_APP_SECRET || env.FACEBOOK_APP_SECRET || env.MESSENGER_APP_SECRET;
-  const redirectUri = env.META_REDIRECT_URI || `${origin}/api/auth/facebook/callback`;
-  const version = env.META_GRAPH_API_VERSION || "v23.0";
-  const scopes = env.META_SCOPES || DEFAULT_SCOPES;
-  const sessionSecret = env.SESSION_SECRET || appSecret;
+  const appId = envValue(env.META_APP_ID) || envValue(env.FACEBOOK_APP_ID);
+  const appSecret = envValue(env.META_APP_SECRET) || envValue(env.FACEBOOK_APP_SECRET) || envValue(env.MESSENGER_APP_SECRET);
+  const redirectUri = envValue(env.META_REDIRECT_URI) || `${origin}/api/auth/facebook/callback`;
+  const version = envValue(env.META_GRAPH_API_VERSION) || "v23.0";
+  const scopes = envValue(env.META_SCOPES) || DEFAULT_SCOPES;
+  const sessionSecret = envValue(env.SESSION_SECRET) || appSecret;
 
   return { appId, appSecret, redirectUri, version, scopes, sessionSecret };
+}
+
+function envValue(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 export function requireMetaConfig(config) {
