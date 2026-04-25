@@ -1469,6 +1469,86 @@ svg {
   transform: translateY(0);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.app-modal {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.modal-header span,
+.modal-body p,
+.modal-field > span,
+.modal-field > label {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.modal-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.modal-body p {
+  margin: 0;
+}
+
+.modal-fields {
+  padding-bottom: 4px;
+}
+
+.modal-field > span:first-child {
+  color: #2d3831;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
+
+.modal-error {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid #f0c8c1;
+  border-radius: 8px;
+  background: #fff5f3;
+  color: var(--red);
+  font-size: 13px;
+}
+
 .segmented {
   display: inline-flex;
   overflow: hidden;

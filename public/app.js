@@ -58,6 +58,7 @@ const importButton = document.querySelector("#importButton");
 const importFile = document.querySelector("#importFile");
 const sidebarToggle = document.querySelector("#sidebarToggle");
 const toast = document.querySelector("#toast");
+const modalRoot = document.querySelector("#modalRoot");
 
 let state = loadState();
 let activeView = getInitialView();
@@ -66,6 +67,7 @@ let selectedNodeId = state.flows[0]?.nodes[0]?.id;
 let selectedContactId = state.contacts[0]?.id;
 let searchQuery = "";
 let simLog = [];
+let modalState = null;
 const storedCanvasZoom = localStorage.getItem("messenlead.canvas.zoom");
 let canvasZoom = Number(storedCanvasZoom) || 0.78;
 let shouldAutoFitCanvas = !storedCanvasZoom;
@@ -104,6 +106,8 @@ workspace.addEventListener("click", handleWorkspaceClick);
 workspace.addEventListener("input", handleWorkspaceInput);
 workspace.addEventListener("change", handleWorkspaceChange);
 workspace.addEventListener("keydown", handleWorkspaceKeydown);
+modalRoot.addEventListener("click", handleModalClick);
+modalRoot.addEventListener("submit", handleModalSubmit);
 
 globalSearch.addEventListener("input", (event) => {
   searchQuery = event.target.value.trim().toLowerCase();
@@ -118,6 +122,9 @@ window.addEventListener("hashchange", () => {
   activeView = getInitialView();
   if (activeView === "flows") flowCanvasOpen = false;
   render();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && modalState) closeModal();
 });
 
 render();
@@ -139,6 +146,146 @@ function applySidebarState(collapsed) {
   sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
   sidebarToggle.setAttribute("aria-label", collapsed ? "Expandir menu" : "Encolher menu");
   sidebarToggle.setAttribute("title", collapsed ? "Expandir menu" : "Encolher menu");
+}
+
+function openFormModal(config) {
+  modalState = { type: "form", ...config };
+  renderModal();
+}
+
+function openConfirmModal(config) {
+  modalState = { type: "confirm", ...config };
+  renderModal();
+}
+
+function closeModal() {
+  modalState = null;
+  modalRoot.innerHTML = "";
+}
+
+function renderModal() {
+  if (!modalState) {
+    modalRoot.innerHTML = "";
+    return;
+  }
+
+  const dangerClass = modalState.danger ? " danger-button" : " primary-button";
+  const submitLabel = modalState.submitLabel || (modalState.danger ? "Confirmar" : "Salvar");
+
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" data-modal-backdrop>
+      <section class="app-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-header">
+          <div>
+            <h2 id="modalTitle">${escapeHtml(modalState.title || "Acao")}</h2>
+            ${modalState.description ? `<span>${escapeHtml(modalState.description)}</span>` : ""}
+          </div>
+          <button class="icon-button" type="button" data-modal-action="cancel" title="Fechar">&times;</button>
+        </div>
+        ${
+          modalState.type === "confirm"
+            ? `
+              <div class="modal-body">
+                <p>${escapeHtml(modalState.message || "")}</p>
+                <div class="modal-actions">
+                  <button class="secondary-button" type="button" data-modal-action="cancel">Cancelar</button>
+                  <button class="${dangerClass}" type="button" data-modal-action="confirm">${escapeHtml(submitLabel)}</button>
+                </div>
+              </div>
+            `
+            : `
+              <form class="app-modal-form">
+                <div class="modal-body modal-fields">
+                  ${(modalState.fields || []).map(renderModalField).join("")}
+                  <p class="modal-error" id="modalError" hidden></p>
+                </div>
+                <div class="modal-actions">
+                  <button class="secondary-button" type="button" data-modal-action="cancel">Cancelar</button>
+                  <button class="${dangerClass}" type="submit">${escapeHtml(submitLabel)}</button>
+                </div>
+              </form>
+            `
+        }
+      </section>
+    </div>
+  `;
+
+  requestAnimationFrame(() => {
+    const focusable = modalRoot.querySelector(".app-modal-form input, .app-modal-form textarea, [data-modal-action='confirm'], [data-modal-action='cancel']");
+    focusable?.focus();
+    if (focusable?.select) focusable.select();
+  });
+}
+
+function renderModalField(field) {
+  const value = attr(field.value || "");
+  const hint = field.hint ? `<span>${escapeHtml(field.hint)}</span>` : "";
+
+  return `
+    <label class="field modal-field">
+      <span>${escapeHtml(field.label)}</span>
+      ${
+        field.type === "textarea"
+          ? `<textarea name="${attr(field.name)}" rows="${field.rows || 4}">${escapeHtml(field.value || "")}</textarea>`
+          : `<input name="${attr(field.name)}" type="${attr(field.type || "text")}" value="${value}" />`
+      }
+      ${hint}
+    </label>
+  `;
+}
+
+function handleModalClick(event) {
+  if (!modalState) return;
+
+  if (event.target.matches("[data-modal-backdrop]")) {
+    closeModal();
+    return;
+  }
+
+  const button = event.target.closest("[data-modal-action]");
+  if (!button) return;
+
+  const action = button.dataset.modalAction;
+  if (action === "cancel") {
+    closeModal();
+    return;
+  }
+
+  if (action === "confirm" && modalState.type === "confirm") {
+    const onConfirm = modalState.onConfirm;
+    closeModal();
+    onConfirm?.();
+  }
+}
+
+async function handleModalSubmit(event) {
+  if (!modalState || modalState.type !== "form") return;
+  event.preventDefault();
+
+  const form = event.target;
+  const values = {};
+  for (const field of modalState.fields || []) {
+    values[field.name] = form.elements[field.name]?.value || "";
+    if (field.required && !values[field.name].trim()) {
+      setModalError(`${field.label} e obrigatorio.`);
+      return;
+    }
+  }
+
+  try {
+    const result = await modalState.onSubmit?.(values);
+    if (result === false) return;
+    closeModal();
+  } catch (error) {
+    setModalError(error.message || "Nao foi possivel concluir.");
+  }
+}
+
+function setModalError(message) {
+  const error = modalRoot.querySelector("#modalError");
+  if (!error) return;
+  error.textContent = message;
+  error.hidden = !message;
 }
 
 function seedWorkspace() {
@@ -1670,8 +1817,23 @@ function handleWorkspaceKeydown(event) {
 }
 
 function createFlow() {
-  const name = prompt("Nome do fluxo Messenger", "Novo fluxo Messenger");
-  if (!name) return;
+  openFormModal({
+    title: "Novo fluxo",
+    description: "Crie o fluxo e depois edite os blocos no canvas.",
+    submitLabel: "Criar fluxo",
+    fields: [
+      {
+        name: "name",
+        label: "Nome do fluxo",
+        value: "Novo fluxo Messenger",
+        required: true
+      }
+    ],
+    onSubmit: ({ name }) => createFlowFromName(name.trim())
+  });
+}
+
+function createFlowFromName(name) {
   const triggerId = makeId("node");
   const messageId = makeId("node");
   const flow = {
@@ -1779,7 +1941,16 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
 function deleteFlow(flowId = selectedFlowId, options = {}) {
   const flow = state.flows.find((item) => item.id === flowId) || selectedFlow();
   if (!flow) return;
-  if (!confirm(`Excluir o fluxo "${flow.name}"?`)) return;
+  openConfirmModal({
+    title: "Excluir fluxo",
+    message: `Excluir o fluxo "${flow.name}"? Esta acao nao pode ser desfeita.`,
+    submitLabel: "Excluir",
+    danger: true,
+    onConfirm: () => performDeleteFlow(flow, options)
+  });
+}
+
+function performDeleteFlow(flow, options = {}) {
   const deletedFlowId = flow.id;
   const pageId = currentFlowPageId();
   state.flows = state.flows.filter((item) => item.id !== flow.id);
@@ -1860,14 +2031,26 @@ function fitCanvasToViewport() {
 }
 
 function createContact() {
-  const name = prompt("Nome do assinante Messenger", "Novo assinante");
-  if (!name) return;
+  openFormModal({
+    title: "Novo assinante",
+    description: "Crie um contato local para testes de inbox e fluxo.",
+    submitLabel: "Criar assinante",
+    fields: [
+      { name: "name", label: "Nome", value: "Novo assinante", required: true },
+      { name: "psid", label: "PSID", value: "", hint: "Opcional. Se ficar vazio, um PSID de teste sera criado." },
+      { name: "tag", label: "Tag", value: "novo-assinante" }
+    ],
+    onSubmit: ({ name, psid, tag }) => createContactFromValues({ name: name.trim(), psid: psid.trim(), tag: tag.trim() })
+  });
+}
+
+function createContactFromValues({ name, psid, tag }) {
   const contact = {
     id: makeId("contact"),
     name,
-    psid: `PSID_${Math.random().toString().slice(2, 12)}`,
+    psid: psid || `PSID_${Math.random().toString().slice(2, 12)}`,
     status: "open",
-    tag: "novo-assinante",
+    tag: tag || "novo-assinante",
     source: "Cadastro manual",
     lastSeen: new Date().toISOString(),
     messages: [{ from: "contact", text: "Oi, comecei uma conversa pelo Messenger.", at: new Date().toISOString() }]
@@ -1919,10 +2102,27 @@ function toggleContactStatus() {
 }
 
 function createCampaign() {
-  const name = prompt("Nome do disparo Messenger", "Novo disparo");
-  if (!name) return;
-  const audienceTag = prompt("Tag do público", "lead-quente") || "lead-quente";
-  const message = prompt("Mensagem", "Oi {{first_name}}, posso te ajudar com mais alguma coisa?") || "";
+  openFormModal({
+    title: "Novo disparo",
+    description: "Monte um disparo local para testar a lista de assinantes.",
+    submitLabel: "Criar disparo",
+    fields: [
+      { name: "name", label: "Nome do disparo", value: "Novo disparo", required: true },
+      { name: "audienceTag", label: "Tag do publico", value: "lead-quente", required: true },
+      {
+        name: "message",
+        label: "Mensagem",
+        type: "textarea",
+        value: "Oi {{first_name}}, posso te ajudar com mais alguma coisa?",
+        required: true
+      }
+    ],
+    onSubmit: ({ name, audienceTag, message }) =>
+      createCampaignFromValues({ name: name.trim(), audienceTag: audienceTag.trim(), message: message.trim() })
+  });
+}
+
+function createCampaignFromValues({ name, audienceTag, message }) {
   state.campaigns.unshift({
     id: makeId("campaign"),
     name,
@@ -1960,10 +2160,20 @@ function launchCampaign(id) {
 }
 
 function deleteCampaign(id) {
-  if (!confirm("Excluir este disparo?")) return;
-  state.campaigns = state.campaigns.filter((campaign) => campaign.id !== id);
-  saveState();
-  render();
+  const campaign = state.campaigns.find((item) => item.id === id);
+  if (!campaign) return;
+
+  openConfirmModal({
+    title: "Excluir disparo",
+    message: `Excluir o disparo "${campaign.name}"?`,
+    submitLabel: "Excluir",
+    danger: true,
+    onConfirm: () => {
+      state.campaigns = state.campaigns.filter((item) => item.id !== id);
+      saveState();
+      render();
+    }
+  });
 }
 
 function startSimulation() {
@@ -2463,7 +2673,16 @@ async function copyText(text, message) {
 }
 
 function resetWorkspace() {
-  if (!confirm("Restaurar o modelo inicial e apagar o workspace local?")) return;
+  openConfirmModal({
+    title: "Restaurar modelo inicial",
+    message: "Restaurar o modelo inicial e apagar o workspace local?",
+    submitLabel: "Restaurar",
+    danger: true,
+    onConfirm: performResetWorkspace
+  });
+}
+
+function performResetWorkspace() {
   state = seedWorkspace();
   selectedFlowId = state.flows[0]?.id;
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
