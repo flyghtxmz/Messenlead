@@ -826,21 +826,27 @@ function renderFlowLibrary(flows) {
 function renderFlowCard(flow) {
   const nodeCount = flow.nodes?.length || 0;
   return `
-    <button class="flow-card" type="button" data-action="select-flow" data-id="${flow.id}">
-      <span class="flow-card-head">
-        <span class="flow-card-icon">${icons.workflow}</span>
-        <span>
-          <strong>${escapeHtml(flow.name)}</strong>
-          <span>${escapeHtml(flow.trigger || "sem gatilho")}</span>
+    <article class="flow-card">
+      <button class="flow-card-main" type="button" data-action="select-flow" data-id="${flow.id}">
+        <span class="flow-card-head">
+          <span class="flow-card-icon">${icons.workflow}</span>
+          <span>
+            <strong>${escapeHtml(flow.name)}</strong>
+            <span>${escapeHtml(flow.trigger || "sem gatilho")}</span>
+          </span>
+          ${statusBadge(flow.status)}
         </span>
-        ${statusBadge(flow.status)}
-      </span>
-      <span class="flow-card-goal">${escapeHtml(flow.goal || "Sem descricao")}</span>
-      <span class="flow-card-meta">
-        <span>${nodeCount} bloco${nodeCount === 1 ? "" : "s"}</span>
-        <span>Atualizado ${escapeHtml(formatDate(flow.updatedAt) || "agora")}</span>
-      </span>
-    </button>
+        <span class="flow-card-goal">${escapeHtml(flow.goal || "Sem descricao")}</span>
+        <span class="flow-card-meta">
+          <span>${nodeCount} bloco${nodeCount === 1 ? "" : "s"}</span>
+          <span>Atualizado ${escapeHtml(formatDate(flow.updatedAt) || "agora")}</span>
+        </span>
+      </button>
+      <div class="flow-card-actions">
+        <button class="icon-button" type="button" data-action="duplicate-flow-card" data-id="${flow.id}" title="Duplicar fluxo">${icons.copy}</button>
+        <button class="icon-button danger-icon" type="button" data-action="delete-flow-card" data-id="${flow.id}" title="Excluir fluxo">${icons.trash}</button>
+      </div>
+    </article>
   `;
 }
 
@@ -1585,7 +1591,9 @@ function handleWorkspaceClick(event) {
   if (action === "add-node") return addNode(button.dataset.type);
   if (action === "set-flow-status") return setFlowStatus(button.dataset.status);
   if (action === "duplicate-flow") return duplicateFlow();
+  if (action === "duplicate-flow-card") return duplicateFlow(id, { openCanvas: false });
   if (action === "delete-flow") return deleteFlow();
+  if (action === "delete-flow-card") return deleteFlow(id, { openCanvasAfterDelete: false });
   if (action === "delete-node") return deleteNode();
   if (action === "canvas-zoom-in") return setCanvasZoom(canvasZoom + 0.08);
   if (action === "canvas-zoom-out") return setCanvasZoom(canvasZoom - 0.08);
@@ -1740,8 +1748,8 @@ function setFlowStatus(status) {
   render();
 }
 
-function duplicateFlow() {
-  const flow = selectedFlow();
+function duplicateFlow(flowId = selectedFlowId, options = {}) {
+  const flow = state.flows.find((item) => item.id === flowId) || selectedFlow();
   if (!flow) return;
   const copy = JSON.parse(JSON.stringify(flow));
   const idMap = new Map();
@@ -1762,21 +1770,24 @@ function duplicateFlow() {
   state.flows.unshift(copy);
   selectedFlowId = copy.id;
   selectedNodeId = copy.nodes[0]?.id;
-  flowCanvasOpen = true;
+  flowCanvasOpen = options.openCanvas ?? true;
   saveState();
+  toastMessage("Fluxo duplicado.");
   render();
 }
 
-function deleteFlow() {
-  const flow = selectedFlow();
+function deleteFlow(flowId = selectedFlowId, options = {}) {
+  const flow = state.flows.find((item) => item.id === flowId) || selectedFlow();
   if (!flow) return;
   if (!confirm(`Excluir o fluxo "${flow.name}"?`)) return;
   const deletedFlowId = flow.id;
   const pageId = currentFlowPageId();
   state.flows = state.flows.filter((item) => item.id !== flow.id);
-  selectedFlowId = state.flows[0]?.id;
-  selectedNodeId = state.flows[0]?.nodes[0]?.id;
-  flowCanvasOpen = Boolean(state.flows.length);
+  if (selectedFlowId === deletedFlowId) {
+    selectedFlowId = state.flows[0]?.id;
+    selectedNodeId = state.flows[0]?.nodes[0]?.id;
+  }
+  flowCanvasOpen = options.openCanvasAfterDelete ?? Boolean(state.flows.length);
   saveState();
   deleteFlowFromServer(deletedFlowId, pageId);
   render();

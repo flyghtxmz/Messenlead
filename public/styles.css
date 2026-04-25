@@ -565,14 +565,23 @@ svg {
 }
 
 .flow-card {
+  position: relative;
+  display: grid;
+  min-height: 170px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.flow-card-main {
   display: grid;
   gap: 14px;
   width: 100%;
   min-height: 170px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  padding: 14px 96px 14px 14px;
+  border: 0;
+  background: transparent;
   color: inherit;
   text-align: left;
 }
@@ -580,6 +589,34 @@ svg {
 .flow-card:hover {
   border-color: #8ccaa9;
   background: #f7fcf8;
+}
+
+.flow-card-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.flow-card-actions .icon-button {
+  width: 34px;
+  height: 34px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.flow-card-actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+.danger-icon {
+  border-color: #f0c8c1;
+  color: var(--red);
+}
+
+.danger-icon:hover {
+  background: #fff5f3;
 }
 
 .flow-card-head {
