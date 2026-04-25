@@ -1,7 +1,7 @@
 export async function ensurePageSchema(env) {
   if (!env.DB) return false;
 
-  await env.DB.exec(`
+  await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS connected_pages (
       page_id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -12,9 +12,10 @@ export async function ensurePageSchema(env) {
       access_token TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_connected_pages_user_id ON connected_pages(user_id);
-  `);
+    )
+  `).run();
+
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_connected_pages_user_id ON connected_pages(user_id)").run();
 
   return true;
 }

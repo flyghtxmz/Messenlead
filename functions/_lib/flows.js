@@ -3,7 +3,7 @@ const DEFAULT_PAGE_ID = "__global__";
 export async function ensureFlowSchema(env) {
   if (!env.DB) return false;
 
-  await env.DB.exec(`
+  await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS flows (
       page_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -15,10 +15,11 @@ export async function ensureFlowSchema(env) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (page_id, id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_flows_page_id ON flows(page_id);
-    CREATE INDEX IF NOT EXISTS idx_flows_page_status ON flows(page_id, status);
-  `);
+    )
+  `).run();
+
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flows_page_id ON flows(page_id)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flows_page_status ON flows(page_id, status)").run();
 
   return true;
 }
