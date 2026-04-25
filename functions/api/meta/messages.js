@@ -16,14 +16,35 @@ export async function onRequestGet({ request, env }) {
 
   try {
     const config = getMetaConfig(request, env);
-    const graph = graphUrl(config, `/${conversationId}/messages`, {
-      fields: "id,message,from,to,created_time",
-      limit: url.searchParams.get("limit") || "50",
-      access_token: pageAccessToken
-    });
-    const result = await graphFetch(graph);
+    const limit = url.searchParams.get("limit") || "50";
+    let result;
+
+    try {
+      result = await graphFetch(
+        graphUrl(config, `/${conversationId}/messages`, {
+          fields: "id,message,from,to,created_time,attachments",
+          limit,
+          access_token: pageAccessToken
+        })
+      );
+    } catch (error) {
+      if (!isAttachmentFieldError(error)) throw error;
+      result = await graphFetch(
+        graphUrl(config, `/${conversationId}/messages`, {
+          fields: "id,message,from,to,created_time",
+          limit,
+          access_token: pageAccessToken
+        })
+      );
+    }
+
     return json({ messages: result.data || [] });
   } catch (error) {
     return json({ error: error.message, details: error.payload || null }, error.status || 500);
   }
+}
+
+function isAttachmentFieldError(error) {
+  const message = `${error.message || ""} ${error.payload?.error?.message || ""}`.toLowerCase();
+  return message.includes("nonexisting field") || message.includes("attachments") || message.includes("file_url");
 }

@@ -1,4 +1,5 @@
 const STORAGE_KEY = "messenlead.messenger.workspace.v2";
+const SIDEBAR_COLLAPSED_KEY = "messenlead.sidebar.collapsed";
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
@@ -46,6 +47,7 @@ const icons = {
   trigger: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0"/><path d="M12 13V5m0 8 4-4m-4 4-4-4"/><path d="M5 19h14"/></svg>`
 };
 
+const appShell = document.querySelector(".app-shell");
 const workspace = document.querySelector("#workspace");
 const mainNav = document.querySelector("#mainNav");
 const pageTitle = document.querySelector("#pageTitle");
@@ -54,6 +56,7 @@ const globalSearch = document.querySelector("#globalSearch");
 const exportButton = document.querySelector("#exportButton");
 const importButton = document.querySelector("#importButton");
 const importFile = document.querySelector("#importFile");
+const sidebarToggle = document.querySelector("#sidebarToggle");
 const toast = document.querySelector("#toast");
 
 let state = loadState();
@@ -108,12 +111,32 @@ globalSearch.addEventListener("input", (event) => {
 exportButton.addEventListener("click", exportWorkspace);
 importButton.addEventListener("click", () => importFile.click());
 importFile.addEventListener("change", importWorkspace);
+initSidebarToggle();
 window.addEventListener("hashchange", () => {
   activeView = getInitialView();
   render();
 });
 
 render();
+
+function initSidebarToggle() {
+  const collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  applySidebarState(collapsed);
+
+  sidebarToggle?.addEventListener("click", () => {
+    const nextCollapsed = !appShell?.classList.contains("sidebar-collapsed");
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(nextCollapsed));
+    applySidebarState(nextCollapsed);
+  });
+}
+
+function applySidebarState(collapsed) {
+  if (!appShell || !sidebarToggle) return;
+  appShell.classList.toggle("sidebar-collapsed", collapsed);
+  sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+  sidebarToggle.setAttribute("aria-label", collapsed ? "Expandir menu" : "Encolher menu");
+  sidebarToggle.setAttribute("title", collapsed ? "Expandir menu" : "Encolher menu");
+}
 
 function seedWorkspace() {
   const now = new Date().toISOString();
@@ -615,14 +638,15 @@ function renderPages() {
                               ? metaState.messages
                                   .slice()
                                   .reverse()
-                                  .map(
-                                    (message) => `
-                                      <div class="bubble ${message.from?.id === selectedPage.id ? "bot" : "user"}">
-                                        ${escapeHtml(message.message || "[anexo ou evento sem texto]")}
+                                  .map((message) => {
+                                    const direction = message.from?.id === selectedPage.id ? "outbound" : "inbound";
+                                    return `
+                                      <div class="bubble ${direction}">
+                                        ${renderMessageContent(message)}
                                         <span class="muted">${escapeHtml(message.from?.name || "")}</span>
                                       </div>
-                                    `
-                                  )
+                                    `;
+                                  })
                                   .join("")
                               : `<div class="empty-state">${icons.inbox}<span>Carregando mensagens...</span></div>`
                           }
@@ -811,7 +835,7 @@ function renderInbox() {
             ${contact.messages
               .map(
                 (message) => `
-                  <div class="bubble ${message.from === "contact" ? "user" : "bot"}">
+                  <div class="bubble ${message.from === "contact" ? "inbound" : "outbound"}">
                     ${escapeHtml(message.text)}
                   </div>
                 `
@@ -1438,7 +1462,7 @@ function renderSimulator() {
       <div class="sim-messages">
         ${
           simLog.length
-            ? simLog.map((message) => `<div class="bubble ${message.from === "user" ? "user" : "bot"}">${escapeHtml(message.text)}</div>`).join("")
+            ? simLog.map((message) => `<div class="bubble ${message.from === "user" ? "inbound" : "outbound"}">${escapeHtml(message.text)}</div>`).join("")
             : `<div class="empty-state">${icons.message}<span>Teste palavras como "oi" ou "quero orçamento".</span></div>`
         }
       </div>
@@ -1997,6 +2021,73 @@ function selectedNode(flow) {
 
 function selectedContact() {
   return state.contacts.find((contact) => contact.id === selectedContactId) || state.contacts[0];
+}
+
+function renderMessageContent(message) {
+  const text = message.message ? `<div>${escapeHtml(message.message)}</div>` : "";
+  const attachments = normalizeMessageAttachments(message).map(renderAttachment).join("");
+
+  return text || attachments ? `${text}${attachments}` : `<span class="muted">[anexo ou evento sem texto]</span>`;
+}
+
+function normalizeMessageAttachments(message) {
+  if (Array.isArray(message.attachments)) return message.attachments;
+  if (Array.isArray(message.attachments?.data)) return message.attachments.data;
+  return [];
+}
+
+function renderAttachment(attachment) {
+  const mimeType = String(attachment.mime_type || attachment.mime || "").toLowerCase();
+  const attachmentType = String(attachment.type || "").toLowerCase();
+  const audioUrl = attachment.audio_data?.url || attachment.audio_data?.preview_url || "";
+  const imageUrl = attachment.image_data?.url || attachment.image_data?.preview_url || "";
+  const videoUrl = attachment.video_data?.url || attachment.video_data?.preview_url || "";
+  const fileUrl = attachment.file_url || attachment.url || audioUrl || imageUrl || videoUrl || "";
+  const fileName = attachment.name || attachment.title || "Anexo recebido";
+  const lowerUrl = fileUrl.split("?")[0].toLowerCase();
+
+  if (!fileUrl) {
+    return `<div class="message-attachment">${escapeHtml(fileName)}</div>`;
+  }
+
+  if (isAudioAttachment(mimeType, attachmentType, lowerUrl)) {
+    return `
+      <div class="message-attachment message-audio">
+        <span>${escapeHtml(fileName === "Anexo recebido" ? "Audio recebido" : fileName)}</span>
+        <audio controls preload="metadata" src="${attr(fileUrl)}"></audio>
+      </div>
+    `;
+  }
+
+  if (mimeType.startsWith("image/") || attachmentType === "image" || imageUrl) {
+    return `
+      <a class="message-attachment message-image" href="${attr(fileUrl)}" target="_blank" rel="noopener">
+        <img src="${attr(fileUrl)}" alt="${attr(fileName)}" loading="lazy" />
+      </a>
+    `;
+  }
+
+  if (mimeType.startsWith("video/") || attachmentType === "video" || videoUrl) {
+    return `
+      <div class="message-attachment message-video">
+        <video controls preload="metadata" src="${attr(fileUrl)}"></video>
+      </div>
+    `;
+  }
+
+  return `
+    <a class="message-attachment message-file" href="${attr(fileUrl)}" target="_blank" rel="noopener">
+      ${escapeHtml(fileName)}
+    </a>
+  `;
+}
+
+function isAudioAttachment(mimeType, attachmentType, lowerUrl) {
+  return (
+    mimeType.startsWith("audio/") ||
+    attachmentType === "audio" ||
+    /\.(aac|m4a|mp3|oga|ogg|opus|wav|webm)$/.test(lowerUrl)
+  );
 }
 
 function normalizeFieldValue(fieldName, value) {
