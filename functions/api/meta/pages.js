@@ -28,7 +28,7 @@ export async function onRequestGet({ request, env }) {
         name: page.name,
         category: page.category,
         picture: page.picture?.data?.url || "",
-        tasks: page.tasks || page.perms || []
+        tasks: page.tasks || []
       }))
     });
   } catch (error) {

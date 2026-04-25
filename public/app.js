@@ -988,7 +988,7 @@ function renderSetup() {
 META_APP_SECRET=app-secret-da-meta
 SESSION_SECRET=uma-chave-longa-aleatoria
 META_REDIRECT_URI=${escapeHtml(`${location.origin}/api/auth/facebook/callback`)}
-META_SCOPES=pages_show_list,pages_messaging,pages_manage_metadata
+META_SCOPES=pages_show_list,pages_messaging,pages_manage_metadata,business_management
 MESSENGER_PAGE_ACCESS_TOKEN=EAAB...
 MESSENGER_VERIFY_TOKEN=${escapeHtml(state.settings.verifyToken)}
 MESSENGER_APP_SECRET=app-secret-da-meta

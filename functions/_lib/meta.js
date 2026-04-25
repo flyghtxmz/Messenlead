@@ -1,7 +1,8 @@
 const DEFAULT_SCOPES = [
   "pages_show_list",
   "pages_messaging",
-  "pages_manage_metadata"
+  "pages_manage_metadata",
+  "business_management"
 ].join(",");
 
 const SESSION_COOKIE = "messenlead_meta_session";
@@ -132,13 +133,82 @@ export async function getUserProfile(userAccessToken, config) {
 }
 
 export async function getManagedPages(userAccessToken, config) {
-  const url = graphUrl(config, "/me/accounts", {
-    fields: "id,name,category,access_token,picture{url},tasks,perms",
+  const accountPages = await getPagesFromPath(userAccessToken, config, "/me/accounts");
+  if (accountPages.length) return accountPages;
+
+  const assignedPages = await getPagesFromPath(userAccessToken, config, "/me/assigned_pages");
+  if (assignedPages.length) return assignedPages;
+
+  return getBusinessPages(userAccessToken, config);
+}
+
+async function getPagesFromPath(userAccessToken, config, path) {
+  const url = graphUrl(config, path, {
+    fields: "id,name,category,access_token,picture{url},tasks",
     limit: "100",
     access_token: userAccessToken
   });
-  const result = await graphFetch(url);
-  return result.data || [];
+
+  try {
+    const result = await graphFetch(url);
+    return enrichPageAccessTokens(result.data || [], userAccessToken, config);
+  } catch {
+    return [];
+  }
+}
+
+async function getBusinessPages(userAccessToken, config) {
+  let businesses = [];
+
+  try {
+    const result = await graphFetch(
+      graphUrl(config, "/me/businesses", {
+        fields: "id,name",
+        limit: "100",
+        access_token: userAccessToken
+      })
+    );
+    businesses = result.data || [];
+  } catch {
+    return [];
+  }
+
+  const pagesById = new Map();
+  for (const business of businesses) {
+    for (const edge of ["owned_pages", "client_pages"]) {
+      const pages = await getPagesFromPath(userAccessToken, config, `/${business.id}/${edge}`);
+      pages.forEach((page) => {
+        if (!pagesById.has(page.id)) pagesById.set(page.id, page);
+      });
+    }
+  }
+
+  return [...pagesById.values()];
+}
+
+async function enrichPageAccessTokens(pages, userAccessToken, config) {
+  const enriched = [];
+
+  for (const page of pages) {
+    if (page.access_token) {
+      enriched.push(page);
+      continue;
+    }
+
+    try {
+      const result = await graphFetch(
+        graphUrl(config, `/${page.id}`, {
+          fields: "access_token",
+          access_token: userAccessToken
+        })
+      );
+      enriched.push({ ...page, access_token: result.access_token || "" });
+    } catch {
+      enriched.push(page);
+    }
+  }
+
+  return enriched;
 }
 
 export async function getGrantedPermissions(userAccessToken, config) {
