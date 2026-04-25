@@ -79,6 +79,7 @@ let metaState = {
   authChecked: false,
   profile: null,
   pages: null,
+  pageDebug: null,
   selectedPageId: state.settings.pageId || "",
   conversations: null,
   selectedConversationId: "",
@@ -566,6 +567,7 @@ function renderPages() {
                   .join("")
               : emptyInline("Nenhuma Página encontrada para esta conta.")
           }
+          ${!pages.length && metaState.pageDebug ? `<div class="code-block">${escapeHtml(pageDebugText(metaState.pageDebug))}</div>` : ""}
         </div>
       </section>
 
@@ -1090,12 +1092,14 @@ async function loadMetaPages() {
   try {
     const result = await apiGet("/api/meta/pages");
     metaState.pages = result.pages || [];
+    metaState.pageDebug = result.debug || null;
     metaState.error = "";
     if (!metaState.selectedPageId && metaState.pages[0]) {
       metaState.selectedPageId = metaState.pages[0].id;
     }
   } catch (error) {
     metaState.pages = [];
+    metaState.pageDebug = null;
     metaState.error = error.message;
     toastMessage(error.message);
   } finally {
@@ -1146,6 +1150,7 @@ async function logoutFacebook() {
     authChecked: true,
     profile: null,
     pages: null,
+    pageDebug: null,
     selectedPageId: "",
     conversations: null,
     selectedConversationId: "",
@@ -2174,6 +2179,16 @@ function conversationTitle(conversation, pageName) {
   const participants = conversation.participants?.data || conversation.senders?.data || [];
   const person = participants.find((participant) => participant.name !== pageName) || participants[0];
   return person?.name || conversation.id;
+}
+
+function pageDebugText(debug) {
+  const granted = debug.grantedPermissions?.length ? debug.grantedPermissions.join(", ") : "nenhuma";
+  const declined = debug.declinedPermissions?.length ? debug.declinedPermissions.join(", ") : "nenhuma";
+  return `A Meta retornou 0 Páginas.
+Permissões concedidas: ${granted}
+Permissões recusadas: ${declined}
+
+Verifique se a conta logada administra alguma Página e se o app recebeu pages_show_list. Em apps em modo desenvolvimento, a conta também precisa estar em App roles.`;
 }
 
 function recipientIdFromConversation(conversation, pageId) {

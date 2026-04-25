@@ -133,8 +133,16 @@ export async function getUserProfile(userAccessToken, config) {
 
 export async function getManagedPages(userAccessToken, config) {
   const url = graphUrl(config, "/me/accounts", {
-    fields: "id,name,category,access_token,picture{url},tasks",
+    fields: "id,name,category,access_token,picture{url},tasks,perms",
     limit: "100",
+    access_token: userAccessToken
+  });
+  const result = await graphFetch(url);
+  return result.data || [];
+}
+
+export async function getGrantedPermissions(userAccessToken, config) {
+  const url = graphUrl(config, "/me/permissions", {
     access_token: userAccessToken
   });
   const result = await graphFetch(url);
