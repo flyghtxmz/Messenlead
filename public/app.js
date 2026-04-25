@@ -69,6 +69,7 @@ let simLog = [];
 const storedCanvasZoom = localStorage.getItem("messenlead.canvas.zoom");
 let canvasZoom = Number(storedCanvasZoom) || 0.78;
 let shouldAutoFitCanvas = !storedCanvasZoom;
+let flowCanvasOpen = false;
 let showFlowList = localStorage.getItem("messenlead.canvas.flowList") === "true";
 let showInspector = localStorage.getItem("messenlead.canvas.inspector") === "true";
 let flowStore = {
@@ -94,6 +95,7 @@ mainNav.addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
   if (!button) return;
   activeView = button.dataset.view;
+  if (activeView === "flows") flowCanvasOpen = false;
   history.replaceState(null, "", `#${activeView}`);
   render();
 });
@@ -114,6 +116,7 @@ importFile.addEventListener("change", importWorkspace);
 initSidebarToggle();
 window.addEventListener("hashchange", () => {
   activeView = getInitialView();
+  if (activeView === "flows") flowCanvasOpen = false;
   render();
 });
 
@@ -606,7 +609,7 @@ function renderPages() {
                   </div>
                   <div class="button-row">
                     <button class="secondary-button" type="button" data-action="refresh-meta-conversations">${icons.inbox}<span>Atualizar</span></button>
-                    <button class="primary-button" type="button" data-action="open-page-flow">${icons.workflow}<span>Abrir canvas</span></button>
+                    <button class="primary-button" type="button" data-action="open-page-flow">${icons.workflow}<span>Ver fluxos</span></button>
                   </div>
                 </div>
               </div>
@@ -675,8 +678,14 @@ function renderFlows() {
   }
 
   const filteredFlows = filterBySearch(state.flows, (flow) => `${flow.name} ${flow.goal} ${flow.trigger}`);
+  if (!flowCanvasOpen) {
+    renderFlowLibrary(filteredFlows);
+    return;
+  }
+
   const flow = selectedFlow();
   if (!flow) {
+    flowCanvasOpen = false;
     workspace.innerHTML = emptyState("Nenhum fluxo", "Crie um fluxo do Messenger para começar.", "workflow", "Novo fluxo", "new-flow");
     return;
   }
@@ -723,6 +732,7 @@ function renderFlows() {
           </div>
           <span class="sync-pill ${flowStore.serverAvailable ? "synced" : "local"}">${escapeHtml(flowStore.loading ? "Carregando D1" : flowStore.status)}</span>
           <div class="canvas-panel-controls" aria-label="Painéis do canvas">
+            <button class="secondary-button" type="button" data-action="back-to-flows">${icons.workflow}<span>Todos</span></button>
             <button class="secondary-button ${showFlowList ? "active" : ""}" type="button" data-action="toggle-flow-list">${icons.workflow}<span>Fluxos</span></button>
             <button class="secondary-button ${showInspector ? "active" : ""}" type="button" data-action="toggle-inspector">${icons.settings}<span>Editar</span></button>
           </div>
@@ -780,6 +790,58 @@ function renderFlows() {
     shouldAutoFitCanvas = false;
     requestAnimationFrame(() => fitCanvasToViewport());
   }
+}
+
+function renderFlowLibrary(flows) {
+  const pageLabel = state.settings.pageName || state.settings.pageId || "workspace atual";
+
+  workspace.innerHTML = `
+    <section class="panel flow-library-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Fluxos salvos</h2>
+          <span>${escapeHtml(pageLabel)} - ${state.flows.length} fluxo${state.flows.length === 1 ? "" : "s"}</span>
+        </div>
+        <div class="button-row">
+          <span class="sync-pill ${flowStore.serverAvailable ? "synced" : "local"}">${escapeHtml(flowStore.loading ? "Carregando D1" : flowStore.status)}</span>
+          <button class="primary-button" type="button" data-action="new-flow">${icons.plus}<span>Novo fluxo</span></button>
+        </div>
+      </div>
+      ${
+        flows.length
+          ? `<div class="flow-library">${flows.map((flow) => renderFlowCard(flow)).join("")}</div>`
+          : `
+            <div class="empty-state">
+              ${icons.workflow}
+              <strong>Nenhum fluxo encontrado</strong>
+              <span>Crie um fluxo ou ajuste a busca para ver os fluxos salvos.</span>
+              <button class="primary-button" type="button" data-action="new-flow">${icons.plus}<span>Novo fluxo</span></button>
+            </div>
+          `
+      }
+    </section>
+  `;
+}
+
+function renderFlowCard(flow) {
+  const nodeCount = flow.nodes?.length || 0;
+  return `
+    <button class="flow-card" type="button" data-action="select-flow" data-id="${flow.id}">
+      <span class="flow-card-head">
+        <span class="flow-card-icon">${icons.workflow}</span>
+        <span>
+          <strong>${escapeHtml(flow.name)}</strong>
+          <span>${escapeHtml(flow.trigger || "sem gatilho")}</span>
+        </span>
+        ${statusBadge(flow.status)}
+      </span>
+      <span class="flow-card-goal">${escapeHtml(flow.goal || "Sem descricao")}</span>
+      <span class="flow-card-meta">
+        <span>${nodeCount} bloco${nodeCount === 1 ? "" : "s"}</span>
+        <span>Atualizado ${escapeHtml(formatDate(flow.updatedAt) || "agora")}</span>
+      </span>
+    </button>
+  `;
 }
 
 function renderInbox() {
@@ -1484,6 +1546,10 @@ function handleWorkspaceClick(event) {
   if (action === "go-flows") return navigate("flows");
   if (action === "go-pages") return navigate("pages");
   if (action === "go-setup") return navigate("setup");
+  if (action === "back-to-flows") {
+    flowCanvasOpen = false;
+    return render();
+  }
   if (action === "toggle-flow-list") return toggleFlowList();
   if (action === "toggle-inspector") return toggleInspector();
   if (action === "connect-facebook") {
@@ -1504,6 +1570,9 @@ function handleWorkspaceClick(event) {
   if (action === "select-flow") {
     selectedFlowId = id;
     selectedNodeId = selectedFlow()?.nodes[0]?.id;
+    flowCanvasOpen = true;
+    showFlowList = false;
+    localStorage.setItem("messenlead.canvas.flowList", "false");
     simLog = [];
     return render();
   }
@@ -1630,6 +1699,9 @@ function createFlow() {
   state.flows.unshift(flow);
   selectedFlowId = flow.id;
   selectedNodeId = triggerId;
+  flowCanvasOpen = true;
+  showFlowList = false;
+  localStorage.setItem("messenlead.canvas.flowList", "false");
   saveState();
   toastMessage("Fluxo criado.");
   render();
@@ -1690,6 +1762,7 @@ function duplicateFlow() {
   state.flows.unshift(copy);
   selectedFlowId = copy.id;
   selectedNodeId = copy.nodes[0]?.id;
+  flowCanvasOpen = true;
   saveState();
   render();
 }
@@ -1703,6 +1776,7 @@ function deleteFlow() {
   state.flows = state.flows.filter((item) => item.id !== flow.id);
   selectedFlowId = state.flows[0]?.id;
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
+  flowCanvasOpen = Boolean(state.flows.length);
   saveState();
   deleteFlowFromServer(deletedFlowId, pageId);
   render();
@@ -2116,6 +2190,7 @@ function defaultNodeMessage(type) {
 
 function navigate(view) {
   activeView = view;
+  if (view === "flows") flowCanvasOpen = false;
   history.replaceState(null, "", `#${view}`);
   render();
 }
