@@ -93,6 +93,9 @@ let metaState = {
   messages: null,
   error: oauthErrorFromHash()
 };
+let broadcastState = {
+  pageConversations: {}
+};
 
 mainNav.addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
@@ -1128,10 +1131,59 @@ function renderSubscribers() {
 }
 
 function renderBroadcasts() {
+  if (!metaState.authChecked) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="empty-state">
+          ${icons.send}
+          <strong>Verificando conexao com a Meta</strong>
+          <span>O Broadcast usa as conversas reais das Paginas conectadas.</span>
+        </div>
+      </section>
+    `;
+    loadMetaProfile();
+    return;
+  }
+
+  if (!metaState.profile) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="empty-state">
+          ${icons.plug}
+          <strong>Conecte o Facebook</strong>
+          <span>Entre com a conta que administra as Paginas para calcular quem esta apto.</span>
+          <button class="primary-button" type="button" data-action="connect-facebook">${icons.plug}<span>Entrar com Facebook</span></button>
+        </div>
+      </section>
+    `;
+    return;
+  }
+
+  if (!metaState.pages) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="empty-state">
+          ${icons.pages}
+          <strong>Carregando Paginas</strong>
+          <span>Buscando as Paginas conectadas para calcular elegibilidade.</span>
+        </div>
+      </section>
+    `;
+    loadMetaPages();
+    return;
+  }
+
+  const pages = metaState.pages || [];
+  if (pages.length && shouldLoadBroadcastConversations(pages)) {
+    loadBroadcastConversations(pages);
+  }
+
+  const pageStats = pages.map(broadcastPageStats);
   const filteredCampaigns = filterBySearch(state.campaigns, (campaign) => `${campaign.name} ${campaign.audienceTag} ${campaign.message}`);
-  const totalEligible = eligibleContactsForBroadcast().length;
-  const openContacts = state.contacts.filter((contact) => contact.status === "open").length;
-  const outsideWindow = state.contacts.filter((contact) => contact.psid && contact.status === "open" && !isInsideMessengerReplyWindow(contact)).length;
+  const totalEligible = pageStats.reduce((total, item) => total + item.eligible.length, 0);
+  const openContacts = pageStats.reduce((total, item) => total + item.recipients.length, 0);
+  const outsideWindow = pageStats.reduce((total, item) => total + item.outsideWindow.length, 0);
+  const loadingEligibility = pageStats.some((item) => item.loading);
 
   workspace.innerHTML = `
     <div class="two-column">
@@ -1139,21 +1191,24 @@ function renderBroadcasts() {
         <div class="panel-header">
           <div>
             <h2>Disparos Messenger</h2>
-            <span>Use apenas para contatos elegíveis pela política da Meta</span>
+            <span>Contatos aptos por Pagina conectada</span>
           </div>
-          <button class="primary-button" type="button" data-action="new-campaign">${icons.plus}<span>Novo disparo</span></button>
+          <div class="button-row">
+            <button class="secondary-button" type="button" data-action="refresh-broadcast-eligibility">${icons.inbox}<span>Atualizar aptos</span></button>
+            <button class="primary-button" type="button" data-action="new-campaign">${icons.plus}<span>Novo disparo</span></button>
+          </div>
         </div>
         <div class="broadcast-summary">
           <span>
-            <strong>${totalEligible}</strong>
+            <strong>${loadingEligibility ? "..." : totalEligible}</strong>
             <span>Aptos agora</span>
           </span>
           <span>
-            <strong>${openContacts}</strong>
-            <span>Conversas abertas</span>
+            <strong>${loadingEligibility ? "..." : openContacts}</strong>
+            <span>Conversas da Pagina</span>
           </span>
           <span>
-            <strong>${outsideWindow}</strong>
+            <strong>${loadingEligibility ? "..." : outsideWindow}</strong>
             <span>Fora da janela 24h</span>
           </span>
         </div>
@@ -1161,17 +1216,19 @@ function renderBroadcasts() {
           ${filteredCampaigns
             .map(
               (campaign) => {
-                const audience = state.contacts.filter((contact) => contact.tag === campaign.audienceTag).length;
+                const audience = openContacts;
                 const eligibleAudience = eligibleContactsForBroadcast(campaign.audienceTag).length;
+                const eligiblePages = eligiblePagesForBroadcast(campaign.audienceTag);
                 return `
                   <article class="campaign-item">
                     <div class="row-between">
                       <div>
                         <strong>${escapeHtml(campaign.name)}</strong>
-                        <span>${eligibleAudience} apto${eligibleAudience === 1 ? "" : "s"} de ${audience} com tag ${escapeHtml(campaign.audienceTag)}</span>
+                            <span>${eligibleAudience} apto${eligibleAudience === 1 ? "" : "s"} de ${audience} conversa${audience === 1 ? "" : "s"} da Pagina</span>
                       </div>
                       ${statusBadge(campaign.status)}
                     </div>
+                    <div class="campaign-pages">${eligiblePages.length ? eligiblePages.map((page) => `<span class="channel-pill">${escapeHtml(page.name)}: ${page.count}</span>`).join("") : `<span class="muted">Nenhuma Pagina apta agora</span>`}</div>
                     <p class="muted">${escapeHtml(campaign.message)}</p>
                     <div class="progress"><span style="width:${campaign.sent ? Math.min(100, Math.round((campaign.delivered / Math.max(campaign.sent, 1)) * 100)) : 0}%"></span></div>
                     <div class="row-between">
@@ -1192,18 +1249,13 @@ function renderBroadcasts() {
       <aside class="panel">
         <div class="panel-header">
           <div>
-            <h2>Regra importante</h2>
-            <span>Messenger Platform</span>
+            <h2>Elegibilidade por Pagina</h2>
+            <span>${pages.length} Pagina${pages.length === 1 ? "" : "s"} conectada${pages.length === 1 ? "" : "s"}</span>
           </div>
         </div>
-        <div class="panel-body stack">
-          <p class="muted">Mensagens promocionais só devem ser enviadas para usuários que aceitaram contato e dentro das janelas permitidas pela Meta. Para produção, implemente validação de política antes do envio real.</p>
-          <div class="code-block">POST /api/messenger/send
-Authorization: Bearer MESSENLEAD_OPERATOR_TOKEN
-{
-  "psid": "PSID_...",
-  "text": "Mensagem aprovada"
-}</div>
+        <div class="panel-body stack broadcast-page-list">
+          ${pageStats.length ? pageStats.map(renderBroadcastPageStat).join("") : emptyInline("Nenhuma Pagina conectada.")}
+          <p class="muted">Aptos agora considera conversas da Pagina com PSID e interacao nas ultimas 24h. Essa conta e uma pre-checagem operacional; a politica final de envio continua sendo da Meta.</p>
         </div>
       </aside>
     </div>
@@ -1379,6 +1431,59 @@ async function loadMetaConversations(pageId) {
   } finally {
     render();
   }
+}
+
+function shouldLoadBroadcastConversations(pages) {
+  return pages.some((page) => {
+    const snapshot = broadcastState.pageConversations[page.id];
+    return !snapshot || (!snapshot.loading && !snapshot.loaded && !snapshot.error);
+  });
+}
+
+async function loadBroadcastConversations(pages) {
+  const pending = pages.filter((page) => {
+    const snapshot = broadcastState.pageConversations[page.id];
+    return !snapshot || (!snapshot.loading && !snapshot.loaded && !snapshot.error);
+  });
+
+  if (!pending.length) return;
+
+  pending.forEach((page) => {
+    broadcastState.pageConversations[page.id] = {
+      loading: true,
+      loaded: false,
+      error: "",
+      conversations: []
+    };
+  });
+
+  await Promise.all(
+    pending.map(async (page) => {
+      try {
+        const result = await apiGet(`/api/meta/conversations?pageId=${encodeURIComponent(page.id)}&limit=100`);
+        broadcastState.pageConversations[page.id] = {
+          loading: false,
+          loaded: true,
+          error: "",
+          conversations: result.conversations || []
+        };
+      } catch (error) {
+        broadcastState.pageConversations[page.id] = {
+          loading: false,
+          loaded: false,
+          error: error.message,
+          conversations: []
+        };
+      }
+    })
+  );
+
+  if (activeView === "broadcasts") render();
+}
+
+function refreshBroadcastEligibility() {
+  broadcastState.pageConversations = {};
+  render();
 }
 
 async function loadMetaMessages(pageId, conversationId) {
@@ -1781,6 +1886,7 @@ function handleWorkspaceClick(event) {
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
   if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins", "Campos copiados.");
+  if (action === "refresh-broadcast-eligibility") return refreshBroadcastEligibility();
   if (action === "copy-verify") return copyText(state.settings.verifyToken, "Verify token copiado.");
   if (action === "copy-send") return copyText(`${location.origin}/api/messenger/send`, "Endpoint copiado.");
   if (action === "copy-env") return copyText(document.querySelector("#envBlock")?.textContent || "", "Variáveis copiadas.");
@@ -2192,6 +2298,7 @@ function launchCampaign(id) {
   campaign.replies = Math.floor(audience.length / 3);
   campaign.scheduledAt = "Enviado agora";
   audience.forEach((contact) => {
+    if (!Array.isArray(contact.messages)) return;
     contact.messages.push({
       from: "page",
       text: resolveTemplate(campaign.message, contact.name),
@@ -2607,13 +2714,23 @@ function lastMessage(contact) {
 }
 
 function eligibleContactsForBroadcast(tagName = "") {
-  return state.contacts.filter((contact) => isBroadcastEligible(contact, tagName));
+  const liveRecipients = broadcastRecipientsFromPages();
+  const localRecipients = state.contacts
+    .filter((contact) => isBroadcastEligible(contact, tagName))
+    .map((contact) => ({
+      ...contact,
+      pageId: state.settings.pageId || "__local__",
+      pageName: state.settings.pageName || "Contatos locais",
+      live: false
+    }));
+
+  return uniqueRecipients([...liveRecipients, ...localRecipients]).filter((contact) => isBroadcastEligible(contact, tagName));
 }
 
 function isBroadcastEligible(contact, tagName = "") {
-  if (tagName && contact.tag !== tagName) return false;
+  if (tagName && !contact.live && contact.tag !== tagName) return false;
   if (!contact.psid) return false;
-  if (contact.status !== "open") return false;
+  if (contact.status && contact.status !== "open") return false;
   return isInsideMessengerReplyWindow(contact);
 }
 
@@ -2622,6 +2739,88 @@ function isInsideMessengerReplyWindow(contact) {
   const timestamp = Date.parse(value || "");
   if (!Number.isFinite(timestamp)) return false;
   return Date.now() - timestamp <= MESSENGER_REPLY_WINDOW_MS;
+}
+
+function broadcastPageStats(page) {
+  const snapshot = broadcastState.pageConversations[page.id] || {};
+  const conversations = snapshot.conversations || [];
+  const recipients = conversations.map((conversation) => conversationToBroadcastRecipient(conversation, page)).filter(Boolean);
+  const eligible = recipients.filter((contact) => isBroadcastEligible(contact));
+  const outsideWindow = recipients.filter((contact) => !isInsideMessengerReplyWindow(contact));
+
+  return {
+    page,
+    loading: Boolean(snapshot.loading),
+    error: snapshot.error || "",
+    recipients,
+    eligible,
+    outsideWindow
+  };
+}
+
+function renderBroadcastPageStat(stat) {
+  return `
+    <article class="broadcast-page-card">
+      <div class="row-between">
+        <div>
+          <strong>${escapeHtml(stat.page.name)}</strong>
+          <span>${escapeHtml(stat.page.id)}</span>
+        </div>
+        <span class="badge ${stat.eligible.length ? "active" : "draft"}">${stat.loading ? "Carregando" : `${stat.eligible.length} apto${stat.eligible.length === 1 ? "" : "s"}`}</span>
+      </div>
+      <div class="broadcast-page-metrics">
+        <span><strong>${stat.recipients.length}</strong><small>conversas</small></span>
+        <span><strong>${stat.outsideWindow.length}</strong><small>fora 24h</small></span>
+      </div>
+      ${stat.error ? `<p class="muted">${escapeHtml(stat.error)}</p>` : ""}
+    </article>
+  `;
+}
+
+function eligiblePagesForBroadcast(tagName = "") {
+  const byPage = new Map();
+  eligibleContactsForBroadcast(tagName).forEach((contact) => {
+    const pageId = contact.pageId || "__local__";
+    const current = byPage.get(pageId) || {
+      id: pageId,
+      name: contact.pageName || "Contatos locais",
+      count: 0
+    };
+    current.count += 1;
+    byPage.set(pageId, current);
+  });
+  return [...byPage.values()].filter((page) => page.count > 0);
+}
+
+function broadcastRecipientsFromPages() {
+  const pages = metaState.pages || [];
+  return pages.flatMap((page) => broadcastPageStats(page).eligible);
+}
+
+function conversationToBroadcastRecipient(conversation, page) {
+  const psid = recipientIdFromConversation(conversation, page.id);
+  if (!psid) return null;
+
+  return {
+    id: `${page.id}:${psid}`,
+    psid,
+    pageId: page.id,
+    pageName: page.name,
+    name: conversationTitle(conversation, page.name),
+    lastSeen: conversation.updated_time,
+    source: "Messenger",
+    status: "open",
+    live: true
+  };
+}
+
+function uniqueRecipients(recipients) {
+  const byId = new Map();
+  recipients.forEach((recipient) => {
+    const key = `${recipient.pageId || "__local__"}:${recipient.psid}`;
+    if (!byId.has(key)) byId.set(key, recipient);
+  });
+  return [...byId.values()];
 }
 
 function conversationTitle(conversation, pageName) {

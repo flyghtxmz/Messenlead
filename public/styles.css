@@ -1364,9 +1364,65 @@ svg {
   gap: 8px;
 }
 
+.campaign-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .campaign-item.active {
   border-color: #8ccaa9;
   background: #f7fcf8;
+}
+
+.broadcast-page-list {
+  gap: 10px;
+}
+
+.broadcast-page-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+
+.broadcast-page-card strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.broadcast-page-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.broadcast-page-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.broadcast-page-metrics span {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.broadcast-page-metrics strong {
+  font-size: 18px;
+}
+
+.broadcast-page-metrics small {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .live-inbox {
