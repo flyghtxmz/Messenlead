@@ -8,6 +8,7 @@ const navItems = [
   { id: "inbox", label: "Inbox", icon: "inbox" },
   { id: "subscribers", label: "Assinantes", icon: "users" },
   { id: "broadcasts", label: "Disparos", icon: "send" },
+  { id: "image", label: "Imagem", icon: "image" },
   { id: "setup", label: "Messenger", icon: "plug" },
   { id: "settings", label: "Ajustes", icon: "settings" }
 ];
@@ -35,6 +36,7 @@ const icons = {
   inbox: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M3 15h5l2 3h4l2-3h5L18 4H6L3 15Z"/></svg>`,
   users: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   send: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>`,
+  image: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4V5Z"/><path d="m8 15 3-3 2 2 3-4 4 5"/><circle cx="8.5" cy="9.5" r="1.5"/></svg>`,
   plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2m6 6V2M6 8h12v5a6 6 0 0 1-12 0V8Z"/></svg>`,
   settings: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.1.36.66 1 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></svg>`,
   play: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7V5Z"/></svg>`,
@@ -69,6 +71,12 @@ let selectedContactId = state.contacts[0]?.id;
 let searchQuery = "";
 let simLog = [];
 let modalState = null;
+let imageToolState = {
+  original: null,
+  cleaned: null,
+  processing: false,
+  error: ""
+};
 const storedCanvasZoom = localStorage.getItem("messenlead.canvas.zoom");
 let canvasZoom = Number(storedCanvasZoom) || 0.78;
 let shouldAutoFitCanvas = !storedCanvasZoom;
@@ -110,6 +118,8 @@ workspace.addEventListener("click", handleWorkspaceClick);
 workspace.addEventListener("input", handleWorkspaceInput);
 workspace.addEventListener("change", handleWorkspaceChange);
 workspace.addEventListener("keydown", handleWorkspaceKeydown);
+workspace.addEventListener("dragover", handleWorkspaceDragOver);
+workspace.addEventListener("drop", handleWorkspaceDrop);
 modalRoot.addEventListener("click", handleModalClick);
 modalRoot.addEventListener("submit", handleModalSubmit);
 
@@ -499,6 +509,7 @@ function render() {
     inbox: renderInbox,
     subscribers: renderSubscribers,
     broadcasts: renderBroadcasts,
+    image: renderImageTool,
     setup: renderSetup,
     settings: renderSettings
   };
@@ -514,6 +525,7 @@ function renderNav() {
     inbox: state.contacts.filter((contact) => contact.status === "open").length,
     subscribers: state.contacts.length,
     broadcasts: state.campaigns.filter((campaign) => campaign.status !== "sent").length,
+    image: "",
     setup: "",
     settings: ""
   };
@@ -1262,6 +1274,86 @@ function renderBroadcasts() {
   `;
 }
 
+function renderImageTool() {
+  const original = imageToolState.original;
+  const cleaned = imageToolState.cleaned;
+  const savedBytes = original && cleaned ? Math.max(0, original.size - cleaned.size) : 0;
+
+  workspace.innerHTML = `
+    <section class="panel image-tool-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Limpar metadados de imagem</h2>
+          <span>Remove EXIF/metadados reexportando a imagem no navegador</span>
+        </div>
+        <div class="button-row">
+          <button class="secondary-button" type="button" data-action="choose-image">${icons.image}<span>Escolher imagem</span></button>
+          ${cleaned ? `<button class="primary-button" type="button" data-action="download-clean-image">${icons.send}<span>Baixar limpa</span></button>` : ""}
+          ${original ? `<button class="secondary-button" type="button" data-action="clear-image-tool">${icons.trash}<span>Limpar</span></button>` : ""}
+        </div>
+      </div>
+
+      <input id="imageUpload" type="file" accept="image/jpeg,image/png,image/webp,image/*" hidden />
+
+      <div class="panel-body image-tool-body">
+        ${
+          original
+            ? `
+              <div class="image-preview-grid">
+                ${renderImagePreviewCard("Original", original)}
+                ${cleaned ? renderImagePreviewCard("Sem metadados", cleaned) : renderImageProcessingCard()}
+              </div>
+              <div class="image-result-bar">
+                <span><strong>${cleaned ? formatBytes(savedBytes) : "-"}</strong><span>economia estimada</span></span>
+                <span><strong>${cleaned ? outputTypeLabel(cleaned.type) : "-"}</strong><span>formato de saida</span></span>
+                <span><strong>${cleaned ? `${cleaned.width}x${cleaned.height}` : "-"}</strong><span>dimensoes</span></span>
+              </div>
+            `
+            : `
+              <label class="image-dropzone" for="imageUpload">
+                ${icons.image}
+                <strong>Solte ou selecione uma imagem</strong>
+                <span>JPG, PNG e WebP sao processados localmente. A imagem nao sai do seu navegador.</span>
+              </label>
+            `
+        }
+        ${imageToolState.error ? `<div class="modal-error">${escapeHtml(imageToolState.error)}</div>` : ""}
+        <p class="muted">A limpeza e feita desenhando a imagem em um canvas e exportando um novo arquivo. Isso remove metadados como camera, geolocalizacao e EXIF do arquivo original.</p>
+      </div>
+    </section>
+  `;
+}
+
+function renderImagePreviewCard(title, image) {
+  return `
+    <article class="image-preview-card">
+      <div class="image-preview-frame">
+        <img src="${attr(image.url)}" alt="${attr(title)}" />
+      </div>
+      <div class="image-preview-meta">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(image.name)}</span>
+        <span>${formatBytes(image.size)} - ${outputTypeLabel(image.type)} - ${image.width}x${image.height}</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderImageProcessingCard() {
+  return `
+    <article class="image-preview-card">
+      <div class="image-preview-frame empty">
+        ${icons.image}
+        <span>${imageToolState.processing ? "Limpando..." : "Aguardando processamento"}</span>
+      </div>
+      <div class="image-preview-meta">
+        <strong>Sem metadados</strong>
+        <span>Novo arquivo sera gerado aqui.</span>
+      </div>
+    </article>
+  `;
+}
+
 function renderSetup() {
   const flowJson = JSON.stringify({ flows: state.flows }, null, 2);
 
@@ -1887,6 +1979,9 @@ function handleWorkspaceClick(event) {
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
   if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins", "Campos copiados.");
   if (action === "refresh-broadcast-eligibility") return refreshBroadcastEligibility();
+  if (action === "choose-image") return document.querySelector("#imageUpload")?.click();
+  if (action === "download-clean-image") return downloadCleanImage();
+  if (action === "clear-image-tool") return clearImageTool();
   if (action === "copy-verify") return copyText(state.settings.verifyToken, "Verify token copiado.");
   if (action === "copy-send") return copyText(`${location.origin}/api/messenger/send`, "Endpoint copiado.");
   if (action === "copy-env") return copyText(document.querySelector("#envBlock")?.textContent || "", "Variáveis copiadas.");
@@ -1922,6 +2017,11 @@ function handleWorkspaceInput(event) {
 
 function handleWorkspaceChange(event) {
   const target = event.target;
+  if (target.id === "imageUpload") {
+    handleImageUpload(target.files?.[0]);
+    target.value = "";
+    return;
+  }
   if (target.dataset.nodeField || target.dataset.flowField || target.dataset.settingField) {
     render();
   }
@@ -1937,6 +2037,20 @@ function handleWorkspaceKeydown(event) {
     event.preventDefault();
     sendContactMessage();
   }
+}
+
+function handleWorkspaceDragOver(event) {
+  if (activeView !== "image") return;
+  if (!event.dataTransfer?.types?.includes("Files")) return;
+  event.preventDefault();
+}
+
+function handleWorkspaceDrop(event) {
+  if (activeView !== "image") return;
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) return;
+  event.preventDefault();
+  handleImageUpload(file);
 }
 
 function createFlow() {
@@ -2327,6 +2441,127 @@ function deleteCampaign(id) {
   });
 }
 
+async function handleImageUpload(file) {
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    imageToolState.error = "Selecione um arquivo de imagem.";
+    render();
+    return;
+  }
+
+  clearImageUrls();
+  const originalUrl = URL.createObjectURL(file);
+  imageToolState = {
+    original: {
+      name: file.name,
+      size: file.size,
+      type: file.type || "image/png",
+      url: originalUrl,
+      width: 0,
+      height: 0
+    },
+    cleaned: null,
+    processing: true,
+    error: ""
+  };
+  render();
+
+  try {
+    const result = await stripImageMetadata(file, originalUrl);
+    imageToolState.original.width = result.width;
+    imageToolState.original.height = result.height;
+    imageToolState.cleaned = {
+      name: cleanedImageName(file.name, result.type),
+      size: result.blob.size,
+      type: result.type,
+      url: URL.createObjectURL(result.blob),
+      width: result.width,
+      height: result.height,
+      blob: result.blob
+    };
+    imageToolState.processing = false;
+    toastMessage("Metadados removidos.");
+  } catch (error) {
+    imageToolState.processing = false;
+    imageToolState.error = error.message || "Nao foi possivel processar esta imagem.";
+  }
+
+  render();
+}
+
+async function stripImageMetadata(file, sourceUrl) {
+  const image = await loadImageElement(sourceUrl);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+
+  if (!width || !height) {
+    throw new Error("Nao consegui ler as dimensoes da imagem.");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+
+  const type = normalizedImageOutputType(file.type);
+  const blob = await new Promise((resolve) => {
+    canvas.toBlob(resolve, type, type === "image/png" ? undefined : 0.92);
+  });
+
+  if (!blob) {
+    throw new Error("O navegador nao conseguiu exportar a imagem limpa.");
+  }
+
+  return { blob, type, width, height };
+}
+
+function loadImageElement(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Formato de imagem nao suportado pelo navegador."));
+    image.src = url;
+  });
+}
+
+function normalizedImageOutputType(type) {
+  if (["image/jpeg", "image/png", "image/webp"].includes(type)) return type;
+  return "image/png";
+}
+
+function cleanedImageName(name, type) {
+  const base = String(name || "imagem").replace(/\.[^.]+$/, "") || "imagem";
+  const extension = type === "image/jpeg" ? "jpg" : type.split("/")[1] || "png";
+  return `${base}-sem-metadados.${extension}`;
+}
+
+function outputTypeLabel(type) {
+  return String(type || "image/png").replace("image/", "").toUpperCase().replace("JPEG", "JPG");
+}
+
+function downloadCleanImage() {
+  const cleaned = imageToolState.cleaned;
+  if (!cleaned?.blob) return;
+  downloadBlob(cleaned.name, cleaned.blob);
+}
+
+function clearImageTool() {
+  clearImageUrls();
+  imageToolState = {
+    original: null,
+    cleaned: null,
+    processing: false,
+    error: ""
+  };
+  render();
+}
+
+function clearImageUrls() {
+  if (imageToolState.original?.url) URL.revokeObjectURL(imageToolState.original.url);
+  if (imageToolState.cleaned?.url) URL.revokeObjectURL(imageToolState.cleaned.url);
+}
+
 function startSimulation() {
   const flow = selectedFlow();
   if (!flow) return;
@@ -2575,6 +2810,7 @@ function placeholderForView(view) {
     inbox: "Buscar conversa Messenger",
     subscribers: "Buscar assinante ou PSID",
     broadcasts: "Buscar disparo",
+    image: "Limpar metadados de imagem",
     setup: "Buscar configuração",
     settings: "Buscar ajuste"
   };
@@ -2858,6 +3094,21 @@ function formatDate(value) {
   }
 }
 
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  let size = bytes / 1024;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+}
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -2916,6 +3167,10 @@ function exportSubscribersCsv() {
 
 function downloadFile(name, content, type) {
   const blob = new Blob([content], { type });
+  downloadBlob(name, blob);
+}
+
+function downloadBlob(name, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
