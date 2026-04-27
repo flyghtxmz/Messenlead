@@ -51,6 +51,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
 svg {
   display: block;
   fill: none;
@@ -1327,6 +1332,33 @@ svg {
   gap: 10px;
 }
 
+.broadcast-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--line);
+}
+
+.broadcast-summary > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: #fbfcfa;
+}
+
+.broadcast-summary strong {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.broadcast-summary span span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .campaign-item {
   display: grid;
   gap: 8px;
@@ -1682,6 +1714,10 @@ svg {
   }
 
   .split-page {
+    grid-template-columns: 1fr;
+  }
+
+  .broadcast-summary {
     grid-template-columns: 1fr;
   }
 

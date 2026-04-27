@@ -26,6 +26,7 @@ const NODE_WIDTH = 228;
 const NODE_CENTER_Y = 70;
 const ZOOM_MIN = 0.45;
 const ZOOM_MAX = 1.15;
+const MESSENGER_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const icons = {
   dashboard: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h7V4H4v9Zm9 7h7V4h-7v16ZM4 20h7v-5H4v5Z"/></svg>`,
@@ -1128,6 +1129,9 @@ function renderSubscribers() {
 
 function renderBroadcasts() {
   const filteredCampaigns = filterBySearch(state.campaigns, (campaign) => `${campaign.name} ${campaign.audienceTag} ${campaign.message}`);
+  const totalEligible = eligibleContactsForBroadcast().length;
+  const openContacts = state.contacts.filter((contact) => contact.status === "open").length;
+  const outsideWindow = state.contacts.filter((contact) => contact.psid && contact.status === "open" && !isInsideMessengerReplyWindow(contact)).length;
 
   workspace.innerHTML = `
     <div class="two-column">
@@ -1139,17 +1143,32 @@ function renderBroadcasts() {
           </div>
           <button class="primary-button" type="button" data-action="new-campaign">${icons.plus}<span>Novo disparo</span></button>
         </div>
+        <div class="broadcast-summary">
+          <span>
+            <strong>${totalEligible}</strong>
+            <span>Aptos agora</span>
+          </span>
+          <span>
+            <strong>${openContacts}</strong>
+            <span>Conversas abertas</span>
+          </span>
+          <span>
+            <strong>${outsideWindow}</strong>
+            <span>Fora da janela 24h</span>
+          </span>
+        </div>
         <div class="panel-body campaign-list">
           ${filteredCampaigns
             .map(
               (campaign) => {
                 const audience = state.contacts.filter((contact) => contact.tag === campaign.audienceTag).length;
+                const eligibleAudience = eligibleContactsForBroadcast(campaign.audienceTag).length;
                 return `
                   <article class="campaign-item">
                     <div class="row-between">
                       <div>
                         <strong>${escapeHtml(campaign.name)}</strong>
-                        <span>${audience} assinante${audience === 1 ? "" : "s"} com tag ${escapeHtml(campaign.audienceTag)}</span>
+                        <span>${eligibleAudience} apto${eligibleAudience === 1 ? "" : "s"} de ${audience} com tag ${escapeHtml(campaign.audienceTag)}</span>
                       </div>
                       ${statusBadge(campaign.status)}
                     </div>
@@ -1158,7 +1177,7 @@ function renderBroadcasts() {
                     <div class="row-between">
                       <span>${campaign.sent} enviados · ${campaign.delivered} entregues · ${campaign.replies} respostas</span>
                       <div class="button-row">
-                        <button class="secondary-button" type="button" data-action="launch-campaign" data-id="${campaign.id}">${icons.send}<span>Simular envio</span></button>
+                        <button class="secondary-button" type="button" data-action="launch-campaign" data-id="${campaign.id}" ${eligibleAudience ? "" : "disabled"}>${icons.send}<span>Simular envio</span></button>
                         <button class="danger-button" type="button" data-action="delete-campaign" data-id="${campaign.id}">${icons.trash}</button>
                       </div>
                     </div>
@@ -2162,7 +2181,11 @@ function createCampaignFromValues({ name, audienceTag, message }) {
 function launchCampaign(id) {
   const campaign = state.campaigns.find((item) => item.id === id);
   if (!campaign) return;
-  const audience = state.contacts.filter((contact) => contact.tag === campaign.audienceTag);
+  const audience = eligibleContactsForBroadcast(campaign.audienceTag);
+  if (!audience.length) {
+    toastMessage("Nenhum contato apto para receber este disparo agora.");
+    return;
+  }
   campaign.status = "sent";
   campaign.sent = audience.length;
   campaign.delivered = Math.max(0, audience.length - (audience.length > 2 ? 1 : 0));
@@ -2581,6 +2604,24 @@ function initials(name) {
 
 function lastMessage(contact) {
   return contact.messages?.[contact.messages.length - 1];
+}
+
+function eligibleContactsForBroadcast(tagName = "") {
+  return state.contacts.filter((contact) => isBroadcastEligible(contact, tagName));
+}
+
+function isBroadcastEligible(contact, tagName = "") {
+  if (tagName && contact.tag !== tagName) return false;
+  if (!contact.psid) return false;
+  if (contact.status !== "open") return false;
+  return isInsideMessengerReplyWindow(contact);
+}
+
+function isInsideMessengerReplyWindow(contact) {
+  const value = contact.lastSeen || lastMessage(contact)?.at;
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return false;
+  return Date.now() - timestamp <= MESSENGER_REPLY_WINDOW_MS;
 }
 
 function conversationTitle(conversation, pageName) {
