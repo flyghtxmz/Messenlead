@@ -1548,16 +1548,14 @@ async function syncAllFlowsToServer() {
 
 async function deleteFlowFromServer(flowId, pageId) {
   if (!flowId) return;
-  if (flowStore.serverAvailable === false && flowStore.pageId === pageId) return;
 
-  try {
-    await fetch(`/api/flows?pageId=${encodeURIComponent(pageId)}&flowId=${encodeURIComponent(flowId)}`, {
-      method: "DELETE",
-      credentials: "same-origin"
-    });
-  } catch {
-    // Local delete still succeeds; server sync status will be corrected on the next save/load.
-  }
+  const response = await fetch(`/api/flows?pageId=${encodeURIComponent(pageId)}&flowId=${encodeURIComponent(flowId)}`, {
+    method: "DELETE",
+    credentials: "same-origin"
+  });
+  await parseApiResponse(response);
+  flowStore.serverAvailable = true;
+  flowStore.pageId = pageId;
 }
 
 function currentFlowPageId() {
@@ -1950,18 +1948,41 @@ function deleteFlow(flowId = selectedFlowId, options = {}) {
   });
 }
 
-function performDeleteFlow(flow, options = {}) {
+async function performDeleteFlow(flow, options = {}) {
   const deletedFlowId = flow.id;
   const pageId = currentFlowPageId();
+  const previousState = {
+    flows: state.flows,
+    selectedFlowId,
+    selectedNodeId,
+    flowCanvasOpen
+  };
+
   state.flows = state.flows.filter((item) => item.id !== flow.id);
   if (selectedFlowId === deletedFlowId) {
     selectedFlowId = state.flows[0]?.id;
     selectedNodeId = state.flows[0]?.nodes[0]?.id;
   }
   flowCanvasOpen = options.openCanvasAfterDelete ?? Boolean(state.flows.length);
-  saveState();
-  deleteFlowFromServer(deletedFlowId, pageId);
+  persistLocalState();
+  flowStore.status = "Excluindo no D1";
   render();
+
+  try {
+    await deleteFlowFromServer(deletedFlowId, pageId);
+    flowStore.status = "Salvo no D1";
+    toastMessage("Fluxo excluido.");
+    updateSyncPill();
+  } catch (error) {
+    state.flows = previousState.flows;
+    selectedFlowId = previousState.selectedFlowId;
+    selectedNodeId = previousState.selectedNodeId;
+    flowCanvasOpen = previousState.flowCanvasOpen;
+    persistLocalState();
+    flowStore.status = flowStoreStatusFromError(error);
+    toastMessage(`Nao exclui no D1: ${error.message}`);
+    render();
+  }
 }
 
 function deleteNode() {
