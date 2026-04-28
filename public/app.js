@@ -557,13 +557,22 @@ function loadState() {
 
 function normalizeWorkspaceState(workspace) {
   const activePageId = normalizeFlowPageId(workspace.settings?.pageId);
+  const hasScopedFlows =
+    workspace.flowsByPage && typeof workspace.flowsByPage === "object" && !Array.isArray(workspace.flowsByPage);
   const flowsByPage =
-    workspace.flowsByPage && typeof workspace.flowsByPage === "object" && !Array.isArray(workspace.flowsByPage)
-      ? workspace.flowsByPage
-      : {};
+    hasScopedFlows ? workspace.flowsByPage : {};
 
-  if (!flowsByPage[activePageId] && Array.isArray(workspace.flows)) {
-    flowsByPage[activePageId] = workspace.flows;
+  if (!hasScopedFlows && !flowsByPage[activePageId] && Array.isArray(workspace.flows)) {
+    flowsByPage[activePageId] = workspace.flows.map((flow) => stampFlowPage(flow, activePageId));
+  }
+
+  for (const [pageId, flows] of Object.entries(flowsByPage)) {
+    const normalizedPageId = normalizeFlowPageId(pageId);
+    flowsByPage[normalizedPageId] = Array.isArray(flows)
+      ? flows
+          .filter((flow) => flowBelongsToPage(flow, normalizedPageId, { allowUnscoped: normalizedPageId === activePageId }))
+          .map((flow) => stampFlowPage(flow, normalizedPageId))
+      : [];
   }
 
   return {
@@ -586,20 +595,40 @@ function ensureFlowsByPage() {
 
 function cacheCurrentPageFlows(pageId = currentFlowPageId()) {
   const flowsByPage = ensureFlowsByPage();
-  flowsByPage[normalizeFlowPageId(pageId)] = Array.isArray(state.flows) ? state.flows : [];
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  flowsByPage[normalizedPageId] = Array.isArray(state.flows) ? state.flows.map((flow) => stampFlowPage(flow, normalizedPageId)) : [];
 }
 
 function localFlowsForPage(pageId) {
   const flowsByPage = ensureFlowsByPage();
   const key = normalizeFlowPageId(pageId);
-  return Array.isArray(flowsByPage[key]) ? flowsByPage[key] : [];
+  const flows = Array.isArray(flowsByPage[key]) ? flowsByPage[key] : [];
+  const scopedFlows = flows.filter((flow) => flowBelongsToPage(flow, key)).map((flow) => stampFlowPage(flow, key));
+  flowsByPage[key] = scopedFlows;
+  return scopedFlows;
 }
 
 function setActiveFlowsForPage(pageId, flows = localFlowsForPage(pageId)) {
-  state.flows = Array.isArray(flows) ? flows : [];
-  ensureFlowsByPage()[normalizeFlowPageId(pageId)] = state.flows;
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  state.flows = Array.isArray(flows)
+    ? flows.filter((flow) => flowBelongsToPage(flow, normalizedPageId)).map((flow) => stampFlowPage(flow, normalizedPageId))
+    : [];
+  ensureFlowsByPage()[normalizedPageId] = state.flows;
   selectedFlowId = state.flows[0]?.id;
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
+}
+
+function stampFlowPage(flow, pageId) {
+  if (flow && typeof flow === "object") {
+    flow.pageId = normalizeFlowPageId(pageId);
+  }
+  return flow;
+}
+
+function flowBelongsToPage(flow, pageId, options = {}) {
+  if (!flow || typeof flow !== "object") return false;
+  if (!flow.pageId) return Boolean(options.allowUnscoped);
+  return normalizeFlowPageId(flow.pageId) === normalizeFlowPageId(pageId);
 }
 
 function saveState() {
@@ -1890,9 +1919,7 @@ async function loadFlowsForPage(pageId) {
       persistLocalState();
       flowStore.status = "Salvo no D1";
     } else if (localFlows.length) {
-      await apiPost("/api/flows", { pageId: normalizedPageId, flows: localFlows });
-      if (currentFlowPageId() !== normalizedPageId) return;
-      flowStore.status = "Rascunhos locais salvos no D1";
+      flowStore.status = "Rascunhos locais desta pagina";
     } else {
       setActiveFlowsForPage(normalizedPageId, []);
       persistLocalState();

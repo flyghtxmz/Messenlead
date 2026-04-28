@@ -53,6 +53,10 @@ export async function upsertFlow(env, pageId, flow) {
   if (!hasDb) throw new Error("D1 binding DB is not configured");
 
   const normalizedPageId = normalizePageId(pageId);
+  if (flow?.pageId && normalizePageId(flow.pageId) !== normalizedPageId) {
+    throw new Error("Flow belongs to another page");
+  }
+
   const now = new Date().toISOString();
   const normalizedFlow = normalizeFlow(flow, now);
 
