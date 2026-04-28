@@ -629,17 +629,17 @@ function renderPageSwitcher() {
     pages.find((page) => page.id === state.settings.pageId) ||
     null;
   const pageName = selectedPage?.name || state.settings.pageName || "Selecionar Página";
-  const pageInitials = initials(pageName);
+  const pageAvatar = renderPageAvatar(selectedPage, pageName);
 
   if (!pages.length) {
     pageSwitcher.innerHTML = `
       <button class="page-switcher-button" type="button" data-action="go-pages" title="Selecionar Página">
-        <span class="page-avatar">${escapeHtml(pageInitials)}</span>
+        ${pageAvatar}
         <span class="page-switcher-copy">
           <strong>${escapeHtml(pageName)}</strong>
           <span>${metaState.profile ? "Conectar Página" : "Entrar com Facebook"}</span>
         </span>
-        <span class="page-switcher-chevron">⌄</span>
+        <span class="page-switcher-chevron">v</span>
       </button>
     `;
     return;
@@ -647,7 +647,7 @@ function renderPageSwitcher() {
 
   pageSwitcher.innerHTML = `
     <label class="page-switcher-control" title="Página onde os fluxos serão criados">
-      <span class="page-avatar">${escapeHtml(pageInitials)}</span>
+      ${pageAvatar}
       <span class="page-switcher-copy">
         <strong>${escapeHtml(pageName)}</strong>
         <span>${escapeHtml(selectedPage?.category || "Página do Facebook")}</span>
@@ -657,9 +657,17 @@ function renderPageSwitcher() {
           .map((page) => `<option value="${attr(page.id)}" ${page.id === (selectedPage?.id || metaState.selectedPageId) ? "selected" : ""}>${escapeHtml(page.name)}</option>`)
           .join("")}
       </select>
-      <span class="page-switcher-chevron">⌄</span>
+      <span class="page-switcher-chevron">v</span>
     </label>
   `;
+}
+
+function renderPageAvatar(page, fallbackName) {
+  const picture = page?.picture || "";
+  if (picture) {
+    return `<span class="page-avatar has-image"><img src="${attr(picture)}" alt="${attr(fallbackName || "Página")}" loading="lazy" /></span>`;
+  }
+  return `<span class="page-avatar">${escapeHtml(initials(fallbackName || "Página"))}</span>`;
 }
 
 function renderDashboard() {
@@ -1022,19 +1030,14 @@ function renderFlows() {
         </div>
       </section>
 
-      <aside class="panel inspector flow-config-popover">
-        <div class="panel-header">
-          <div>
-            <h2>Inspetor</h2>
-            <span>${node ? nodeLabels[node.type] : "Selecione um bloco"}</span>
-          </div>
-          <div class="button-row">
-            <div class="segmented" aria-label="Status do fluxo">
-              ${["draft", "active", "paused"]
-                .map((status) => `<button class="${flow.status === status ? "active" : ""}" type="button" data-action="set-flow-status" data-status="${status}">${statusLabel(status)}</button>`)
-                .join("")}
-            </div>
-            <button class="icon-button" type="button" data-action="toggle-inspector" title="Fechar inspetor">&times;</button>
+      <aside class="panel inspector flow-config-drawer">
+        <div class="flow-config-header">
+          <span>Automation</span>
+          <input class="drawer-title-input" data-flow-field="name" value="${attr(flow.name || "Sem Título")}" aria-label="Nome do fluxo" />
+          <div class="segmented" aria-label="Status do fluxo">
+            ${["draft", "active", "paused"]
+              .map((status) => `<button class="${flow.status === status ? "active" : ""}" type="button" data-action="set-flow-status" data-status="${status}">${statusLabel(status)}</button>`)
+              .join("")}
           </div>
         </div>
         <div class="panel-body stack">
@@ -1987,6 +1990,159 @@ function renderTriggerPicker(flow) {
 }
 
 function renderInspector(flow, node) {
+  if (node.type === "trigger") return renderTriggerSettings(flow, node);
+  if (node.type === "message") return renderMessageSettings(flow, node);
+  if (node.type === "condition") return renderConditionSettings(flow, node);
+  if (node.type === "delay") return renderDelaySettings(flow, node);
+  return renderActionSettings(flow, node);
+}
+
+function renderTriggerSettings(flow, node) {
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Quando...", "Gatilho inicial da automação", icons.trigger)}
+      <div class="settings-card">
+        <div class="settings-card-title">
+          <strong>Gatilhos</strong>
+          <span>Ative uma ou mais formas de iniciar este fluxo.</span>
+        </div>
+        <div class="trigger-token-list">
+          ${nodeTriggerEvents(node)
+            .map((id) => `<span>${escapeHtml(triggerOptionById(id)?.title || id)}</span>`)
+            .join("")}
+        </div>
+        <button class="dashed-add-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">+ Novo Gatilho</button>
+      </div>
+      <label class="settings-field">
+        <span>Palavras-chave ou referência</span>
+        <input data-node-field="keyword" value="${attr(node.keyword || "")}" placeholder="oi, preço, qr-campanha, ref-link" />
+      </label>
+      <label class="settings-field">
+        <span>Descrição interna</span>
+        <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
+      </label>
+      ${nextStepField(flow, node)}
+      ${flowGoalField(flow)}
+      ${settingsDangerZone()}
+    </form>
+  `;
+}
+
+function renderMessageSettings(flow, node) {
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Messenger", "Enviar mensagem", icons.message)}
+      <label class="settings-field">
+        <span>Título do bloco</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <div class="message-builder-card">
+        <div class="message-builder-header">
+          <span class="trigger-option-icon">${icons.message}</span>
+          <div>
+            <strong>Enviar Mensagem</strong>
+            <span>Conteúdo enviado pelo Messenger.</span>
+          </div>
+        </div>
+        <label class="settings-field">
+          <span>Texto</span>
+          <textarea data-node-field="message" placeholder="Adicionar texto">${escapeHtml(node.message || "")}</textarea>
+        </label>
+        <label class="settings-field">
+          <span>Respostas rápidas</span>
+          <input data-node-field="quickReplies" value="${attr((node.quickReplies || []).join(", "))}" placeholder="Sim, Não, Falar com humano" />
+        </label>
+      </div>
+      ${nextStepField(flow, node)}
+      ${settingsDangerZone()}
+    </form>
+  `;
+}
+
+function renderConditionSettings(flow, node) {
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Condição", "Definir caminho por regra", icons.condition)}
+      <label class="settings-field">
+        <span>Nome da condição</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <div class="settings-card">
+        <div class="settings-card-title">
+          <strong>Se a mensagem contém</strong>
+          <span>Use vírgulas para separar termos.</span>
+        </div>
+        <input data-node-field="keyword" value="${attr(node.keyword || "")}" placeholder="preço, orçamento, proposta" />
+      </div>
+      <label class="settings-field">
+        <span>Observação interna</span>
+        <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
+      </label>
+      ${nextStepField(flow, node)}
+      ${settingsDangerZone()}
+    </form>
+  `;
+}
+
+function renderDelaySettings(flow, node) {
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Espera", "Aguardar antes de continuar", icons.delay)}
+      <label class="settings-field">
+        <span>Nome da espera</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <div class="settings-card compact-setting">
+        <label class="settings-field">
+          <span>Esperar por minutos</span>
+          <input type="number" min="0" data-node-field="delayMinutes" value="${attr(node.delayMinutes || 0)}" />
+        </label>
+      </div>
+      <label class="settings-field">
+        <span>Descrição interna</span>
+        <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
+      </label>
+      ${nextStepField(flow, node)}
+      ${settingsDangerZone()}
+    </form>
+  `;
+}
+
+function renderActionSettings(flow, node) {
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Ação", "Aplicar tag ou acionar atendimento", icons.action)}
+      <label class="settings-field">
+        <span>Nome da ação</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <label class="settings-field">
+        <span>Tag</span>
+        <input data-node-field="tag" value="${attr(node.tag || "")}" placeholder="lead-quente" />
+      </label>
+      <label class="settings-field">
+        <span>Instrução interna</span>
+        <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
+      </label>
+      ${nextStepField(flow, node)}
+      ${settingsDangerZone()}
+    </form>
+  `;
+}
+
+function settingsSectionHeader(title, subtitle, icon) {
+  return `
+    <div class="settings-section-header">
+      <span class="settings-section-icon">${icon}</span>
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(subtitle)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function nextStepField(flow, node) {
   const options = [`<option value="">Fim do fluxo</option>`]
     .concat(
       flow.nodes
@@ -1996,69 +2152,28 @@ function renderInspector(flow, node) {
     .join("");
 
   return `
-    <form class="inspector-form">
-      <div class="field">
-        <label for="nodeType">Tipo</label>
-        <select id="nodeType" data-node-field="type">
-          ${Object.entries(nodeLabels).map(([value, label]) => `<option value="${value}" ${node.type === value ? "selected" : ""}>${label}</option>`).join("")}
-        </select>
-      </div>
-      <div class="field">
-        <label for="nodeTitle">Título</label>
-        <input id="nodeTitle" data-node-field="title" value="${attr(node.title)}" />
-      </div>
-      ${
-        node.type === "trigger"
-          ? `
-            <div class="field">
-              <label>Gatilhos ativos</label>
-              <div class="trigger-token-list">
-                ${nodeTriggerEvents(node)
-                  .map((id) => `<span>${escapeHtml(triggerOptionById(id)?.title || id)}</span>`)
-                  .join("")}
-              </div>
-              <button class="secondary-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">${icons.plus}<span>Novo gatilho</span></button>
-            </div>
-          `
-          : ""
-      }
-      <div class="field">
-        <label for="nodeMessage">Mensagem ou instrução</label>
-        <textarea id="nodeMessage" data-node-field="message">${escapeHtml(node.message || "")}</textarea>
-      </div>
-      <div class="inline-fields">
-        <div class="field">
-          <label for="nodeKeyword">Palavras-chave</label>
-          <input id="nodeKeyword" data-node-field="keyword" value="${attr(node.keyword || "")}" placeholder="oi, preço, suporte" />
-        </div>
-        <div class="field">
-          <label for="nodeTag">Tag</label>
-          <input id="nodeTag" data-node-field="tag" value="${attr(node.tag || "")}" placeholder="lead-quente" />
-        </div>
-      </div>
-      <div class="field">
-        <label for="quickReplies">Respostas rápidas</label>
-        <input id="quickReplies" data-node-field="quickReplies" value="${attr((node.quickReplies || []).join(", "))}" placeholder="Sim, Não, Falar com humano" />
-      </div>
-      <div class="inline-fields">
-        <div class="field">
-          <label for="delayMinutes">Espera em minutos</label>
-          <input id="delayMinutes" type="number" min="0" data-node-field="delayMinutes" value="${attr(node.delayMinutes || 0)}" />
-        </div>
-        <div class="field">
-          <label for="nextNode">Próximo bloco</label>
-          <select id="nextNode" data-node-field="next">${options}</select>
-        </div>
-      </div>
-      <div class="field">
-        <label for="flowGoal">Objetivo do fluxo</label>
-        <textarea id="flowGoal" data-flow-field="goal">${escapeHtml(flow.goal || "")}</textarea>
-      </div>
-      <div class="button-row">
-        <button class="danger-button" type="button" data-action="delete-node">${icons.trash}<span>Excluir bloco</span></button>
-        <button class="secondary-button" type="button" data-action="delete-flow">${icons.trash}<span>Excluir fluxo</span></button>
-      </div>
-    </form>
+    <label class="settings-field">
+      <span>Próximo passo</span>
+      <select data-node-field="next">${options}</select>
+    </label>
+  `;
+}
+
+function flowGoalField(flow) {
+  return `
+    <label class="settings-field">
+      <span>Objetivo do fluxo</span>
+      <textarea data-flow-field="goal">${escapeHtml(flow.goal || "")}</textarea>
+    </label>
+  `;
+}
+
+function settingsDangerZone() {
+  return `
+    <div class="settings-footer-actions">
+      <button class="danger-button" type="button" data-action="delete-node">${icons.trash}<span>Excluir bloco</span></button>
+      <button class="secondary-button" type="button" data-action="delete-flow">${icons.trash}<span>Excluir fluxo</span></button>
+    </div>
   `;
 }
 

@@ -221,11 +221,18 @@ svg {
   width: 32px;
   height: 32px;
   place-items: center;
+  overflow: hidden;
   border-radius: 50%;
   background: #e9f2ef;
   color: var(--green-dark);
   font-size: 11px;
   font-weight: 900;
+}
+
+.page-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .page-switcher-copy {
@@ -2166,7 +2173,7 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 286px minmax(0, 1fr);
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .canvas-shell {
@@ -2179,6 +2186,10 @@ svg {
   border: 0;
   border-radius: 0;
   box-shadow: none;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused.show-inspector > .canvas-shell {
+  grid-column: 2;
 }
 
 .app-shell.canvas-mode .canvas-toolbar {
@@ -2210,6 +2221,11 @@ svg {
   opacity: 0.56;
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
   transform: translateY(-50%);
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused.show-inspector .canvas-peek-button {
+  left: -14px;
+  opacity: 1;
 }
 
 .app-shell.canvas-mode .canvas-peek-button:hover,
@@ -2425,22 +2441,25 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
-  position: absolute;
-  top: 68px;
-  left: 50%;
+  position: relative;
+  top: auto;
+  left: auto;
   right: auto;
-  z-index: 40;
+  z-index: 20;
+  grid-column: 1;
+  grid-row: 1;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(350px, calc(100vw - 32px));
-  height: auto;
-  max-height: min(650px, calc(100vh - 96px));
+  width: auto;
+  height: 100vh;
+  max-height: none;
   overflow: hidden;
-  border: 1px solid #d5dde6;
-  border-radius: 8px;
+  border: 0;
+  border-right: 1px solid #d5dde6;
+  border-radius: 0;
   background: #ffffff;
-  box-shadow: 0 24px 58px rgba(15, 23, 42, 0.22);
-  transform: translateX(-50%);
+  box-shadow: none;
+  transform: none;
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused:not(.show-inspector) > .inspector {
@@ -2464,10 +2483,41 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-body {
-  max-height: calc(100vh - 180px);
+  max-height: none;
   min-height: 0;
-  padding: 12px;
+  padding: 0 14px 16px;
   overflow: auto;
+}
+
+.app-shell.canvas-mode .flow-config-header {
+  display: grid;
+  gap: 6px;
+  padding: 16px 14px 12px;
+  border-bottom: 1px solid #eef2f5;
+}
+
+.app-shell.canvas-mode .flow-config-header > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.drawer-title-input {
+  width: 100%;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.drawer-title-input:focus {
+  outline: 0;
+}
+
+.app-shell.canvas-mode .flow-config-header .segmented {
+  margin-top: 8px;
 }
 
 .app-shell.canvas-mode .trigger-picker-panel {
@@ -2621,6 +2671,126 @@ svg {
   gap: 14px;
 }
 
+.manychat-settings {
+  padding-top: 14px;
+}
+
+.settings-section-header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-section-icon,
+.message-builder-header .trigger-option-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eaf4ff;
+  color: #0077ff;
+}
+
+.settings-section-icon svg,
+.message-builder-header svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-section-header strong {
+  display: block;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.settings-section-header span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-card,
+.message-builder-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #d9e0e7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.settings-card-title strong,
+.message-builder-header strong {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.settings-card-title span,
+.message-builder-header span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.message-builder-header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-field {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-field > span {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settings-field input,
+.settings-field textarea,
+.settings-field select,
+.settings-card input {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid #d4dde7;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.settings-field textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.message-builder-card textarea {
+  min-height: 118px;
+}
+
+.dashed-add-button {
+  min-height: 36px;
+  border: 1px dashed #2f8cff;
+  border-radius: 8px;
+  background: #fff;
+  color: #0069df;
+  font-weight: 800;
+}
+
+.settings-footer-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding-top: 4px;
+}
+
 .app-shell.canvas-mode .inspector-form .field {
   gap: 7px;
 }
@@ -2649,20 +2819,22 @@ svg {
 
 @media (max-width: 1180px) {
   .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 272px minmax(0, 1fr);
   }
 
   .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
-    position: absolute;
-    top: 66px;
-    left: 50%;
+    position: relative;
+    top: auto;
+    left: auto;
     right: auto;
-    width: min(350px, calc(100vw - 32px));
-    height: auto;
-    max-height: min(650px, calc(100vh - 92px));
-    border: 1px solid #d5dde6;
-    border-radius: 8px;
-    box-shadow: 0 24px 58px rgba(15, 23, 42, 0.22);
+    width: auto;
+    height: 100vh;
+    max-height: none;
+    border: 0;
+    border-right: 1px solid #d5dde6;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
   }
 
   .app-shell.canvas-mode .canvas-toolbar {
@@ -2692,6 +2864,10 @@ svg {
     min-height: calc(100vh - 124px);
   }
 
+  .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
+    grid-template-columns: 1fr;
+  }
+
   .app-shell.canvas-mode .page-grid.canvas-focused > .canvas-shell {
     min-height: calc(100vh - 124px);
   }
@@ -2701,12 +2877,21 @@ svg {
   }
 
   .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
+    position: absolute;
     top: 58px;
     left: 12px;
     right: 12px;
+    z-index: 40;
     width: auto;
     height: auto;
     max-height: calc(100vh - 82px);
+    border: 1px solid #d5dde6;
+    border-radius: 8px;
+    box-shadow: 0 24px 58px rgba(15, 23, 42, 0.22);
     transform: none;
+  }
+
+  .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector > .canvas-shell {
+    grid-column: 1;
   }
 }
