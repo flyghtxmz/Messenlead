@@ -1973,3 +1973,347 @@ svg {
   display: grid;
   grid-template-columns: 1fr;
 }
+
+.app-shell.canvas-mode {
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.app-shell.canvas-mode.sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.app-shell.canvas-mode .sidebar {
+  z-index: 50;
+  padding: 12px 10px;
+  background: #ffffff;
+}
+
+.app-shell.canvas-mode .brand {
+  padding: 2px 4px 12px;
+}
+
+.app-shell.canvas-mode .brand-mark {
+  width: 34px;
+  height: 34px;
+}
+
+.app-shell.canvas-mode .nav-button {
+  min-height: 38px;
+  padding: 8px 9px;
+}
+
+.app-shell.canvas-mode .nav-button svg {
+  width: 19px;
+  height: 19px;
+}
+
+.app-shell.canvas-mode .workspace-health,
+.app-shell.canvas-mode .topbar {
+  display: none;
+}
+
+.app-shell.canvas-mode .content-frame {
+  min-width: 0;
+  min-height: 100vh;
+  background: #eef2f5;
+}
+
+.app-shell.canvas-mode .workspace {
+  min-height: 100vh;
+  padding: 0;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  height: 100vh;
+  min-height: 100vh;
+  align-items: stretch;
+  background: #eef2f5;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 372px);
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .canvas-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-column: 1;
+  min-width: 0;
+  min-height: 100vh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-shell.canvas-mode .canvas-toolbar {
+  position: relative;
+  z-index: 25;
+  min-height: 46px;
+  padding: 6px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid #d5dde6;
+  background: #ffffff;
+}
+
+.app-shell.canvas-mode .canvas-toolbar .tight-stack {
+  flex: 1 1 260px;
+  min-width: 0;
+  gap: 1px;
+}
+
+.app-shell.canvas-mode .canvas-toolbar .muted {
+  display: block;
+  max-width: 480px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.canvas-mode .field-input {
+  width: min(440px, 100%);
+  min-height: 30px;
+  padding: 3px 8px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 14px;
+}
+
+.app-shell.canvas-mode .sync-pill {
+  min-height: 28px;
+  padding: 0 9px;
+}
+
+.app-shell.canvas-mode .canvas-panel-controls,
+.app-shell.canvas-mode .canvas-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.app-shell.canvas-mode .canvas-zoom,
+.app-shell.canvas-mode .sync-pill {
+  flex: 0 0 auto;
+}
+
+.app-shell.canvas-mode .canvas-panel-controls .secondary-button,
+.app-shell.canvas-mode .canvas-actions .chip-button,
+.app-shell.canvas-mode .canvas-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 9px;
+}
+
+.app-shell.canvas-mode .canvas-zoom {
+  padding: 3px;
+}
+
+.app-shell.canvas-mode .canvas-zoom .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.app-shell.canvas-mode .canvas-zoom .secondary-button {
+  min-height: 28px;
+}
+
+.app-shell.canvas-mode .flow-canvas {
+  height: auto;
+  min-height: 0;
+  background:
+    radial-gradient(circle at 18px 18px, rgba(74, 91, 111, 0.2) 1px, transparent 1.2px),
+    linear-gradient(#e2e8ef 1px, transparent 1px),
+    linear-gradient(90deg, #e2e8ef 1px, transparent 1px);
+  background-color: #eef2f5;
+  background-size: 32px 32px;
+}
+
+.app-shell.canvas-mode .node {
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
+}
+
+.app-shell.canvas-mode .node.selected {
+  border-color: #6ba9ee;
+  box-shadow: 0 0 0 3px rgba(37, 111, 194, 0.14), 0 14px 28px rgba(15, 23, 42, 0.14);
+}
+
+.app-shell.canvas-mode .node-title svg {
+  width: 28px;
+  height: 28px;
+}
+
+.app-shell.canvas-mode .connection-layer path {
+  stroke: #8096aa;
+  stroke-width: 2;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .flow-sidebar {
+  top: 58px;
+  left: 12px;
+  width: min(340px, calc(100vw - 32px));
+  max-height: calc(100vh - 82px);
+  border-radius: 8px;
+  box-shadow: 0 24px 58px rgba(15, 23, 42, 0.22);
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .flow-sidebar .panel-body {
+  max-height: calc(100vh - 170px);
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
+  position: relative;
+  top: auto;
+  right: auto;
+  z-index: 20;
+  grid-column: 2;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: auto;
+  height: 100vh;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  border-left: 1px solid #d5dde6;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused:not(.show-inspector) > .inspector {
+  display: none;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-header {
+  min-height: 64px;
+  padding: 13px 14px 10px;
+  align-items: flex-start;
+  border-bottom: 1px solid #e2e8ef;
+  background: #ffffff;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-header h2 {
+  font-size: 15px;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-header span {
+  font-size: 12px;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-body {
+  max-height: none;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+}
+
+.app-shell.canvas-mode .inspector .segmented {
+  background: #f6f8fa;
+}
+
+.app-shell.canvas-mode .inspector .segmented button {
+  min-height: 32px;
+  padding: 0 9px;
+}
+
+.app-shell.canvas-mode .inspector .icon-button {
+  width: 34px;
+  height: 34px;
+}
+
+.app-shell.canvas-mode .inspector-form {
+  gap: 14px;
+}
+
+.app-shell.canvas-mode .inspector-form .field {
+  gap: 7px;
+}
+
+.app-shell.canvas-mode .inspector-form .field input,
+.app-shell.canvas-mode .inspector-form .field textarea,
+.app-shell.canvas-mode .inspector-form .field select {
+  min-height: 40px;
+  border-color: #d4dde7;
+  background: #ffffff;
+}
+
+.app-shell.canvas-mode .inspector-form .field textarea {
+  min-height: 96px;
+}
+
+.app-shell.canvas-mode .inline-fields {
+  gap: 10px;
+}
+
+.app-shell.canvas-mode .simulator {
+  height: 390px;
+  border-color: #d4dde7;
+  box-shadow: none;
+}
+
+@media (max-width: 1180px) {
+  .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
+    position: absolute;
+    top: 58px;
+    right: 12px;
+    width: min(360px, calc(100vw - 32px));
+    height: calc(100vh - 82px);
+    border: 1px solid #d5dde6;
+    border-radius: 8px;
+    box-shadow: 0 24px 58px rgba(15, 23, 42, 0.22);
+  }
+
+  .app-shell.canvas-mode .canvas-toolbar {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell.canvas-mode,
+  .app-shell.canvas-mode.sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.canvas-mode .sidebar {
+    position: static;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid #d5dde6;
+  }
+
+  .app-shell.canvas-mode .workspace {
+    min-height: calc(100vh - 124px);
+  }
+
+  .app-shell.canvas-mode .page-grid.canvas-focused {
+    height: calc(100vh - 124px);
+    min-height: calc(100vh - 124px);
+  }
+
+  .app-shell.canvas-mode .page-grid.canvas-focused > .canvas-shell {
+    min-height: calc(100vh - 124px);
+  }
+
+  .app-shell.canvas-mode .flow-canvas {
+    height: auto;
+  }
+
+  .app-shell.canvas-mode .page-grid.canvas-focused > .inspector,
+  .app-shell.canvas-mode .page-grid.canvas-focused > .flow-sidebar {
+    top: 58px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    height: calc(100vh - 196px);
+    max-height: calc(100vh - 196px);
+  }
+}

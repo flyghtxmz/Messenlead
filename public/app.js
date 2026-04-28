@@ -497,6 +497,7 @@ function oauthErrorFromHash() {
 
 function render() {
   renderNav();
+  appShell?.classList.toggle("canvas-mode", activeView === "flows" && flowCanvasOpen);
   const current = navItems.find((item) => item.id === activeView) || navItems[0];
   pageEyebrow.textContent = "Messenger";
   pageTitle.textContent = current.label === "Messenger" ? "Configuração do Messenger" : current.label;
