@@ -1515,6 +1515,63 @@ svg {
   background: #f7fcf8;
 }
 
+.conversation-list-item.has-unread {
+  border-color: rgba(22, 134, 95, 0.55);
+  border-left: 4px solid var(--green);
+  background: #f4fbf7;
+}
+
+.conversation-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.conversation-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--green);
+  color: #ffffff !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.unread-badge.new {
+  background: #0f62fe;
+}
+
+.thread-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.thread-status-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .broadcast-page-list {
   gap: 10px;
 }
@@ -1584,7 +1641,7 @@ svg {
 
 .live-thread {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
 }
 

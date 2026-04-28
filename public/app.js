@@ -1,6 +1,7 @@
 const STORAGE_KEY = "messenlead.messenger.workspace.v2";
 const SIDEBAR_COLLAPSED_KEY = "messenlead.sidebar.collapsed";
 const DEFAULT_FLOW_PAGE_ID = "__global__";
+const CONVERSATION_READ_KEY = "messenlead.messenger.conversation.read.v1";
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
@@ -126,6 +127,7 @@ let selectedContactId = state.contacts[0]?.id;
 let searchQuery = "";
 let simLog = [];
 let modalState = null;
+let conversationReadState = loadConversationReadState();
 let imageToolState = {
   original: null,
   cleaned: null,
@@ -641,6 +643,21 @@ function persistLocalState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function loadConversationReadState() {
+  try {
+    const stored = localStorage.getItem(CONVERSATION_READ_KEY);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveConversationReadState() {
+  localStorage.setItem(CONVERSATION_READ_KEY, JSON.stringify(conversationReadState));
+}
+
 function getInitialView() {
   const hash = location.hash.replace("#", "").split("?")[0];
   return navItems.some((item) => item.id === hash) ? hash : "pages";
@@ -924,7 +941,8 @@ function renderPages() {
     loadMetaConversations(selectedPage.id);
   }
 
-  const conversations = metaState.conversations || [];
+  const conversations = sortMetaConversations(metaState.conversations || [], selectedPage?.id);
+  const unreadSummary = selectedPage ? metaUnreadSummary(conversations, selectedPage.id) : null;
   const selectedConversation =
     conversations.find((conversation) => conversation.id === metaState.selectedConversationId) ||
     conversations[0] ||
@@ -978,7 +996,7 @@ function renderPages() {
                 <div class="row-between" style="width:100%">
                   <div>
                     <h2>${escapeHtml(selectedPage.name)}</h2>
-                    <span>Conversas reais do Messenger desta Página</span>
+                    <span>${escapeHtml(unreadSummary?.label || "Conversas reais do Messenger desta Pagina")}</span>
                   </div>
                   <div class="button-row">
                     <button class="secondary-button" type="button" data-action="refresh-meta-conversations">${icons.inbox}<span>Atualizar</span></button>
@@ -993,9 +1011,12 @@ function renderPages() {
                       ? conversations
                           .map(
                             (conversation) => `
-                              <button class="campaign-item ${selectedConversation?.id === conversation.id ? "active" : ""}" type="button" data-action="select-meta-conversation" data-id="${conversation.id}">
-                                <strong>${escapeHtml(conversationTitle(conversation, selectedPage.name))}</strong>
-                                <span>${escapeHtml(conversation.snippet || "Sem prévia")}</span>
+                              <button class="campaign-item conversation-list-item ${conversationNeedsAttention(conversation, selectedPage.id) ? "has-unread" : ""} ${selectedConversation?.id === conversation.id ? "active" : ""}" type="button" data-action="select-meta-conversation" data-id="${conversation.id}">
+                                <span class="conversation-title-row">
+                                  <strong>${escapeHtml(conversationTitle(conversation, selectedPage.name))}</strong>
+                                  ${renderConversationUnreadBadge(conversation, selectedPage.id)}
+                                </span>
+                                <span class="conversation-snippet">${escapeHtml(conversation.snippet || "Sem previa")}</span>
                                 <span>${formatDate(conversation.updated_time)}</span>
                               </button>
                             `
@@ -1008,6 +1029,10 @@ function renderPages() {
                   ${
                     selectedConversation
                       ? `
+                        <div class="thread-status-row">
+                          <strong>${escapeHtml(conversationTitle(selectedConversation, selectedPage.name))}</strong>
+                          ${renderConversationStatus(selectedConversation, selectedPage.id)}
+                        </div>
                         <div class="conversation">
                           ${
                             metaState.messages
@@ -1703,8 +1728,13 @@ async function loadMetaConversations(pageId) {
   try {
     metaState.error = "";
     const result = await apiGet(`/api/meta/conversations?pageId=${encodeURIComponent(pageId)}`);
-    metaState.conversations = result.conversations || [];
-    metaState.selectedConversationId = metaState.conversations[0]?.id || "";
+    const conversations = result.conversations || [];
+    const previousConversationId = metaState.selectedConversationId;
+    metaState.conversations = conversations;
+    metaState.selectedConversationId =
+      conversations.find((conversation) => conversation.id === previousConversationId)?.id ||
+      sortMetaConversations(conversations, pageId)[0]?.id ||
+      "";
     metaState.messages = null;
   } catch (error) {
     metaState.conversations = [];
@@ -1775,6 +1805,7 @@ async function loadMetaMessages(pageId, conversationId) {
     );
     metaState.messages = result.messages || [];
     metaState.error = "";
+    markMetaConversationRead(pageId, conversationId);
   } catch (error) {
     metaState.messages = [];
     metaState.error = error.message;
@@ -1854,8 +1885,10 @@ function refreshMetaConversations() {
 }
 
 function selectMetaConversation(conversationId) {
+  const pageId = metaState.selectedPageId || state.settings.pageId;
   metaState.selectedConversationId = conversationId;
   metaState.messages = null;
+  markMetaConversationRead(pageId, conversationId);
   render();
 }
 
@@ -3830,6 +3863,75 @@ function uniqueRecipients(recipients) {
     if (!byId.has(key)) byId.set(key, recipient);
   });
   return [...byId.values()];
+}
+
+function sortMetaConversations(conversations, pageId) {
+  return [...conversations].sort((a, b) => {
+    const attentionDiff = Number(conversationNeedsAttention(b, pageId)) - Number(conversationNeedsAttention(a, pageId));
+    if (attentionDiff) return attentionDiff;
+    return Date.parse(b.updated_time || "") - Date.parse(a.updated_time || "");
+  });
+}
+
+function metaUnreadSummary(conversations, pageId) {
+  const unreadTotal = conversations.reduce((total, conversation) => total + conversationUnreadCount(conversation), 0);
+  const attentionTotal = conversations.filter((conversation) => conversationNeedsAttention(conversation, pageId)).length;
+
+  if (unreadTotal) {
+    return {
+      count: unreadTotal,
+      label: `${unreadTotal} mensagem${unreadTotal === 1 ? "" : "s"} nao lida${unreadTotal === 1 ? "" : "s"} em ${attentionTotal} conversa${attentionTotal === 1 ? "" : "s"}`
+    };
+  }
+
+  if (attentionTotal) {
+    return {
+      count: attentionTotal,
+      label: `${attentionTotal} conversa${attentionTotal === 1 ? "" : "s"} com novidade`
+    };
+  }
+
+  return { count: 0, label: "Sem mensagens novas" };
+}
+
+function conversationUnreadCount(conversation) {
+  const value = Number(conversation?.unread_count || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function conversationNeedsAttention(conversation, pageId) {
+  if (conversationUnreadCount(conversation) > 0) return true;
+  const read = conversationReadState[conversationReadKey(pageId, conversation?.id)];
+  return Boolean(read?.updatedTime && conversation?.updated_time && read.updatedTime !== conversation.updated_time);
+}
+
+function renderConversationUnreadBadge(conversation, pageId) {
+  const unread = conversationUnreadCount(conversation);
+  if (unread) return `<span class="unread-badge">${unread}</span>`;
+  if (conversationNeedsAttention(conversation, pageId)) return `<span class="unread-badge new">Nova</span>`;
+  return "";
+}
+
+function renderConversationStatus(conversation, pageId) {
+  const unread = conversationUnreadCount(conversation);
+  if (unread) return `<span class="unread-badge">${unread} nao lida${unread === 1 ? "" : "s"}</span>`;
+  if (conversationNeedsAttention(conversation, pageId)) return `<span class="unread-badge new">Nova mensagem</span>`;
+  return `<span class="channel-pill">Lida</span>`;
+}
+
+function conversationReadKey(pageId, conversationId) {
+  return `${pageId || "__page__"}:${conversationId || "__conversation__"}`;
+}
+
+function markMetaConversationRead(pageId, conversationId) {
+  const conversation = metaState.conversations?.find((item) => item.id === conversationId);
+  if (!pageId || !conversationId || !conversation) return;
+  conversation.unread_count = 0;
+  conversationReadState[conversationReadKey(pageId, conversationId)] = {
+    updatedTime: conversation.updated_time || "",
+    readAt: new Date().toISOString()
+  };
+  saveConversationReadState();
 }
 
 function conversationTitle(conversation, pageName) {
