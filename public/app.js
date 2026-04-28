@@ -82,7 +82,7 @@ let canvasZoom = Number(storedCanvasZoom) || 0.78;
 let shouldAutoFitCanvas = !storedCanvasZoom;
 let flowCanvasOpen = false;
 let showFlowList = localStorage.getItem("messenlead.canvas.flowList") === "true";
-let showInspector = localStorage.getItem("messenlead.canvas.inspector") === "true";
+let showInspector = false;
 let flowStore = {
   pageId: "",
   loading: false,
@@ -109,7 +109,10 @@ mainNav.addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
   if (!button) return;
   activeView = button.dataset.view;
-  if (activeView === "flows") flowCanvasOpen = false;
+  if (activeView === "flows") {
+    flowCanvasOpen = false;
+    showInspector = false;
+  }
   history.replaceState(null, "", `#${activeView}`);
   render();
 });
@@ -134,7 +137,10 @@ importFile.addEventListener("change", importWorkspace);
 initSidebarToggle();
 window.addEventListener("hashchange", () => {
   activeView = getInitialView();
-  if (activeView === "flows") flowCanvasOpen = false;
+  if (activeView === "flows") {
+    flowCanvasOpen = false;
+    showInspector = false;
+  }
   render();
 });
 document.addEventListener("keydown", (event) => {
@@ -901,10 +907,6 @@ function renderFlows() {
             <button class="secondary-button ${showInspector ? "active" : ""}" type="button" data-action="toggle-inspector">${icons.settings}<span>Editar</span></button>
           </div>
           <div class="canvas-actions">
-            ${nodeAddButton("message", "Mensagem")}
-            ${nodeAddButton("condition", "Condição")}
-            ${nodeAddButton("delay", "Espera")}
-            ${nodeAddButton("action", "Ação")}
             <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
           </div>
           <div class="canvas-zoom" aria-label="Zoom do canvas">
@@ -922,6 +924,12 @@ function renderFlows() {
               </svg>
               ${flow.nodes.map((item) => renderNode(item, item.id === node?.id)).join("")}
             </div>
+          </div>
+          <div class="canvas-floating-tools" aria-label="Adicionar blocos">
+            ${nodeAddButton("message", "Mensagem")}
+            ${nodeAddButton("condition", "Condição")}
+            ${nodeAddButton("delay", "Espera")}
+            ${nodeAddButton("action", "Ação")}
           </div>
         </div>
       </section>
@@ -1916,6 +1924,7 @@ function handleWorkspaceClick(event) {
   if (action === "go-setup") return navigate("setup");
   if (action === "back-to-flows") {
     flowCanvasOpen = false;
+    showInspector = false;
     return render();
   }
   if (action === "toggle-flow-list") return toggleFlowList();
@@ -1940,6 +1949,8 @@ function handleWorkspaceClick(event) {
     selectedNodeId = selectedFlow()?.nodes[0]?.id;
     flowCanvasOpen = true;
     showFlowList = false;
+    showInspector = false;
+    shouldAutoFitCanvas = true;
     localStorage.setItem("messenlead.canvas.flowList", "false");
     simLog = [];
     return render();
@@ -1947,7 +1958,8 @@ function handleWorkspaceClick(event) {
   if (action === "select-node") {
     selectedNodeId = id;
     showInspector = true;
-    localStorage.setItem("messenlead.canvas.inspector", "true");
+    showFlowList = false;
+    localStorage.setItem("messenlead.canvas.flowList", "false");
     return render();
   }
   if (action === "add-node") return addNode(button.dataset.type);
@@ -2109,6 +2121,8 @@ function createFlowFromName(name) {
   selectedNodeId = triggerId;
   flowCanvasOpen = true;
   showFlowList = false;
+  showInspector = false;
+  shouldAutoFitCanvas = true;
   localStorage.setItem("messenlead.canvas.flowList", "false");
   saveState();
   toastMessage("Fluxo criado.");
@@ -2134,6 +2148,7 @@ function addNode(type) {
   flow.nodes.push(node);
   flow.updatedAt = new Date().toISOString();
   selectedNodeId = node.id;
+  showInspector = true;
   saveState();
   render();
 }
@@ -2171,6 +2186,8 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
   selectedFlowId = copy.id;
   selectedNodeId = copy.nodes[0]?.id;
   flowCanvasOpen = options.openCanvas ?? true;
+  showInspector = false;
+  shouldAutoFitCanvas = true;
   saveState();
   toastMessage("Fluxo duplicado.");
   render();
@@ -2257,7 +2274,6 @@ function toggleFlowList() {
 
 function toggleInspector() {
   showInspector = !showInspector;
-  localStorage.setItem("messenlead.canvas.inspector", String(showInspector));
   render();
 }
 
@@ -2286,8 +2302,10 @@ function fitCanvasToViewport() {
   requestAnimationFrame(() => {
     const refreshed = document.querySelector("#flowCanvas");
     if (!refreshed) return;
-    refreshed.scrollLeft = Math.max(0, (Math.max(0, bounds.minX - 40) * canvasZoom) - 14);
-    refreshed.scrollTop = Math.max(0, (Math.max(0, bounds.minY - 40) * canvasZoom) - 14);
+    const centerX = ((bounds.minX + bounds.maxX) / 2) * canvasZoom;
+    const centerY = ((bounds.minY + bounds.maxY) / 2) * canvasZoom;
+    refreshed.scrollLeft = Math.max(0, centerX - refreshed.clientWidth / 2);
+    refreshed.scrollTop = Math.max(0, centerY - refreshed.clientHeight / 2);
   });
 }
 
@@ -2623,12 +2641,17 @@ function enableNodeDragging(flow) {
       const startY = event.clientY;
       const startNodeX = node.x;
       const startNodeY = node.y;
+      let moved = false;
       element.setPointerCapture(event.pointerId);
       element.classList.add("selected");
 
       const onMove = (moveEvent) => {
-        const x = startNodeX + (moveEvent.clientX - startX) / zoom;
-        const y = startNodeY + (moveEvent.clientY - startY) / zoom;
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+        if (Math.abs(deltaX) + Math.abs(deltaY) <= 3) return;
+        moved = true;
+        const x = startNodeX + deltaX / zoom;
+        const y = startNodeY + deltaY / zoom;
         node.x = Math.max(20, Math.min(CANVAS_WIDTH - NODE_WIDTH - 40, Math.round(x)));
         node.y = Math.max(20, Math.min(CANVAS_HEIGHT - 190, Math.round(y)));
         element.style.left = `${node.x}px`;
@@ -2638,8 +2661,14 @@ function enableNodeDragging(flow) {
       const onUp = () => {
         element.removeEventListener("pointermove", onMove);
         element.removeEventListener("pointerup", onUp);
-        flow.updatedAt = new Date().toISOString();
-        saveState();
+        if (moved) {
+          flow.updatedAt = new Date().toISOString();
+          saveState();
+        } else {
+          showInspector = true;
+          showFlowList = false;
+          localStorage.setItem("messenlead.canvas.flowList", "false");
+        }
         render();
       };
 
@@ -2669,7 +2698,7 @@ function renderNode(node, selected) {
   const icon = icons[node.type] || icons.message;
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
   return `
-    <article class="node ${node.type} ${selected ? "selected" : ""}" data-id="${node.id}" style="left:${node.x}px; top:${node.y}px">
+    <article class="node ${node.type} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${node.x}px; top:${node.y}px">
       <div class="node-head">
         <div class="node-title">
           ${icon}
@@ -2690,7 +2719,7 @@ function renderNode(node, selected) {
 }
 
 function nodeAddButton(type, label) {
-  return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}">${icons[type]}<span>${label}</span></button>`;
+  return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}" title="${attr(label)}">${icons[type]}<span>${label}</span></button>`;
 }
 
 function selectedFlow() {
@@ -2798,7 +2827,10 @@ function defaultNodeMessage(type) {
 
 function navigate(view) {
   activeView = view;
-  if (view === "flows") flowCanvasOpen = false;
+  if (view === "flows") {
+    flowCanvasOpen = false;
+    showInspector = false;
+  }
   history.replaceState(null, "", `#${view}`);
   render();
 }
