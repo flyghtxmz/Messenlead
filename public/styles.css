@@ -2202,14 +2202,14 @@ svg {
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
   position: absolute;
-  top: 58px;
-  right: 12px;
+  top: 68px;
+  right: 64px;
   z-index: 40;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(360px, calc(100vw - 32px));
-  height: calc(100vh - 82px);
-  max-height: calc(100vh - 82px);
+  width: min(350px, calc(100vw - 32px));
+  height: auto;
+  max-height: min(650px, calc(100vh - 96px));
   overflow: hidden;
   border: 1px solid #d5dde6;
   border-radius: 8px;
@@ -2222,8 +2222,8 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-header {
-  min-height: 64px;
-  padding: 13px 14px 10px;
+  min-height: 56px;
+  padding: 12px 12px 10px;
   align-items: flex-start;
   border-bottom: 1px solid #e2e8ef;
   background: #ffffff;
@@ -2238,9 +2238,9 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-body {
-  max-height: none;
+  max-height: calc(100vh - 180px);
   min-height: 0;
-  padding: 14px;
+  padding: 12px;
   overflow: auto;
 }
 
@@ -2295,10 +2295,11 @@ svg {
 
   .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
     position: absolute;
-    top: 58px;
+    top: 66px;
     right: 12px;
-    width: min(360px, calc(100vw - 32px));
-    height: calc(100vh - 82px);
+    width: min(350px, calc(100vw - 32px));
+    height: auto;
+    max-height: min(650px, calc(100vh - 92px));
     border: 1px solid #d5dde6;
     border-radius: 8px;
     box-shadow: 0 24px 58px rgba(15, 23, 42, 0.22);

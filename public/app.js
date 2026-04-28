@@ -21,8 +21,8 @@ const nodeLabels = {
   action: "Ação"
 };
 
-const CANVAS_WIDTH = 1500;
-const CANVAS_HEIGHT = 980;
+const CANVAS_WIDTH = 2400;
+const CANVAS_HEIGHT = 1600;
 const NODE_WIDTH = 228;
 const NODE_CENTER_Y = 70;
 const ZOOM_MIN = 0.45;
@@ -81,7 +81,7 @@ const storedCanvasZoom = localStorage.getItem("messenlead.canvas.zoom");
 let canvasZoom = Number(storedCanvasZoom) || 0.78;
 let shouldAutoFitCanvas = !storedCanvasZoom;
 let flowCanvasOpen = false;
-let showFlowList = localStorage.getItem("messenlead.canvas.flowList") === "true";
+let showFlowList = false;
 let showInspector = false;
 let flowStore = {
   pageId: "",
@@ -865,35 +865,7 @@ function renderFlows() {
   canvasZoom = clamp(canvasZoom, ZOOM_MIN, ZOOM_MAX);
 
   workspace.innerHTML = `
-    <div class="page-grid canvas-focused ${showFlowList ? "show-flow-list" : ""} ${showInspector ? "show-inspector" : ""}">
-      <section class="panel flow-sidebar">
-        <div class="panel-header">
-          <div>
-            <h2>Fluxos Messenger</h2>
-            <span>Gatilhos, mensagens, condições e handoff</span>
-          </div>
-          <div class="button-row">
-            <button class="icon-button" type="button" data-action="new-flow" title="Novo fluxo">${icons.plus}</button>
-            <button class="icon-button" type="button" data-action="toggle-flow-list" title="Fechar lista">&times;</button>
-          </div>
-        </div>
-        <div class="panel-body flow-list">
-          ${filteredFlows
-            .map(
-              (item) => `
-                <button class="flow-item ${item.id === flow.id ? "active" : ""}" type="button" data-action="select-flow" data-id="${item.id}">
-                  <span class="row-between">
-                    <strong>${escapeHtml(item.name)}</strong>
-                    ${statusBadge(item.status)}
-                  </span>
-                  <span>${item.nodes.length} blocos · ${escapeHtml(item.trigger)}</span>
-                </button>
-              `
-            )
-            .join("")}
-        </div>
-      </section>
-
+    <div class="page-grid canvas-focused ${showInspector ? "show-inspector" : ""}">
       <section class="panel canvas-shell">
         <div class="canvas-toolbar">
           <div class="tight-stack">
@@ -902,9 +874,7 @@ function renderFlows() {
           </div>
           <span class="sync-pill ${flowStore.serverAvailable ? "synced" : "local"}">${escapeHtml(flowStore.loading ? "Carregando D1" : flowStore.status)}</span>
           <div class="canvas-panel-controls" aria-label="Painéis do canvas">
-            <button class="secondary-button" type="button" data-action="back-to-flows">${icons.workflow}<span>Todos</span></button>
-            <button class="secondary-button ${showFlowList ? "active" : ""}" type="button" data-action="toggle-flow-list">${icons.workflow}<span>Fluxos</span></button>
-            <button class="secondary-button ${showInspector ? "active" : ""}" type="button" data-action="toggle-inspector">${icons.settings}<span>Editar</span></button>
+            <button class="secondary-button" type="button" data-action="back-to-flows">${icons.workflow}<span>Fluxos</span></button>
           </div>
           <div class="canvas-actions">
             <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
@@ -934,7 +904,7 @@ function renderFlows() {
         </div>
       </section>
 
-      <aside class="panel inspector">
+      <aside class="panel inspector flow-config-popover">
         <div class="panel-header">
           <div>
             <h2>Inspetor</h2>
@@ -951,7 +921,6 @@ function renderFlows() {
         </div>
         <div class="panel-body stack">
           ${node ? renderInspector(flow, node) : ""}
-          ${renderSimulator()}
         </div>
       </aside>
     </div>
@@ -2132,6 +2101,11 @@ function createFlowFromName(name) {
 function addNode(type) {
   const flow = selectedFlow();
   if (!flow) return;
+  const current = selectedNode(flow);
+  const nextColumnX = current ? current.x + 340 : 120 + flow.nodes.length * 36;
+  const wrapsToNextRow = nextColumnX > CANVAS_WIDTH - NODE_WIDTH - 100;
+  const nextX = wrapsToNextRow ? 120 : nextColumnX;
+  const nextY = current ? current.y + (wrapsToNextRow ? 220 : 0) : 130 + flow.nodes.length * 46;
   const node = {
     id: makeId("node"),
     type,
@@ -2140,10 +2114,9 @@ function addNode(type) {
     keyword: "",
     quickReplies: type === "message" ? ["Sim", "Não"] : [],
     next: null,
-    x: 120 + flow.nodes.length * 36,
-    y: 130 + flow.nodes.length * 46
+    x: Math.max(20, Math.min(CANVAS_WIDTH - NODE_WIDTH - 40, Math.round(nextX))),
+    y: Math.max(20, Math.min(CANVAS_HEIGHT - 190, Math.round(nextY)))
   };
-  const current = selectedNode(flow);
   if (current && !current.next) current.next = node.id;
   flow.nodes.push(node);
   flow.updatedAt = new Date().toISOString();
