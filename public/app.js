@@ -21,11 +21,56 @@ const nodeLabels = {
   action: "Ação"
 };
 
+const triggerOptions = [
+  {
+    id: "facebook_ad",
+    group: "Messenger",
+    source: "Anúncios do Facebook",
+    title: "O usuário clica no anúncio do Facebook",
+    description: "Dispara quando a conversa chega com referência de anúncio."
+  },
+  {
+    id: "facebook_comment",
+    group: "Messenger",
+    source: "Comentários do Facebook",
+    title: "O usuário deixa um comentário em sua publicação",
+    description: "Depende de eventos de comentários/private replies configurados na Meta."
+  },
+  {
+    id: "messenger_message",
+    group: "Messenger",
+    source: "Mensagem do Messenger",
+    title: "O usuário envia uma mensagem",
+    description: "Dispara por texto recebido, postback ou primeira mensagem."
+  },
+  {
+    id: "referral_link",
+    group: "Messenger",
+    source: "URL de Referência do Messenger",
+    title: "O usuário clica em um link de referência",
+    description: "Usa o parâmetro ref de links m.me e referências do Messenger."
+  },
+  {
+    id: "qr_code",
+    group: "Messenger",
+    source: "Código QR",
+    title: "O usuário escaneia o código QR",
+    description: "Funciona quando o QR aponta para um link m.me com parâmetro ref."
+  },
+  {
+    id: "facebook_shop_message",
+    group: "Messenger",
+    source: "Mensagem da Loja Facebook",
+    title: "O usuário escreve uma mensagem na sua loja do Facebook",
+    description: "Dispara quando a referência da conversa indicar origem de loja."
+  }
+];
+
 const CANVAS_WIDTH = 8000;
 const CANVAS_HEIGHT = 6000;
 const CANVAS_ORIGIN_X = 3600;
 const CANVAS_ORIGIN_Y = 2600;
-const NODE_WIDTH = 228;
+const NODE_WIDTH = 260;
 const NODE_CENTER_Y = 70;
 const CANVAS_MIN_X = -CANVAS_ORIGIN_X + 80;
 const CANVAS_MAX_X = CANVAS_WIDTH - CANVAS_ORIGIN_X - NODE_WIDTH - 80;
@@ -61,6 +106,7 @@ const icons = {
 const appShell = document.querySelector(".app-shell");
 const workspace = document.querySelector("#workspace");
 const mainNav = document.querySelector("#mainNav");
+const pageSwitcher = document.querySelector("#pageSwitcher");
 const pageTitle = document.querySelector("#pageTitle");
 const pageEyebrow = document.querySelector("#pageEyebrow");
 const globalSearch = document.querySelector("#globalSearch");
@@ -92,6 +138,7 @@ let flowCanvasOpen = false;
 let showFlowList = false;
 let showInspector = false;
 let canvasScrollState = null;
+let triggerPickerNodeId = "";
 let flowStore = {
   pageId: "",
   loading: false,
@@ -124,6 +171,15 @@ mainNav.addEventListener("click", (event) => {
   }
   history.replaceState(null, "", `#${activeView}`);
   render();
+});
+
+pageSwitcher?.addEventListener("change", (event) => {
+  if (event.target.id === "sidebarPageSelect") selectSidebarPage(event.target.value);
+});
+
+pageSwitcher?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-action]");
+  if (button?.dataset.action === "go-pages") navigate("pages");
 });
 
 workspace.addEventListener("click", handleWorkspaceClick);
@@ -346,6 +402,7 @@ function seedWorkspace() {
             title: "Começar conversa",
             message: "Botão Começar, postback GET_STARTED ou primeira mensagem.",
             keyword: "oi",
+            triggerEvents: ["messenger_message"],
             next: "welcome_message",
             x: 70,
             y: 105
@@ -406,6 +463,7 @@ function seedWorkspace() {
             title: "Pedido de orçamento",
             message: "Qualquer mensagem com orçamento, preço ou cotação.",
             keyword: "orçamento, preço, cotação",
+            triggerEvents: ["messenger_message"],
             next: "ask_need",
             x: 80,
             y: 145
@@ -456,6 +514,7 @@ function seedWorkspace() {
             title: "Lead sem resposta",
             message: "Contato marcado como lead-frio dentro da janela de 24 horas.",
             keyword: "lead-frio",
+            triggerEvents: ["messenger_message"],
             next: "reactivation_message",
             x: 90,
             y: 180
@@ -513,6 +572,7 @@ function oauthErrorFromHash() {
 function render() {
   if (activeView === "flows" && flowCanvasOpen) rememberCanvasScroll();
   renderNav();
+  renderPageSwitcher();
   appShell?.classList.toggle("canvas-mode", activeView === "flows" && flowCanvasOpen);
   const current = navItems.find((item) => item.id === activeView) || navItems[0];
   pageEyebrow.textContent = "Messenger";
@@ -558,6 +618,48 @@ function renderNav() {
       `
     )
     .join("");
+}
+
+function renderPageSwitcher() {
+  if (!pageSwitcher) return;
+
+  const pages = metaState.pages || [];
+  const selectedPage =
+    pages.find((page) => page.id === metaState.selectedPageId) ||
+    pages.find((page) => page.id === state.settings.pageId) ||
+    null;
+  const pageName = selectedPage?.name || state.settings.pageName || "Selecionar Página";
+  const pageInitials = initials(pageName);
+
+  if (!pages.length) {
+    pageSwitcher.innerHTML = `
+      <button class="page-switcher-button" type="button" data-action="go-pages" title="Selecionar Página">
+        <span class="page-avatar">${escapeHtml(pageInitials)}</span>
+        <span class="page-switcher-copy">
+          <strong>${escapeHtml(pageName)}</strong>
+          <span>${metaState.profile ? "Conectar Página" : "Entrar com Facebook"}</span>
+        </span>
+        <span class="page-switcher-chevron">⌄</span>
+      </button>
+    `;
+    return;
+  }
+
+  pageSwitcher.innerHTML = `
+    <label class="page-switcher-control" title="Página onde os fluxos serão criados">
+      <span class="page-avatar">${escapeHtml(pageInitials)}</span>
+      <span class="page-switcher-copy">
+        <strong>${escapeHtml(pageName)}</strong>
+        <span>${escapeHtml(selectedPage?.category || "Página do Facebook")}</span>
+      </span>
+      <select id="sidebarPageSelect" aria-label="Selecionar Página">
+        ${pages
+          .map((page) => `<option value="${attr(page.id)}" ${page.id === (selectedPage?.id || metaState.selectedPageId) ? "selected" : ""}>${escapeHtml(page.name)}</option>`)
+          .join("")}
+      </select>
+      <span class="page-switcher-chevron">⌄</span>
+    </label>
+  `;
 }
 
 function renderDashboard() {
@@ -896,6 +998,9 @@ function renderFlows() {
             <button class="icon-button" type="button" data-action="canvas-zoom-in" title="Aumentar zoom">+</button>
           </div>
         </div>
+        <button class="canvas-peek-button ${showInspector ? "active" : ""}" type="button" data-action="peek-inspector" title="Mostrar configurações do bloco">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+        </button>
         <div class="flow-canvas" id="flowCanvas" style="--canvas-zoom:${canvasZoom}">
           <div class="canvas-world" style="width:${CANVAS_WIDTH * canvasZoom}px; height:${CANVAS_HEIGHT * canvasZoom}px">
             <div class="canvas-stage" style="width:${CANVAS_WIDTH}px; height:${CANVAS_HEIGHT}px">
@@ -936,6 +1041,7 @@ function renderFlows() {
           ${node ? renderInspector(flow, node) : ""}
         </div>
       </aside>
+      ${renderTriggerPicker(flow)}
     </div>
   `;
 
@@ -1631,6 +1737,26 @@ function selectMetaPage(pageId) {
   render();
 }
 
+function selectSidebarPage(pageId) {
+  const page = metaState.pages?.find((item) => item.id === pageId);
+  if (!page) return;
+
+  metaState.selectedPageId = page.id;
+  metaState.conversations = null;
+  metaState.selectedConversationId = "";
+  metaState.messages = null;
+  state.settings.pageId = page.id;
+  state.settings.pageName = page.name;
+  selectedFlowId = state.flows[0]?.id;
+  selectedNodeId = "";
+  flowCanvasOpen = false;
+  showInspector = false;
+  triggerPickerNodeId = "";
+  flowStore.pageId = "";
+  persistLocalState();
+  render();
+}
+
 function refreshMetaConversations() {
   if (!metaState.selectedPageId) return;
   metaState.conversations = null;
@@ -1818,6 +1944,48 @@ async function parseApiResponse(response) {
   return payload || {};
 }
 
+function renderTriggerPicker(flow) {
+  const node = triggerPickerNodeId ? flow.nodes.find((item) => item.id === triggerPickerNodeId) : null;
+  if (!node) return "";
+  const activeTriggers = nodeTriggerEvents(node);
+
+  return `
+    <section class="trigger-picker-panel" aria-label="Selecionar gatilho">
+      <div class="trigger-picker-header">
+        <div>
+          <h2>Iniciar automação quando...</h2>
+          <span>Escolha como este fluxo deve começar no Messenger.</span>
+        </div>
+        <button class="icon-button" type="button" data-action="close-trigger-picker" title="Fechar">&times;</button>
+      </div>
+      <div class="trigger-picker-body">
+        <aside class="trigger-picker-tabs">
+          <button class="active" type="button">${icons.message}<span>Messenger</span></button>
+          <button type="button" disabled>${icons.users}<span>Eventos de contato</span></button>
+        </aside>
+        <div class="trigger-picker-list">
+          ${triggerOptions
+            .map((option) => {
+              const active = activeTriggers.includes(option.id);
+              return `
+                <button class="trigger-option ${active ? "active" : ""}" type="button" data-action="add-trigger-event" data-id="${node.id}" data-trigger-id="${option.id}">
+                  <span class="trigger-option-icon">${icons.message}</span>
+                  <span>
+                    <span>${escapeHtml(option.source)}</span>
+                    <strong>${escapeHtml(option.title)}</strong>
+                    <small>${escapeHtml(option.description)}</small>
+                  </span>
+                  ${active ? `<span class="badge">Ativo</span>` : ""}
+                </button>
+              `;
+            })
+            .join("")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderInspector(flow, node) {
   const options = [`<option value="">Fim do fluxo</option>`]
     .concat(
@@ -1839,6 +2007,21 @@ function renderInspector(flow, node) {
         <label for="nodeTitle">Título</label>
         <input id="nodeTitle" data-node-field="title" value="${attr(node.title)}" />
       </div>
+      ${
+        node.type === "trigger"
+          ? `
+            <div class="field">
+              <label>Gatilhos ativos</label>
+              <div class="trigger-token-list">
+                ${nodeTriggerEvents(node)
+                  .map((id) => `<span>${escapeHtml(triggerOptionById(id)?.title || id)}</span>`)
+                  .join("")}
+              </div>
+              <button class="secondary-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">${icons.plus}<span>Novo gatilho</span></button>
+            </div>
+          `
+          : ""
+      }
       <div class="field">
         <label for="nodeMessage">Mensagem ou instrução</label>
         <textarea id="nodeMessage" data-node-field="message">${escapeHtml(node.message || "")}</textarea>
@@ -1918,6 +2101,13 @@ function handleWorkspaceClick(event) {
   }
   if (action === "toggle-flow-list") return toggleFlowList();
   if (action === "toggle-inspector") return toggleInspector();
+  if (action === "peek-inspector") return peekInspector();
+  if (action === "open-trigger-picker") return openTriggerPicker(id);
+  if (action === "close-trigger-picker") {
+    triggerPickerNodeId = "";
+    return render();
+  }
+  if (action === "add-trigger-event") return addTriggerEvent(id, button.dataset.triggerId);
   if (action === "connect-facebook") {
     window.location.href = "/api/auth/facebook/start";
     return;
@@ -1948,6 +2138,7 @@ function handleWorkspaceClick(event) {
     selectedNodeId = id;
     showInspector = true;
     showFlowList = false;
+    triggerPickerNodeId = "";
     localStorage.setItem("messenlead.canvas.flowList", "false");
     return render();
   }
@@ -2086,9 +2277,10 @@ function createFlowFromName(name) {
       {
         id: triggerId,
         type: "trigger",
-        title: "Gatilho",
-        message: "Mensagem recebida no Messenger.",
+        title: "Quando...",
+        message: "O usuário envia uma mensagem no Messenger.",
         keyword: "oi",
+        triggerEvents: ["messenger_message"],
         next: messageId,
         x: 90,
         y: 140
@@ -2274,6 +2466,45 @@ function toggleFlowList() {
 
 function toggleInspector() {
   showInspector = !showInspector;
+  render();
+}
+
+function peekInspector() {
+  const flow = selectedFlow();
+  if (!flow) return;
+  selectedNodeId = selectedNodeId || flow.nodes.find((node) => node.type === "trigger")?.id || flow.nodes[0]?.id || "";
+  showInspector = Boolean(selectedNodeId);
+  triggerPickerNodeId = "";
+  render();
+}
+
+function openTriggerPicker(nodeId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  if (!node) return;
+  selectedNodeId = node.id;
+  triggerPickerNodeId = node.id;
+  showInspector = false;
+  render();
+}
+
+function addTriggerEvent(nodeId, triggerId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  const option = triggerOptionById(triggerId);
+  if (!flow || !node || !option) return;
+
+  const next = new Set(nodeTriggerEvents(node));
+  next.add(triggerId);
+  node.triggerEvents = [...next];
+  node.title = "Quando...";
+  node.message = option.description;
+  flow.trigger = summarizeTriggerEvents(node);
+  flow.updatedAt = new Date().toISOString();
+  triggerPickerNodeId = "";
+  showInspector = true;
+  selectedNodeId = node.id;
+  saveState();
   render();
 }
 
@@ -2765,10 +2996,12 @@ function updateCanvasZoomLabel() {
 }
 
 function clearCanvasSelection() {
-  if (!showInspector && !selectedNodeId) return;
+  if (!showInspector && !selectedNodeId && !triggerPickerNodeId) return;
   showInspector = false;
   selectedNodeId = "";
+  triggerPickerNodeId = "";
   document.querySelector(".canvas-focused")?.classList.remove("show-inspector");
+  document.querySelector(".trigger-picker-panel")?.remove();
   document.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
   updateMiniMap();
 }
@@ -2866,6 +3099,8 @@ function renderConnections(flow) {
 }
 
 function renderNode(node, selected) {
+  if (node.type === "trigger") return renderTriggerNode(node, selected);
+
   const icon = icons[node.type] || icons.message;
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
   return `
@@ -2889,8 +3124,61 @@ function renderNode(node, selected) {
   `;
 }
 
+function renderTriggerNode(node, selected) {
+  const activeTriggers = nodeTriggerEvents(node);
+  const triggerSummary = activeTriggers
+    .map((id) => triggerOptionById(id)?.title)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  return `
+    <article class="node trigger trigger-start ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      <div class="node-head">
+        <div class="node-title">
+          ${icons.trigger}
+          <span>
+            <strong>Quando...</strong>
+            <span class="node-type">Gatilho inicial</span>
+          </span>
+        </div>
+      </div>
+      <p>O gatilho é responsável por acionar a automação. Clique para adicionar um gatilho.</p>
+      <div class="trigger-list">
+        ${
+          triggerSummary.length
+            ? triggerSummary.map((title) => `<span>${escapeHtml(title)}</span>`).join("")
+            : `<span>Nenhum gatilho configurado</span>`
+        }
+      </div>
+      <button class="trigger-add-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">+ Novo Gatilho</button>
+      <div class="node-footer">
+        <span>Entrada</span>
+        <span class="node-port" aria-hidden="true"></span>
+      </div>
+    </article>
+  `;
+}
+
 function nodeAddButton(type, label) {
   return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}" title="${attr(label)}">${icons[type]}<span>${label}</span></button>`;
+}
+
+function nodeTriggerEvents(node) {
+  if (Array.isArray(node.triggerEvents) && node.triggerEvents.length) return node.triggerEvents;
+  if (node.triggerKind) return [node.triggerKind];
+  if (String(node.keyword || "").toLowerCase().includes("qr")) return ["qr_code"];
+  return ["messenger_message"];
+}
+
+function triggerOptionById(id) {
+  return triggerOptions.find((option) => option.id === id) || null;
+}
+
+function summarizeTriggerEvents(node) {
+  return nodeTriggerEvents(node)
+    .map((id) => triggerOptionById(id)?.title)
+    .filter(Boolean)
+    .join(", ");
 }
 
 function canvasNodeLeft(node) {

@@ -180,6 +180,79 @@ svg {
   margin-top: 4px;
 }
 
+.page-switcher {
+  margin: 0 0 12px;
+}
+
+.page-switcher-button,
+.page-switcher-control {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #26342d;
+  text-align: left;
+}
+
+.page-switcher-button:hover,
+.page-switcher-control:hover {
+  border-color: var(--line);
+  background: #fff;
+}
+
+.page-avatar {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: #e9f2ef;
+  color: var(--green-dark);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.page-switcher-copy {
+  min-width: 0;
+}
+
+.page-switcher-copy strong,
+.page-switcher-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-switcher-copy strong {
+  font-size: 12px;
+}
+
+.page-switcher-copy span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.page-switcher-control select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.page-switcher-chevron {
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .nav-button {
   display: grid;
   grid-template-columns: 22px 1fr auto;
