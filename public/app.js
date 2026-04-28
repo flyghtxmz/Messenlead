@@ -2955,7 +2955,7 @@ async function handleImageUpload(file) {
     imageToolState.original.width = result.width;
     imageToolState.original.height = result.height;
     imageToolState.cleaned = {
-      name: cleanedImageName(file.name, result.type),
+      name: cleanedImageName(result.type),
       size: result.blob.size,
       type: result.type,
       url: URL.createObjectURL(result.blob),
@@ -3014,10 +3014,15 @@ function normalizedImageOutputType(type) {
   return "image/png";
 }
 
-function cleanedImageName(name, type) {
-  const base = String(name || "imagem").replace(/\.[^.]+$/, "") || "imagem";
+function cleanedImageName(type) {
   const extension = type === "image/jpeg" ? "jpg" : type.split("/")[1] || "png";
-  return `${base}-sem-metadados.${extension}`;
+  return `${randomImageBaseName()}.${extension}`;
+}
+
+function randomImageBaseName() {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return `imagem-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function outputTypeLabel(type) {
