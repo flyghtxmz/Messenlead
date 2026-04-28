@@ -142,6 +142,7 @@ let showFlowList = false;
 let showInspector = false;
 let canvasScrollState = null;
 let triggerPickerNodeId = "";
+let nextStepPickerNodeId = "";
 let flowStore = {
   pageId: "",
   loading: false,
@@ -1149,6 +1150,7 @@ function renderFlows() {
         </div>
       </aside>
       ${renderTriggerPicker(flow)}
+      ${renderNextStepPicker(flow)}
     </div>
   `;
 
@@ -1868,6 +1870,7 @@ function selectSidebarPage(pageId) {
   flowCanvasOpen = false;
   showInspector = false;
   triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
   flowStore.pageId = "";
   persistLocalState();
   render();
@@ -2117,6 +2120,57 @@ function renderTriggerPicker(flow) {
   `;
 }
 
+function renderNextStepPicker(flow) {
+  const node = nextStepPickerNodeId ? flow.nodes.find((item) => item.id === nextStepPickerNodeId) : null;
+  if (!node) return "";
+  const existingNodes = flow.nodes.filter((item) => item.id !== node.id);
+
+  return `
+    <section class="next-step-picker-panel" aria-label="Escolher próximo passo">
+      <div class="next-step-picker-header">
+        <strong>Escolher Próximo Passo</strong>
+        <button class="icon-button" type="button" data-action="close-next-step-picker" title="Fechar">&times;</button>
+      </div>
+      <div class="next-step-choice-list">
+        ${nextStepChoice("message", "Messenger", icons.message)}
+        ${nextStepChoice("ai", "Etapa de IA", icons.users, true)}
+        ${nextStepChoice("action", "Executar Ações", icons.action)}
+        ${nextStepChoice("condition", "Condição", icons.condition, true)}
+        ${nextStepChoice("randomizer", "Randomizador", icons.workflow, true)}
+        ${nextStepChoice("delay", "Atraso Inteligente", icons.delay, true)}
+        <div class="next-step-existing-group">
+          <strong>Selecionar Passo Existente</strong>
+          ${
+            existingNodes.length
+              ? existingNodes
+                  .map(
+                    (item) => `
+                      <button class="next-step-choice existing" type="button" data-action="set-existing-next-step" data-id="${node.id}" data-target-id="${item.id}">
+                        <span class="step-choice-icon">${icons[item.type] || icons.message}</span>
+                        <span>${escapeHtml(item.title || nodeLabels[item.type] || "Bloco")}</span>
+                      </button>
+                    `
+                  )
+                  .join("")
+              : `<span class="muted">Nenhum outro passo criado.</span>`
+          }
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function nextStepChoice(type, label, icon, pro = false) {
+  const disabled = type === "ai" || type === "randomizer" || type === "delay";
+  return `
+    <button class="next-step-choice" type="button" data-action="add-next-step" data-type="${type}" ${disabled ? "disabled" : ""}>
+      <span class="step-choice-icon">${icon}</span>
+      <span>${escapeHtml(label)}</span>
+      ${pro ? `<small>PRO</small>` : ""}
+    </button>
+  `;
+}
+
 function renderInspector(flow, node) {
   if (node.type === "trigger") return renderTriggerSettings(flow, node);
   if (node.type === "message") return renderMessageSettings(flow, node);
@@ -2128,20 +2182,57 @@ function renderInspector(flow, node) {
 function renderTriggerSettings(flow, node) {
   return `
     <form class="inspector-form manychat-settings">
-      ${settingsSectionHeader("Quando...", "Gatilho inicial da automação", icons.trigger)}
-      <div class="settings-card">
-        <div class="settings-card-title">
-          <strong>Gatilhos</strong>
-          <span>Ative uma ou mais formas de iniciar este fluxo.</span>
-        </div>
-        <div class="trigger-token-list">
-          ${nodeTriggerEvents(node)
-            .map((id) => `<span>${escapeHtml(triggerOptionById(id)?.title || id)}</span>`)
-            .join("")}
-        </div>
+      <div class="manychat-trigger-head">Quando...</div>
+      <div class="trigger-card-list">
+        ${nodeTriggerEvents(node).map((id, index) => renderTriggerSettingCard(node.id, id, index)).join("")}
         <button class="dashed-add-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">+ Novo Gatilho</button>
       </div>
+      <div class="next-step-divider"></div>
+      <div class="then-block">
+        <strong>Então...</strong>
+        ${
+          node.next
+            ? renderSelectedNextStep(flow, node)
+            : `<button class="choose-next-step-button" type="button" data-action="open-next-step-picker" data-id="${node.id}">Escolher Próximo Passo</button>`
+        }
+      </div>
     </form>
+  `;
+}
+
+function renderTriggerSettingCard(nodeId, triggerId, index) {
+  const option = triggerOptionById(triggerId);
+  return `
+    <article class="trigger-setting-card">
+      <span class="trigger-card-icon">${icons.message}</span>
+      <div class="trigger-setting-copy">
+        <span class="trigger-setting-source">${escapeHtml(option?.source || "Messenger")} #${index + 1}</span>
+        <strong>${escapeHtml(option?.title || triggerId)}</strong>
+        <small>${triggerExecutionLabel(triggerId)}</small>
+      </div>
+      <button class="mini-menu-button" type="button" data-action="open-trigger-picker" data-id="${nodeId}" title="Editar gatilho">⋮</button>
+    </article>
+  `;
+}
+
+function triggerExecutionLabel(triggerId) {
+  if (triggerId === "facebook_ad") return "0 clicado";
+  return "0 execuções";
+}
+
+function renderSelectedNextStep(flow, node) {
+  const next = flow.nodes.find((item) => item.id === node.next);
+  if (!next) {
+    return `<button class="choose-next-step-button" type="button" data-action="open-next-step-picker" data-id="${node.id}">Escolher Próximo Passo</button>`;
+  }
+  return `
+    <button class="selected-next-step-card" type="button" data-action="open-next-step-picker" data-id="${node.id}">
+      <span class="step-choice-icon">${icons[next.type] || icons.message}</span>
+      <span>
+        <strong>${escapeHtml(next.title || nodeLabels[next.type] || "Próximo passo")}</strong>
+        <small>${escapeHtml(nodeLabels[next.type] || "Bloco")}</small>
+      </span>
+    </button>
   `;
 }
 
@@ -2286,6 +2377,8 @@ function handleWorkspaceClick(event) {
   if (action === "back-to-flows") {
     flowCanvasOpen = false;
     showInspector = false;
+    triggerPickerNodeId = "";
+    nextStepPickerNodeId = "";
     return render();
   }
   if (action === "toggle-flow-list") return toggleFlowList();
@@ -2294,9 +2387,14 @@ function handleWorkspaceClick(event) {
   if (action === "open-trigger-picker") return openTriggerPicker(id);
   if (action === "close-trigger-picker") {
     triggerPickerNodeId = "";
+    nextStepPickerNodeId = "";
     return render();
   }
   if (action === "add-trigger-event") return addTriggerEvent(id, button.dataset.triggerId);
+  if (action === "open-next-step-picker") return openNextStepPicker(id);
+  if (action === "close-next-step-picker") return closeNextStepPicker();
+  if (action === "add-next-step") return addNextStep(button.dataset.type);
+  if (action === "set-existing-next-step") return setExistingNextStep(id, button.dataset.targetId);
   if (action === "connect-facebook") {
     window.location.href = "/api/auth/facebook/start";
     return;
@@ -2318,6 +2416,8 @@ function handleWorkspaceClick(event) {
     flowCanvasOpen = true;
     showFlowList = false;
     showInspector = false;
+    triggerPickerNodeId = "";
+    nextStepPickerNodeId = "";
     shouldAutoFitCanvas = true;
     localStorage.setItem("messenlead.canvas.flowList", "false");
     simLog = [];
@@ -2328,6 +2428,7 @@ function handleWorkspaceClick(event) {
     showInspector = true;
     showFlowList = false;
     triggerPickerNodeId = "";
+    nextStepPickerNodeId = "";
     localStorage.setItem("messenlead.canvas.flowList", "false");
     return render();
   }
@@ -2666,6 +2767,7 @@ function toggleInspector() {
 function closeInspectorPanel() {
   showInspector = false;
   triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
   render();
 }
 
@@ -2679,6 +2781,7 @@ function peekInspector() {
   selectedNodeId = selectedNodeId || flow.nodes.find((node) => node.type === "trigger")?.id || flow.nodes[0]?.id || "";
   showInspector = Boolean(selectedNodeId);
   triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
   render();
 }
 
@@ -2688,6 +2791,7 @@ function openTriggerPicker(nodeId) {
   if (!node) return;
   selectedNodeId = node.id;
   triggerPickerNodeId = node.id;
+  nextStepPickerNodeId = "";
   showInspector = false;
   render();
 }
@@ -2711,10 +2815,76 @@ function addTriggerEvent(nodeId, triggerId) {
   flow.trigger = summarizeTriggerEvents(node);
   flow.updatedAt = new Date().toISOString();
   triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
   showInspector = true;
   selectedNodeId = node.id;
   saveState();
   render();
+}
+
+function openNextStepPicker(nodeId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  if (!node) return;
+  selectedNodeId = node.id;
+  nextStepPickerNodeId = node.id;
+  triggerPickerNodeId = "";
+  showInspector = true;
+  render();
+}
+
+function closeNextStepPicker() {
+  nextStepPickerNodeId = "";
+  render();
+}
+
+function addNextStep(type) {
+  const flow = selectedFlow();
+  const current = flow?.nodes.find((item) => item.id === nextStepPickerNodeId);
+  const normalizedType = nextStepType(type);
+  if (!flow || !current || !normalizedType) return;
+
+  const previousNext = current.next;
+  const node = {
+    id: makeId("node"),
+    type: normalizedType,
+    title: nodeLabels[normalizedType],
+    message: defaultNodeMessage(normalizedType),
+    keyword: "",
+    quickReplies: normalizedType === "message" ? ["Sim", "Não"] : [],
+    next: previousNext || null,
+    x: clampNodeX(Math.round(current.x + 340)),
+    y: clampNodeY(Math.round(current.y))
+  };
+
+  current.next = node.id;
+  flow.nodes.push(node);
+  flow.updatedAt = new Date().toISOString();
+  selectedNodeId = node.id;
+  nextStepPickerNodeId = "";
+  showInspector = true;
+  saveState();
+  render();
+}
+
+function setExistingNextStep(nodeId, targetId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  const target = flow?.nodes.find((item) => item.id === targetId);
+  if (!flow || !node || !target || node.id === target.id) return;
+
+  node.next = target.id;
+  flow.updatedAt = new Date().toISOString();
+  selectedNodeId = node.id;
+  nextStepPickerNodeId = "";
+  showInspector = true;
+  saveState();
+  render();
+}
+
+function nextStepType(type) {
+  if (["message", "action", "condition", "delay"].includes(type)) return type;
+  return "";
 }
 
 function fitCanvasToViewport() {
@@ -3224,12 +3394,14 @@ function updateCanvasZoomLabel() {
 }
 
 function clearCanvasSelection() {
-  if (!showInspector && !selectedNodeId && !triggerPickerNodeId) return;
+  if (!showInspector && !selectedNodeId && !triggerPickerNodeId && !nextStepPickerNodeId) return;
   showInspector = false;
   selectedNodeId = "";
   triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
   document.querySelector(".canvas-focused")?.classList.remove("show-inspector");
   document.querySelector(".trigger-picker-panel")?.remove();
+  document.querySelector(".next-step-picker-panel")?.remove();
   document.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
   updateMiniMap();
 }
