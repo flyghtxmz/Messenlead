@@ -21,10 +21,16 @@ const nodeLabels = {
   action: "Ação"
 };
 
-const CANVAS_WIDTH = 2400;
-const CANVAS_HEIGHT = 1600;
+const CANVAS_WIDTH = 8000;
+const CANVAS_HEIGHT = 6000;
+const CANVAS_ORIGIN_X = 3600;
+const CANVAS_ORIGIN_Y = 2600;
 const NODE_WIDTH = 228;
 const NODE_CENTER_Y = 70;
+const CANVAS_MIN_X = -CANVAS_ORIGIN_X + 80;
+const CANVAS_MAX_X = CANVAS_WIDTH - CANVAS_ORIGIN_X - NODE_WIDTH - 80;
+const CANVAS_MIN_Y = -CANVAS_ORIGIN_Y + 80;
+const CANVAS_MAX_Y = CANVAS_HEIGHT - CANVAS_ORIGIN_Y - 190;
 const ZOOM_MIN = 0.45;
 const ZOOM_MAX = 1.15;
 const MESSENGER_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -927,6 +933,7 @@ function renderFlows() {
   `;
 
   enableNodeDragging(flow);
+  enableCanvasPanning();
   if (shouldAutoFitCanvas) {
     shouldAutoFitCanvas = false;
     requestAnimationFrame(() => fitCanvasToViewport());
@@ -2114,8 +2121,8 @@ function addNode(type) {
     keyword: "",
     quickReplies: type === "message" ? ["Sim", "Não"] : [],
     next: null,
-    x: Math.max(20, Math.min(CANVAS_WIDTH - NODE_WIDTH - 40, Math.round(nextX))),
-    y: Math.max(20, Math.min(CANVAS_HEIGHT - 190, Math.round(nextY)))
+    x: clampNodeX(Math.round(nextX)),
+    y: clampNodeY(Math.round(nextY))
   };
   if (current && !current.next) current.next = node.id;
   flow.nodes.push(node);
@@ -2275,8 +2282,8 @@ function fitCanvasToViewport() {
   requestAnimationFrame(() => {
     const refreshed = document.querySelector("#flowCanvas");
     if (!refreshed) return;
-    const centerX = ((bounds.minX + bounds.maxX) / 2) * canvasZoom;
-    const centerY = ((bounds.minY + bounds.maxY) / 2) * canvasZoom;
+    const centerX = (CANVAS_ORIGIN_X + (bounds.minX + bounds.maxX) / 2) * canvasZoom;
+    const centerY = (CANVAS_ORIGIN_Y + (bounds.minY + bounds.maxY) / 2) * canvasZoom;
     refreshed.scrollLeft = Math.max(0, centerX - refreshed.clientWidth / 2);
     refreshed.scrollTop = Math.max(0, centerY - refreshed.clientHeight / 2);
   });
@@ -2625,10 +2632,10 @@ function enableNodeDragging(flow) {
         moved = true;
         const x = startNodeX + deltaX / zoom;
         const y = startNodeY + deltaY / zoom;
-        node.x = Math.max(20, Math.min(CANVAS_WIDTH - NODE_WIDTH - 40, Math.round(x)));
-        node.y = Math.max(20, Math.min(CANVAS_HEIGHT - 190, Math.round(y)));
-        element.style.left = `${node.x}px`;
-        element.style.top = `${node.y}px`;
+        node.x = clampNodeX(Math.round(x));
+        node.y = clampNodeY(Math.round(y));
+        element.style.left = `${canvasNodeLeft(node)}px`;
+        element.style.top = `${canvasNodeTop(node)}px`;
       };
 
       const onUp = () => {
@@ -2651,16 +2658,47 @@ function enableNodeDragging(flow) {
   });
 }
 
+function enableCanvasPanning() {
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas) return;
+
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".node, button, input, textarea, select, .inspector, .canvas-floating-tools")) return;
+    event.preventDefault();
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startScrollLeft = canvas.scrollLeft;
+    const startScrollTop = canvas.scrollTop;
+    canvas.setPointerCapture(event.pointerId);
+    canvas.classList.add("panning");
+
+    const onMove = (moveEvent) => {
+      canvas.scrollLeft = startScrollLeft - (moveEvent.clientX - startX);
+      canvas.scrollTop = startScrollTop - (moveEvent.clientY - startY);
+    };
+
+    const onUp = () => {
+      canvas.classList.remove("panning");
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerup", onUp);
+    };
+
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", onUp);
+  });
+}
+
 function renderConnections(flow) {
   return flow.nodes
     .map((node) => {
       if (!node.next) return "";
       const target = flow.nodes.find((item) => item.id === node.next);
       if (!target) return "";
-      const x1 = node.x + NODE_WIDTH;
-      const y1 = node.y + NODE_CENTER_Y;
-      const x2 = target.x;
-      const y2 = target.y + NODE_CENTER_Y;
+      const x1 = canvasNodeLeft(node) + NODE_WIDTH;
+      const y1 = canvasNodeTop(node) + NODE_CENTER_Y;
+      const x2 = canvasNodeLeft(target);
+      const y2 = canvasNodeTop(target) + NODE_CENTER_Y;
       const mid = Math.max(60, Math.abs(x2 - x1) / 2);
       return `<path d="M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}" />`;
     })
@@ -2671,7 +2709,7 @@ function renderNode(node, selected) {
   const icon = icons[node.type] || icons.message;
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
   return `
-    <article class="node ${node.type} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${node.x}px; top:${node.y}px">
+    <article class="node ${node.type} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       <div class="node-head">
         <div class="node-title">
           ${icon}
@@ -2693,6 +2731,22 @@ function renderNode(node, selected) {
 
 function nodeAddButton(type, label) {
   return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}" title="${attr(label)}">${icons[type]}<span>${label}</span></button>`;
+}
+
+function canvasNodeLeft(node) {
+  return node.x + CANVAS_ORIGIN_X;
+}
+
+function canvasNodeTop(node) {
+  return node.y + CANVAS_ORIGIN_Y;
+}
+
+function clampNodeX(value) {
+  return Math.max(CANVAS_MIN_X, Math.min(CANVAS_MAX_X, value));
+}
+
+function clampNodeY(value) {
+  return Math.max(CANVAS_MIN_Y, Math.min(CANVAS_MAX_Y, value));
 }
 
 function selectedFlow() {

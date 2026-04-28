@@ -1975,17 +1975,15 @@ svg {
 }
 
 .app-shell.canvas-mode {
-  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .app-shell.canvas-mode.sidebar-collapsed {
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .app-shell.canvas-mode .sidebar {
-  z-index: 50;
-  padding: 12px 10px;
-  background: #ffffff;
+  display: none;
 }
 
 .app-shell.canvas-mode .brand {
@@ -2125,12 +2123,23 @@ svg {
 .app-shell.canvas-mode .flow-canvas {
   height: auto;
   min-height: 0;
+  cursor: grab;
   background:
     radial-gradient(circle at 18px 18px, rgba(74, 91, 111, 0.2) 1px, transparent 1.2px),
     linear-gradient(#e2e8ef 1px, transparent 1px),
     linear-gradient(90deg, #e2e8ef 1px, transparent 1px);
   background-color: #eef2f5;
   background-size: 32px 32px;
+  scrollbar-width: none;
+  user-select: none;
+}
+
+.app-shell.canvas-mode .flow-canvas::-webkit-scrollbar {
+  display: none;
+}
+
+.app-shell.canvas-mode .flow-canvas.panning {
+  cursor: grabbing;
 }
 
 .app-shell.canvas-mode .canvas-floating-tools {
@@ -2170,6 +2179,7 @@ svg {
   border: 1px solid #d7e0ea;
   border-radius: 8px;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
+  cursor: grab;
 }
 
 .app-shell.canvas-mode .node.selected {
@@ -2203,7 +2213,8 @@ svg {
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
   position: absolute;
   top: 68px;
-  right: 64px;
+  left: 50%;
+  right: auto;
   z-index: 40;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -2215,6 +2226,7 @@ svg {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 24px 58px rgba(15, 23, 42, 0.22);
+  transform: translateX(-50%);
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused:not(.show-inspector) > .inspector {
@@ -2296,7 +2308,8 @@ svg {
   .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
     position: absolute;
     top: 66px;
-    right: 12px;
+    left: 50%;
+    right: auto;
     width: min(350px, calc(100vw - 32px));
     height: auto;
     max-height: min(650px, calc(100vh - 92px));
@@ -2340,13 +2353,13 @@ svg {
     height: auto;
   }
 
-  .app-shell.canvas-mode .page-grid.canvas-focused > .inspector,
-  .app-shell.canvas-mode .page-grid.canvas-focused > .flow-sidebar {
+  .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
     top: 58px;
     left: 12px;
     right: 12px;
     width: auto;
-    height: calc(100vh - 196px);
-    max-height: calc(100vh - 196px);
+    height: auto;
+    max-height: calc(100vh - 82px);
+    transform: none;
   }
 }
