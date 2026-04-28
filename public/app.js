@@ -870,8 +870,8 @@ function renderFlows() {
     return;
   }
 
-  const node = selectedNode(flow) || flow.nodes[0];
-  if (node) selectedNodeId = node.id;
+  const node = showInspector ? selectedNode(flow) : null;
+  if (showInspector && node) selectedNodeId = node.id;
   canvasZoom = clamp(canvasZoom, ZOOM_MIN, ZOOM_MAX);
 
   workspace.innerHTML = `
@@ -902,7 +902,7 @@ function renderFlows() {
               <svg class="connection-layer" viewBox="0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}" aria-hidden="true">
                 ${renderConnections(flow)}
               </svg>
-              ${flow.nodes.map((item) => renderNode(item, item.id === node?.id)).join("")}
+              ${flow.nodes.map((item) => renderNode(item, showInspector && item.id === node?.id)).join("")}
             </div>
           </div>
         </div>
@@ -941,6 +941,7 @@ function renderFlows() {
 
   enableNodeDragging(flow);
   enableCanvasPanning();
+  enableCanvasWheelZoom();
   if (shouldAutoFitCanvas) {
     shouldAutoFitCanvas = false;
     requestAnimationFrame(() => fitCanvasToViewport());
@@ -2253,9 +2254,16 @@ function deleteNode() {
 }
 
 function setCanvasZoom(value) {
-  canvasZoom = clamp(value, ZOOM_MIN, ZOOM_MAX);
-  localStorage.setItem("messenlead.canvas.zoom", String(canvasZoom));
-  render();
+  const nextZoom = clamp(value, ZOOM_MIN, ZOOM_MAX);
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas) {
+    canvasZoom = nextZoom;
+    localStorage.setItem("messenlead.canvas.zoom", String(canvasZoom));
+    render();
+    return;
+  }
+
+  applyCanvasZoom(nextZoom, canvas.clientWidth / 2, canvas.clientHeight / 2);
 }
 
 function toggleFlowList() {
@@ -2682,10 +2690,12 @@ function enableCanvasPanning() {
     const startY = event.clientY;
     const startScrollLeft = canvas.scrollLeft;
     const startScrollTop = canvas.scrollTop;
+    let moved = false;
     canvas.setPointerCapture(event.pointerId);
     canvas.classList.add("panning");
 
     const onMove = (moveEvent) => {
+      if (Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY) > 3) moved = true;
       canvas.scrollLeft = startScrollLeft - (moveEvent.clientX - startX);
       canvas.scrollTop = startScrollTop - (moveEvent.clientY - startY);
     };
@@ -2696,11 +2706,71 @@ function enableCanvasPanning() {
       canvas.removeEventListener("pointerup", onUp);
       rememberCanvasScroll();
       updateMiniMapViewport();
+      if (!moved) clearCanvasSelection();
     };
 
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
   });
+}
+
+function enableCanvasWheelZoom() {
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas) return;
+
+  canvas.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const anchorX = event.clientX - rect.left;
+      const anchorY = event.clientY - rect.top;
+      const scale = event.deltaY < 0 ? 1.08 : 0.92;
+      applyCanvasZoom(canvasZoom * scale, anchorX, anchorY);
+    },
+    { passive: false }
+  );
+}
+
+function applyCanvasZoom(value, anchorX, anchorY) {
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas) return;
+
+  const oldZoom = canvasZoom || 1;
+  const nextZoom = clamp(value, ZOOM_MIN, ZOOM_MAX);
+  if (Math.abs(nextZoom - oldZoom) < 0.001) return;
+
+  const worldX = (canvas.scrollLeft + anchorX) / oldZoom;
+  const worldY = (canvas.scrollTop + anchorY) / oldZoom;
+  const world = canvas.querySelector(".canvas-world");
+
+  canvasZoom = nextZoom;
+  localStorage.setItem("messenlead.canvas.zoom", String(canvasZoom));
+  canvas.style.setProperty("--canvas-zoom", String(canvasZoom));
+  if (world) {
+    world.style.width = `${CANVAS_WIDTH * canvasZoom}px`;
+    world.style.height = `${CANVAS_HEIGHT * canvasZoom}px`;
+  }
+
+  canvas.scrollLeft = Math.max(0, worldX * canvasZoom - anchorX);
+  canvas.scrollTop = Math.max(0, worldY * canvasZoom - anchorY);
+  updateCanvasZoomLabel();
+  rememberCanvasScroll();
+  updateMiniMapViewport();
+}
+
+function updateCanvasZoomLabel() {
+  const label = document.querySelector(".canvas-zoom > span");
+  if (label) label.textContent = `${Math.round(canvasZoom * 100)}%`;
+}
+
+function clearCanvasSelection() {
+  if (!showInspector && !selectedNodeId) return;
+  showInspector = false;
+  selectedNodeId = "";
+  document.querySelector(".canvas-focused")?.classList.remove("show-inspector");
+  document.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
+  updateMiniMap();
 }
 
 function rememberCanvasScroll() {

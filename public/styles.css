@@ -1975,15 +1975,17 @@ svg {
 }
 
 .app-shell.canvas-mode {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 180px minmax(0, 1fr);
 }
 
 .app-shell.canvas-mode.sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 76px minmax(0, 1fr);
 }
 
 .app-shell.canvas-mode .sidebar {
-  display: none;
+  z-index: 50;
+  padding: 12px 10px;
+  background: #ffffff;
 }
 
 .app-shell.canvas-mode .brand {
@@ -2181,7 +2183,7 @@ svg {
 
 .app-shell.canvas-mode .canvas-minimap {
   position: absolute;
-  left: 14px;
+  right: 14px;
   bottom: 14px;
   z-index: 30;
   width: 184px;
@@ -2232,8 +2234,8 @@ svg {
 }
 
 .app-shell.canvas-mode .node.selected {
-  border-color: #6ba9ee;
-  box-shadow: 0 0 0 3px rgba(37, 111, 194, 0.14), 0 14px 28px rgba(15, 23, 42, 0.14);
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(22, 134, 95, 0.16), 0 14px 28px rgba(15, 23, 42, 0.14);
 }
 
 .app-shell.canvas-mode .node-title svg {
