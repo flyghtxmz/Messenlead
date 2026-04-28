@@ -2429,7 +2429,9 @@ svg {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.16);
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
 }
 
 .app-shell.canvas-mode .minimap-title {
@@ -2442,6 +2444,8 @@ svg {
 .app-shell.canvas-mode .canvas-minimap svg {
   width: 100%;
   height: auto;
+  display: block;
+  touch-action: none;
 }
 
 .app-shell.canvas-mode .minimap-bg {
@@ -2896,7 +2900,7 @@ svg {
 
 .next-step-choice {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   min-height: 50px;
@@ -2911,20 +2915,6 @@ svg {
 .next-step-choice:not(:disabled):hover {
   border-color: #8ccaa9;
   background: #f7fcf8;
-}
-
-.next-step-choice:disabled {
-  opacity: 0.64;
-  cursor: not-allowed;
-}
-
-.next-step-choice small {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: #0f62fe;
-  color: #ffffff;
-  font-size: 9px;
-  font-weight: 900;
 }
 
 .next-step-choice.existing {

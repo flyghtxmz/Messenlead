@@ -20,6 +20,7 @@ const nodeLabels = {
   message: "Mensagem",
   condition: "Condição",
   delay: "Espera",
+  randomizer: "Randomizador",
   action: "Ação"
 };
 
@@ -1157,6 +1158,7 @@ function renderFlows() {
   enableNodeDragging(flow);
   enableCanvasPanning();
   enableCanvasWheelZoom();
+  enableMiniMapNavigation();
   if (shouldAutoFitCanvas) {
     shouldAutoFitCanvas = false;
     requestAnimationFrame(() => fitCanvasToViewport());
@@ -2133,11 +2135,10 @@ function renderNextStepPicker(flow) {
       </div>
       <div class="next-step-choice-list">
         ${nextStepChoice("message", "Messenger", icons.message)}
-        ${nextStepChoice("ai", "Etapa de IA", icons.users, true)}
         ${nextStepChoice("action", "Executar Ações", icons.action)}
-        ${nextStepChoice("condition", "Condição", icons.condition, true)}
-        ${nextStepChoice("randomizer", "Randomizador", icons.workflow, true)}
-        ${nextStepChoice("delay", "Atraso Inteligente", icons.delay, true)}
+        ${nextStepChoice("condition", "Condição", icons.condition)}
+        ${nextStepChoice("randomizer", "Randomizador", icons.workflow)}
+        ${nextStepChoice("delay", "Atraso Inteligente", icons.delay)}
         <div class="next-step-existing-group">
           <strong>Selecionar Passo Existente</strong>
           ${
@@ -2160,13 +2161,11 @@ function renderNextStepPicker(flow) {
   `;
 }
 
-function nextStepChoice(type, label, icon, pro = false) {
-  const disabled = type === "ai" || type === "randomizer" || type === "delay";
+function nextStepChoice(type, label, icon) {
   return `
-    <button class="next-step-choice" type="button" data-action="add-next-step" data-type="${type}" ${disabled ? "disabled" : ""}>
+    <button class="next-step-choice" type="button" data-action="add-next-step" data-type="${type}">
       <span class="step-choice-icon">${icon}</span>
       <span>${escapeHtml(label)}</span>
-      ${pro ? `<small>PRO</small>` : ""}
     </button>
   `;
 }
@@ -2176,6 +2175,7 @@ function renderInspector(flow, node) {
   if (node.type === "message") return renderMessageSettings(flow, node);
   if (node.type === "condition") return renderConditionSettings(flow, node);
   if (node.type === "delay") return renderDelaySettings(flow, node);
+  if (node.type === "randomizer") return renderRandomizerSettings(flow, node);
   return renderActionSettings(flow, node);
 }
 
@@ -2304,6 +2304,22 @@ function renderDelaySettings(flow, node) {
       </div>
       <label class="settings-field">
         <span>Descrição interna</span>
+        <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
+      </label>
+    </form>
+  `;
+}
+
+function renderRandomizerSettings(flow, node) {
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Randomizador", "Distribuir contatos entre caminhos", icons.workflow)}
+      <label class="settings-field">
+        <span>Nome do randomizador</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <label class="settings-field">
+        <span>Observação interna</span>
         <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
       </label>
     </form>
@@ -2883,7 +2899,7 @@ function setExistingNextStep(nodeId, targetId) {
 }
 
 function nextStepType(type) {
-  if (["message", "action", "condition", "delay"].includes(type)) return type;
+  if (["message", "action", "condition", "delay", "randomizer"].includes(type)) return type;
   return "";
 }
 
@@ -3232,6 +3248,9 @@ function simulateFlow(flow, inputText, displayName) {
     if (current.type === "delay" && current.message) {
       messages.push({ from: "bot", text: `Espera configurada: ${current.message}` });
     }
+    if (current.type === "randomizer" && current.message) {
+      messages.push({ from: "bot", text: `Randomizador: ${current.message}` });
+    }
     current = current.next ? flow.nodes.find((node) => node.id === current.next) : null;
   }
 
@@ -3359,6 +3378,49 @@ function enableCanvasWheelZoom() {
     },
     { passive: false }
   );
+}
+
+function enableMiniMapNavigation() {
+  const miniMap = document.querySelector("#canvasMinimap");
+  const canvas = document.querySelector("#flowCanvas");
+  const svg = miniMap?.querySelector("svg");
+  if (!miniMap || !canvas || !svg) return;
+
+  const moveToEventPoint = (event) => {
+    event.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    const miniXPos = clamp(((event.clientX - rect.left) / rect.width) * MINIMAP_WIDTH, 0, MINIMAP_WIDTH);
+    const miniYPos = clamp(((event.clientY - rect.top) / rect.height) * MINIMAP_HEIGHT, 0, MINIMAP_HEIGHT);
+    centerCanvasOnMiniMapPoint(miniXPos, miniYPos);
+  };
+
+  miniMap.addEventListener("pointerdown", (event) => {
+    moveToEventPoint(event);
+    miniMap.setPointerCapture(event.pointerId);
+
+    const onMove = (moveEvent) => moveToEventPoint(moveEvent);
+    const onUp = () => {
+      miniMap.removeEventListener("pointermove", onMove);
+      miniMap.removeEventListener("pointerup", onUp);
+      rememberCanvasScroll();
+    };
+
+    miniMap.addEventListener("pointermove", onMove);
+    miniMap.addEventListener("pointerup", onUp);
+  });
+}
+
+function centerCanvasOnMiniMapPoint(miniXPos, miniYPos) {
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas) return;
+
+  const zoom = canvasZoom || 1;
+  const stageX = (miniXPos / MINIMAP_WIDTH) * CANVAS_WIDTH;
+  const stageY = (miniYPos / MINIMAP_HEIGHT) * CANVAS_HEIGHT;
+  canvas.scrollLeft = Math.max(0, stageX * zoom - canvas.clientWidth / 2);
+  canvas.scrollTop = Math.max(0, stageY * zoom - canvas.clientHeight / 2);
+  rememberCanvasScroll();
+  updateMiniMapViewport();
 }
 
 function applyCanvasZoom(value, anchorX, anchorY) {
@@ -3707,6 +3769,7 @@ function defaultNodeMessage(type) {
     condition: "Defina palavras-chave ou critérios para seguir este caminho.",
     delay: "Aguardar alguns minutos antes de continuar.",
     action: "Aplicar tag, abrir conversa ou notificar atendimento.",
+    randomizer: "Distribuir contatos entre caminhos aleatórios.",
     trigger: "Mensagem recebida no Messenger."
   };
   return messages[type] || messages.message;
