@@ -1,5 +1,6 @@
 const STORAGE_KEY = "messenlead.messenger.workspace.v2";
 const SIDEBAR_COLLAPSED_KEY = "messenlead.sidebar.collapsed";
+const DEFAULT_FLOW_PAGE_ID = "__global__";
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
@@ -376,7 +377,7 @@ function setModalError(message) {
 function seedWorkspace() {
   const now = new Date().toISOString();
 
-  return {
+  const workspace = {
     settings: {
       pageName: "",
       pageId: "",
@@ -535,6 +536,11 @@ function seedWorkspace() {
     contacts: [],
     campaigns: []
   };
+
+  workspace.flowsByPage = {
+    [DEFAULT_FLOW_PAGE_ID]: workspace.flows
+  };
+  return workspace;
 }
 
 function loadState() {
@@ -543,10 +549,57 @@ function loadState() {
     if (!stored) return seedWorkspace();
     const parsed = JSON.parse(stored);
     if (!parsed.flows || !parsed.contacts || !parsed.campaigns) return seedWorkspace();
-    return parsed;
+    return normalizeWorkspaceState(parsed);
   } catch {
     return seedWorkspace();
   }
+}
+
+function normalizeWorkspaceState(workspace) {
+  const activePageId = normalizeFlowPageId(workspace.settings?.pageId);
+  const flowsByPage =
+    workspace.flowsByPage && typeof workspace.flowsByPage === "object" && !Array.isArray(workspace.flowsByPage)
+      ? workspace.flowsByPage
+      : {};
+
+  if (!flowsByPage[activePageId] && Array.isArray(workspace.flows)) {
+    flowsByPage[activePageId] = workspace.flows;
+  }
+
+  return {
+    ...workspace,
+    flowsByPage,
+    flows: Array.isArray(flowsByPage[activePageId]) ? flowsByPage[activePageId] : Array.isArray(workspace.flows) ? workspace.flows : []
+  };
+}
+
+function normalizeFlowPageId(pageId) {
+  return String(pageId || DEFAULT_FLOW_PAGE_ID).trim() || DEFAULT_FLOW_PAGE_ID;
+}
+
+function ensureFlowsByPage() {
+  if (!state.flowsByPage || typeof state.flowsByPage !== "object" || Array.isArray(state.flowsByPage)) {
+    state.flowsByPage = {};
+  }
+  return state.flowsByPage;
+}
+
+function cacheCurrentPageFlows(pageId = currentFlowPageId()) {
+  const flowsByPage = ensureFlowsByPage();
+  flowsByPage[normalizeFlowPageId(pageId)] = Array.isArray(state.flows) ? state.flows : [];
+}
+
+function localFlowsForPage(pageId) {
+  const flowsByPage = ensureFlowsByPage();
+  const key = normalizeFlowPageId(pageId);
+  return Array.isArray(flowsByPage[key]) ? flowsByPage[key] : [];
+}
+
+function setActiveFlowsForPage(pageId, flows = localFlowsForPage(pageId)) {
+  state.flows = Array.isArray(flows) ? flows : [];
+  ensureFlowsByPage()[normalizeFlowPageId(pageId)] = state.flows;
+  selectedFlowId = state.flows[0]?.id;
+  selectedNodeId = state.flows[0]?.nodes[0]?.id;
 }
 
 function saveState() {
@@ -555,6 +608,7 @@ function saveState() {
 }
 
 function persistLocalState() {
+  cacheCurrentPageFlows();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -1006,8 +1060,8 @@ function renderFlows() {
             <button class="icon-button" type="button" data-action="canvas-zoom-in" title="Aumentar zoom">+</button>
           </div>
         </div>
-        <button class="canvas-peek-button ${showInspector ? "active" : ""}" type="button" data-action="peek-inspector" title="Mostrar configurações do bloco">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+        <button class="canvas-peek-button ${showInspector ? "active" : ""}" type="button" data-action="peek-inspector" title="${showInspector ? "Fechar configurações" : "Mostrar configurações do bloco"}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${showInspector ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"}" /></svg>
         </button>
         <div class="flow-canvas" id="flowCanvas" style="--canvas-zoom:${canvasZoom}">
           <div class="canvas-world" style="width:${CANVAS_WIDTH * canvasZoom}px; height:${CANVAS_HEIGHT * canvasZoom}px">
@@ -1723,6 +1777,7 @@ async function logoutFacebook() {
 }
 
 function selectMetaPage(pageId) {
+  cacheCurrentPageFlows();
   const page = metaState.pages?.find((item) => item.id === pageId);
   metaState.selectedPageId = pageId;
   metaState.conversations = null;
@@ -1732,7 +1787,8 @@ function selectMetaPage(pageId) {
   if (page) {
     state.settings.pageId = page.id;
     state.settings.pageName = page.name;
-    saveState();
+    setActiveFlowsForPage(page.id);
+    persistLocalState();
     flowStore.pageId = "";
     loadFlowsForPage(page.id);
   }
@@ -1741,6 +1797,7 @@ function selectMetaPage(pageId) {
 }
 
 function selectSidebarPage(pageId) {
+  cacheCurrentPageFlows();
   const page = metaState.pages?.find((item) => item.id === pageId);
   if (!page) return;
 
@@ -1750,8 +1807,8 @@ function selectSidebarPage(pageId) {
   metaState.messages = null;
   state.settings.pageId = page.id;
   state.settings.pageName = page.name;
-  selectedFlowId = state.flows[0]?.id;
-  selectedNodeId = "";
+  setActiveFlowsForPage(page.id);
+  selectedNodeId = state.flows[0]?.nodes[0]?.id;
   flowCanvasOpen = false;
   showInspector = false;
   triggerPickerNodeId = "";
@@ -1798,18 +1855,23 @@ async function sendMetaMessage() {
 }
 
 function openPageFlow() {
+  cacheCurrentPageFlows();
   const page = metaState.pages?.find((item) => item.id === metaState.selectedPageId);
   if (page) {
     state.settings.pageId = page.id;
     state.settings.pageName = page.name;
-    saveState();
+    setActiveFlowsForPage(page.id);
+    persistLocalState();
     flowStore.pageId = "";
   }
   navigate("flows");
 }
 
 async function loadFlowsForPage(pageId) {
-  const normalizedPageId = pageId || "__global__";
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const localFlows = localFlowsForPage(normalizedPageId);
+  setActiveFlowsForPage(normalizedPageId, localFlows);
+
   flowStore = {
     ...flowStore,
     pageId: normalizedPageId,
@@ -1819,26 +1881,32 @@ async function loadFlowsForPage(pageId) {
 
   try {
     const result = await apiGet(`/api/flows?pageId=${encodeURIComponent(normalizedPageId)}`);
+    if (currentFlowPageId() !== normalizedPageId) return;
+
     flowStore.serverAvailable = true;
 
     if (Array.isArray(result.flows) && result.flows.length) {
-      state.flows = result.flows;
-      selectedFlowId = state.flows[0]?.id;
-      selectedNodeId = state.flows[0]?.nodes[0]?.id;
+      setActiveFlowsForPage(normalizedPageId, result.flows);
       persistLocalState();
       flowStore.status = "Salvo no D1";
-    } else if (state.flows.length) {
-      await apiPost("/api/flows", { pageId: normalizedPageId, flows: state.flows });
-      flowStore.status = "Modelo salvo no D1";
+    } else if (localFlows.length) {
+      await apiPost("/api/flows", { pageId: normalizedPageId, flows: localFlows });
+      if (currentFlowPageId() !== normalizedPageId) return;
+      flowStore.status = "Rascunhos locais salvos no D1";
     } else {
+      setActiveFlowsForPage(normalizedPageId, []);
+      persistLocalState();
       flowStore.status = "D1 sem fluxos";
     }
   } catch (error) {
+    if (currentFlowPageId() !== normalizedPageId) return;
     flowStore.serverAvailable = false;
     flowStore.status = flowStoreStatusFromError(error);
   } finally {
-    flowStore.loading = false;
-    if (activeView === "flows") render();
+    if (currentFlowPageId() === normalizedPageId) {
+      flowStore.loading = false;
+      if (activeView === "flows") render();
+    }
   }
 }
 
@@ -1860,6 +1928,7 @@ async function syncFlowToServer(flow) {
   if (flowStore.serverAvailable === false && flowStore.pageId === pageId) return;
 
   try {
+    flow.pageId = pageId;
     await apiPost("/api/flows", { pageId, flow });
     flowStore.serverAvailable = true;
     flowStore.pageId = pageId;
@@ -1877,6 +1946,9 @@ async function syncAllFlowsToServer() {
   if (!state.flows.length) return;
 
   try {
+    state.flows.forEach((flow) => {
+      flow.pageId = pageId;
+    });
     await apiPost("/api/flows", { pageId, flows: state.flows });
     flowStore.serverAvailable = true;
     flowStore.pageId = pageId;
@@ -1902,7 +1974,7 @@ async function deleteFlowFromServer(flowId, pageId) {
 }
 
 function currentFlowPageId() {
-  return metaState.selectedPageId || state.settings.pageId || "__global__";
+  return normalizeFlowPageId(metaState.selectedPageId || state.settings.pageId);
 }
 
 function flowStoreStatusFromError(error) {
@@ -2383,6 +2455,7 @@ function createFlowFromName(name) {
   const messageId = makeId("node");
   const flow = {
     id: makeId("flow"),
+    pageId: currentFlowPageId(),
     name,
     status: "draft",
     trigger: "nova mensagem",
@@ -2469,6 +2542,7 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
   const copy = JSON.parse(JSON.stringify(flow));
   const idMap = new Map();
   copy.id = makeId("flow");
+  copy.pageId = currentFlowPageId();
   copy.name = `${flow.name} cópia`;
   copy.status = "draft";
   copy.updatedAt = new Date().toISOString();
@@ -3804,12 +3878,13 @@ async function importWorkspace(event) {
     const text = await file.text();
     const data = JSON.parse(text);
     if (!data.flows || !Array.isArray(data.flows)) throw new Error("Arquivo inválido.");
-    state = {
+    state = normalizeWorkspaceState({
       settings: data.settings || state.settings,
       flows: data.flows,
+      flowsByPage: data.flowsByPage,
       contacts: data.contacts || state.contacts,
       campaigns: data.campaigns || state.campaigns
-    };
+    });
     selectedFlowId = state.flows[0]?.id;
     selectedNodeId = state.flows[0]?.nodes[0]?.id;
     selectedContactId = state.contacts[0]?.id;

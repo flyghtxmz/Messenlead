@@ -2209,23 +2209,23 @@ svg {
 .app-shell.canvas-mode .canvas-peek-button {
   position: absolute;
   top: 50%;
-  left: 10px;
+  left: -18px;
   z-index: 35;
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   place-items: center;
-  border: 0;
+  border: 1px solid #d7e0ea;
   border-radius: 50%;
-  background: #dfe8f1;
+  background: #ffffff;
   color: #64748b;
-  opacity: 0.56;
+  opacity: 0.72;
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
   transform: translateY(-50%);
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector .canvas-peek-button {
-  left: -15px;
+  left: -18px;
   opacity: 1;
 }
 
