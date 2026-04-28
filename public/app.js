@@ -1140,13 +1140,9 @@ function renderFlows() {
 
       <aside class="panel inspector flow-config-drawer">
         <div class="flow-config-header">
-          <span>Automation</span>
-          <input class="drawer-title-input" data-flow-field="name" value="${attr(flow.name || "Sem Título")}" aria-label="Nome do fluxo" />
-          <div class="segmented" aria-label="Status do fluxo">
-            ${["draft", "active", "paused"]
-              .map((status) => `<button class="${flow.status === status ? "active" : ""}" type="button" data-action="set-flow-status" data-status="${status}">${statusLabel(status)}</button>`)
-              .join("")}
-          </div>
+          <span>Configurações do bloco</span>
+          <strong>${escapeHtml(node?.title || "Bloco")}</strong>
+          <button class="icon-button" type="button" data-action="peek-inspector" title="Fechar configurações">&times;</button>
         </div>
         <div class="panel-body stack">
           ${node ? renderInspector(flow, node) : ""}
@@ -2145,17 +2141,6 @@ function renderTriggerSettings(flow, node) {
         </div>
         <button class="dashed-add-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">+ Novo Gatilho</button>
       </div>
-      <label class="settings-field">
-        <span>Palavras-chave ou referência</span>
-        <input data-node-field="keyword" value="${attr(node.keyword || "")}" placeholder="oi, preço, qr-campanha, ref-link" />
-      </label>
-      <label class="settings-field">
-        <span>Descrição interna</span>
-        <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
-      </label>
-      ${nextStepField(flow, node)}
-      ${flowGoalField(flow)}
-      ${settingsDangerZone()}
     </form>
   `;
 }
@@ -2185,8 +2170,6 @@ function renderMessageSettings(flow, node) {
           <input data-node-field="quickReplies" value="${attr((node.quickReplies || []).join(", "))}" placeholder="Sim, Não, Falar com humano" />
         </label>
       </div>
-      ${nextStepField(flow, node)}
-      ${settingsDangerZone()}
     </form>
   `;
 }
@@ -2210,8 +2193,6 @@ function renderConditionSettings(flow, node) {
         <span>Observação interna</span>
         <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
       </label>
-      ${nextStepField(flow, node)}
-      ${settingsDangerZone()}
     </form>
   `;
 }
@@ -2234,8 +2215,6 @@ function renderDelaySettings(flow, node) {
         <span>Descrição interna</span>
         <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
       </label>
-      ${nextStepField(flow, node)}
-      ${settingsDangerZone()}
     </form>
   `;
 }
@@ -2256,8 +2235,6 @@ function renderActionSettings(flow, node) {
         <span>Instrução interna</span>
         <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
       </label>
-      ${nextStepField(flow, node)}
-      ${settingsDangerZone()}
     </form>
   `;
 }
@@ -2270,41 +2247,6 @@ function settingsSectionHeader(title, subtitle, icon) {
         <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(subtitle)}</span>
       </div>
-    </div>
-  `;
-}
-
-function nextStepField(flow, node) {
-  const options = [`<option value="">Fim do fluxo</option>`]
-    .concat(
-      flow.nodes
-        .filter((item) => item.id !== node.id)
-        .map((item) => `<option value="${item.id}" ${node.next === item.id ? "selected" : ""}>${escapeHtml(item.title)}</option>`)
-    )
-    .join("");
-
-  return `
-    <label class="settings-field">
-      <span>Próximo passo</span>
-      <select data-node-field="next">${options}</select>
-    </label>
-  `;
-}
-
-function flowGoalField(flow) {
-  return `
-    <label class="settings-field">
-      <span>Objetivo do fluxo</span>
-      <textarea data-flow-field="goal">${escapeHtml(flow.goal || "")}</textarea>
-    </label>
-  `;
-}
-
-function settingsDangerZone() {
-  return `
-    <div class="settings-footer-actions">
-      <button class="danger-button" type="button" data-action="delete-node">${icons.trash}<span>Excluir bloco</span></button>
-      <button class="secondary-button" type="button" data-action="delete-flow">${icons.trash}<span>Excluir fluxo</span></button>
     </div>
   `;
 }

@@ -2267,7 +2267,7 @@ svg {
   position: absolute;
   top: 50%;
   left: -18px;
-  z-index: 35;
+  z-index: 80;
   display: grid;
   width: 32px;
   height: 32px;
@@ -2282,7 +2282,7 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector .canvas-peek-button {
-  left: -18px;
+  left: 8px;
   opacity: 1;
 }
 
@@ -2549,16 +2549,35 @@ svg {
 
 .app-shell.canvas-mode .flow-config-header {
   display: grid;
-  gap: 6px;
-  min-height: 84px;
-  align-content: start;
-  padding: 16px 22px 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  min-height: 62px;
+  align-content: center;
+  align-items: center;
+  padding: 12px 14px 12px 22px;
   border-bottom: 1px solid #eef2f5;
 }
 
 .app-shell.canvas-mode .flow-config-header > span {
+  grid-column: 1;
   color: var(--muted);
   font-size: 12px;
+}
+
+.app-shell.canvas-mode .flow-config-header > strong {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.canvas-mode .flow-config-header > .icon-button {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
 }
 
 .drawer-title-input {
