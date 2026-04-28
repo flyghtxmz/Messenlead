@@ -2144,7 +2144,7 @@ svg {
 
 .app-shell.canvas-mode .canvas-floating-tools {
   position: absolute;
-  top: 62px;
+  top: 50%;
   right: 14px;
   z-index: 30;
   display: grid;
@@ -2154,6 +2154,7 @@ svg {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.16);
+  transform: translateY(-50%);
 }
 
 .app-shell.canvas-mode .canvas-floating-tools .chip-button {
@@ -2171,15 +2172,63 @@ svg {
   height: 18px;
 }
 
-.app-shell.canvas-mode .page-grid.canvas-focused.show-inspector .canvas-floating-tools {
-  display: none;
-}
-
 .app-shell.canvas-mode .node {
   border: 1px solid #d7e0ea;
   border-radius: 8px;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
   cursor: grab;
+}
+
+.app-shell.canvas-mode .canvas-minimap {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 30;
+  width: 184px;
+  padding: 8px;
+  border: 1px solid #d5dde6;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.16);
+  pointer-events: none;
+}
+
+.app-shell.canvas-mode .minimap-title {
+  margin: 0 0 6px;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.app-shell.canvas-mode .canvas-minimap svg {
+  width: 100%;
+  height: auto;
+}
+
+.app-shell.canvas-mode .minimap-bg {
+  fill: #f8fafc;
+  stroke: #d9e0e7;
+  stroke-width: 1;
+}
+
+.app-shell.canvas-mode .minimap-link {
+  stroke: #9aaec0;
+  stroke-width: 1;
+}
+
+.app-shell.canvas-mode .minimap-node {
+  fill: #256fc2;
+  stroke: none;
+}
+
+.app-shell.canvas-mode .minimap-node.selected {
+  fill: var(--green);
+}
+
+.app-shell.canvas-mode .minimap-viewport {
+  fill: rgba(37, 111, 194, 0.1);
+  stroke: #256fc2;
+  stroke-width: 1.4;
 }
 
 .app-shell.canvas-mode .node.selected {

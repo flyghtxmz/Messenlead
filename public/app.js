@@ -31,6 +31,8 @@ const CANVAS_MIN_X = -CANVAS_ORIGIN_X + 80;
 const CANVAS_MAX_X = CANVAS_WIDTH - CANVAS_ORIGIN_X - NODE_WIDTH - 80;
 const CANVAS_MIN_Y = -CANVAS_ORIGIN_Y + 80;
 const CANVAS_MAX_Y = CANVAS_HEIGHT - CANVAS_ORIGIN_Y - 190;
+const MINIMAP_WIDTH = 160;
+const MINIMAP_HEIGHT = 110;
 const ZOOM_MIN = 0.45;
 const ZOOM_MAX = 1.15;
 const MESSENGER_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -89,6 +91,7 @@ let shouldAutoFitCanvas = !storedCanvasZoom;
 let flowCanvasOpen = false;
 let showFlowList = false;
 let showInspector = false;
+let canvasScrollState = null;
 let flowStore = {
   pageId: "",
   loading: false,
@@ -508,6 +511,7 @@ function oauthErrorFromHash() {
 }
 
 function render() {
+  if (activeView === "flows" && flowCanvasOpen) rememberCanvasScroll();
   renderNav();
   appShell?.classList.toggle("canvas-mode", activeView === "flows" && flowCanvasOpen);
   const current = navItems.find((item) => item.id === activeView) || navItems[0];
@@ -901,12 +905,15 @@ function renderFlows() {
               ${flow.nodes.map((item) => renderNode(item, item.id === node?.id)).join("")}
             </div>
           </div>
-          <div class="canvas-floating-tools" aria-label="Adicionar blocos">
-            ${nodeAddButton("message", "Mensagem")}
-            ${nodeAddButton("condition", "Condição")}
-            ${nodeAddButton("delay", "Espera")}
-            ${nodeAddButton("action", "Ação")}
-          </div>
+        </div>
+        <div class="canvas-floating-tools" aria-label="Adicionar blocos">
+          ${nodeAddButton("message", "Mensagem")}
+          ${nodeAddButton("condition", "Condição")}
+          ${nodeAddButton("delay", "Espera")}
+          ${nodeAddButton("action", "Ação")}
+        </div>
+        <div class="canvas-minimap" id="canvasMinimap">
+          ${renderMiniMapContent(flow)}
         </div>
       </section>
 
@@ -937,6 +944,11 @@ function renderFlows() {
   if (shouldAutoFitCanvas) {
     shouldAutoFitCanvas = false;
     requestAnimationFrame(() => fitCanvasToViewport());
+  } else {
+    requestAnimationFrame(() => {
+      restoreCanvasScroll();
+      updateMiniMapViewport();
+    });
   }
 }
 
@@ -2623,6 +2635,7 @@ function enableNodeDragging(flow) {
       const startNodeY = node.y;
       let moved = false;
       element.setPointerCapture(event.pointerId);
+      canvas.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
       element.classList.add("selected");
 
       const onMove = (moveEvent) => {
@@ -2636,6 +2649,8 @@ function enableNodeDragging(flow) {
         node.y = clampNodeY(Math.round(y));
         element.style.left = `${canvasNodeLeft(node)}px`;
         element.style.top = `${canvasNodeTop(node)}px`;
+        updateLiveConnections(flow);
+        updateMiniMap(flow);
       };
 
       const onUp = () => {
@@ -2644,12 +2659,7 @@ function enableNodeDragging(flow) {
         if (moved) {
           flow.updatedAt = new Date().toISOString();
           saveState();
-        } else {
-          showInspector = true;
-          showFlowList = false;
-          localStorage.setItem("messenlead.canvas.flowList", "false");
         }
-        render();
       };
 
       element.addEventListener("pointermove", onMove);
@@ -2661,6 +2671,8 @@ function enableNodeDragging(flow) {
 function enableCanvasPanning() {
   const canvas = document.querySelector("#flowCanvas");
   if (!canvas) return;
+  canvas.addEventListener("scroll", updateMiniMapViewport, { passive: true });
+  updateMiniMapViewport();
 
   canvas.addEventListener("pointerdown", (event) => {
     if (event.target.closest(".node, button, input, textarea, select, .inspector, .canvas-floating-tools")) return;
@@ -2682,11 +2694,89 @@ function enableCanvasPanning() {
       canvas.classList.remove("panning");
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
+      rememberCanvasScroll();
+      updateMiniMapViewport();
     };
 
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
   });
+}
+
+function rememberCanvasScroll() {
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas) return;
+  const zoom = canvasZoom || 1;
+  canvasScrollState = {
+    x: canvas.scrollLeft / zoom,
+    y: canvas.scrollTop / zoom
+  };
+}
+
+function restoreCanvasScroll() {
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas || !canvasScrollState) return;
+  const zoom = canvasZoom || 1;
+  canvas.scrollLeft = canvasScrollState.x * zoom;
+  canvas.scrollTop = canvasScrollState.y * zoom;
+}
+
+function updateLiveConnections(flow) {
+  const layer = document.querySelector(".connection-layer");
+  if (!layer) return;
+  layer.innerHTML = renderConnections(flow);
+}
+
+function updateMiniMap(flow = selectedFlow()) {
+  const miniMap = document.querySelector("#canvasMinimap");
+  if (!miniMap || !flow) return;
+  miniMap.innerHTML = renderMiniMapContent(flow);
+  updateMiniMapViewport();
+}
+
+function updateMiniMapViewport() {
+  const canvas = document.querySelector("#flowCanvas");
+  const viewport = document.querySelector("#minimapViewport");
+  if (!canvas || !viewport) return;
+
+  const zoom = canvasZoom || 1;
+  const x = (canvas.scrollLeft / zoom / CANVAS_WIDTH) * MINIMAP_WIDTH;
+  const y = (canvas.scrollTop / zoom / CANVAS_HEIGHT) * MINIMAP_HEIGHT;
+  const width = Math.max(8, (canvas.clientWidth / zoom / CANVAS_WIDTH) * MINIMAP_WIDTH);
+  const height = Math.max(8, (canvas.clientHeight / zoom / CANVAS_HEIGHT) * MINIMAP_HEIGHT);
+
+  viewport.setAttribute("x", miniNumber(Math.max(0, Math.min(MINIMAP_WIDTH - width, x))));
+  viewport.setAttribute("y", miniNumber(Math.max(0, Math.min(MINIMAP_HEIGHT - height, y))));
+  viewport.setAttribute("width", miniNumber(Math.min(MINIMAP_WIDTH, width)));
+  viewport.setAttribute("height", miniNumber(Math.min(MINIMAP_HEIGHT, height)));
+}
+
+function renderMiniMapContent(flow) {
+  const links = flow.nodes
+    .map((node) => {
+      if (!node.next) return "";
+      const target = flow.nodes.find((item) => item.id === node.next);
+      if (!target) return "";
+      return `<line class="minimap-link" x1="${miniX(canvasNodeLeft(node) + NODE_WIDTH)}" y1="${miniY(canvasNodeTop(node) + NODE_CENTER_Y)}" x2="${miniX(canvasNodeLeft(target))}" y2="${miniY(canvasNodeTop(target) + NODE_CENTER_Y)}" />`;
+    })
+    .join("");
+  const nodes = flow.nodes
+    .map((node) => {
+      const width = Math.max(4, (NODE_WIDTH / CANVAS_WIDTH) * MINIMAP_WIDTH);
+      const height = Math.max(5, (136 / CANVAS_HEIGHT) * MINIMAP_HEIGHT);
+      return `<rect class="minimap-node ${node.id === selectedNodeId ? "selected" : ""}" x="${miniX(canvasNodeLeft(node))}" y="${miniY(canvasNodeTop(node))}" width="${miniNumber(width)}" height="${miniNumber(height)}" rx="1.5" />`;
+    })
+    .join("");
+
+  return `
+    <div class="minimap-title">Mapa</div>
+    <svg viewBox="0 0 ${MINIMAP_WIDTH} ${MINIMAP_HEIGHT}" aria-hidden="true">
+      <rect class="minimap-bg" x="0" y="0" width="${MINIMAP_WIDTH}" height="${MINIMAP_HEIGHT}" rx="6" />
+      ${links}
+      ${nodes}
+      <rect class="minimap-viewport" id="minimapViewport" x="0" y="0" width="20" height="20" rx="2" />
+    </svg>
+  `;
 }
 
 function renderConnections(flow) {
@@ -2747,6 +2837,18 @@ function clampNodeX(value) {
 
 function clampNodeY(value) {
   return Math.max(CANVAS_MIN_Y, Math.min(CANVAS_MAX_Y, value));
+}
+
+function miniX(stageX) {
+  return miniNumber((stageX / CANVAS_WIDTH) * MINIMAP_WIDTH);
+}
+
+function miniY(stageY) {
+  return miniNumber((stageY / CANVAS_HEIGHT) * MINIMAP_HEIGHT);
+}
+
+function miniNumber(value) {
+  return Number(value).toFixed(2);
 }
 
 function selectedFlow() {
