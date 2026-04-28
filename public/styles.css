@@ -2173,7 +2173,7 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
-  grid-template-columns: 286px minmax(0, 1fr);
+  grid-template-columns: 292px minmax(0, 1fr);
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .canvas-shell {
@@ -2224,7 +2224,7 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector .canvas-peek-button {
-  left: -14px;
+  left: -15px;
   opacity: 1;
 }
 
@@ -2460,6 +2460,7 @@ svg {
   background: #ffffff;
   box-shadow: none;
   transform: none;
+  align-self: stretch;
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused:not(.show-inspector) > .inspector {
@@ -2485,14 +2486,16 @@ svg {
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-body {
   max-height: none;
   min-height: 0;
-  padding: 0 14px 16px;
+  padding: 0 22px 18px;
   overflow: auto;
 }
 
 .app-shell.canvas-mode .flow-config-header {
   display: grid;
   gap: 6px;
-  padding: 16px 14px 12px;
+  min-height: 84px;
+  align-content: start;
+  padding: 16px 22px 14px;
   border-bottom: 1px solid #eef2f5;
 }
 
@@ -2819,7 +2822,7 @@ svg {
 
 @media (max-width: 1180px) {
   .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
-    grid-template-columns: 272px minmax(0, 1fr);
+    grid-template-columns: 292px minmax(0, 1fr);
   }
 
   .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {

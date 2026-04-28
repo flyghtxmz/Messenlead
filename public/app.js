@@ -2580,13 +2580,26 @@ function toggleFlowList() {
 }
 
 function toggleInspector() {
-  showInspector = !showInspector;
+  if (showInspector) {
+    closeInspectorPanel();
+    return;
+  }
+  peekInspector();
+}
+
+function closeInspectorPanel() {
+  showInspector = false;
+  triggerPickerNodeId = "";
   render();
 }
 
 function peekInspector() {
   const flow = selectedFlow();
   if (!flow) return;
+  if (showInspector) {
+    closeInspectorPanel();
+    return;
+  }
   selectedNodeId = selectedNodeId || flow.nodes.find((node) => node.type === "trigger")?.id || flow.nodes[0]?.id || "";
   showInspector = Boolean(selectedNodeId);
   triggerPickerNodeId = "";
