@@ -1036,9 +1036,60 @@ svg {
   border-left-color: var(--teal);
 }
 
+.node.trigger-start {
+  gap: 10px;
+  border: 1px solid #1fbf78;
+  border-left: 1px solid #1fbf78;
+  padding: 13px;
+}
+
 .node.trigger .node-title svg {
   background: #e7f6f7;
   color: var(--teal);
+}
+
+.node.trigger-start .node-title {
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.node.trigger-start .node-title svg {
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  background: transparent;
+  color: #0f172a;
+}
+
+.trigger-list {
+  display: grid;
+  gap: 5px;
+}
+
+.trigger-list span {
+  overflow: hidden;
+  color: #475467;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trigger-add-button {
+  min-height: 34px;
+  border: 1px dashed #2f8cff;
+  border-radius: 8px;
+  background: #fff;
+  color: #0069df;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.node-port {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #8ba0b2;
+  border-radius: 50%;
+  background: #fff;
 }
 
 .node.action {
@@ -2143,6 +2194,36 @@ svg {
   background: #ffffff;
 }
 
+.app-shell.canvas-mode .canvas-peek-button {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  z-index: 35;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #dfe8f1;
+  color: #64748b;
+  opacity: 0.56;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
+  transform: translateY(-50%);
+}
+
+.app-shell.canvas-mode .canvas-peek-button:hover,
+.app-shell.canvas-mode .canvas-peek-button.active {
+  opacity: 1;
+  background: #ffffff;
+  color: var(--green-dark);
+}
+
+.app-shell.canvas-mode .canvas-peek-button svg {
+  width: 17px;
+  height: 17px;
+}
+
 .app-shell.canvas-mode .canvas-toolbar .tight-stack {
   flex: 1 1 260px;
   min-width: 0;
@@ -2387,6 +2468,139 @@ svg {
   min-height: 0;
   padding: 12px;
   overflow: auto;
+}
+
+.app-shell.canvas-mode .trigger-picker-panel {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  z-index: 55;
+  width: min(560px, calc(100vw - 220px));
+  max-height: min(620px, calc(100vh - 90px));
+  overflow: hidden;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.28);
+  transform: translateX(-50%);
+}
+
+.trigger-picker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.trigger-picker-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.trigger-picker-header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trigger-picker-body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  max-height: calc(100vh - 170px);
+  overflow: hidden;
+}
+
+.trigger-picker-tabs {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
+  border-right: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.trigger-picker-tabs button {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #344054;
+  text-align: left;
+}
+
+.trigger-picker-tabs button.active {
+  background: #eef6ff;
+  color: #0069df;
+  font-weight: 800;
+}
+
+.trigger-picker-list {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.trigger-option {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 76px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+}
+
+.trigger-option:hover,
+.trigger-option.active {
+  border-color: #2f8cff;
+  box-shadow: 0 0 0 3px rgba(47, 140, 255, 0.12);
+}
+
+.trigger-option-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eaf4ff;
+  color: #0077ff;
+}
+
+.trigger-option span span,
+.trigger-option small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.trigger-option strong {
+  display: block;
+  margin: 2px 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.trigger-token-list {
+  display: grid;
+  gap: 6px;
+}
+
+.trigger-token-list span {
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #344054;
+  font-size: 12px;
 }
 
 .app-shell.canvas-mode .inspector .segmented {

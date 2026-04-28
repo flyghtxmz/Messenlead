@@ -1476,7 +1476,7 @@ function renderSetup() {
             ${integrationCard("Webhook", "Configure esta URL no app da Meta.", webhookUrl(), "copy-webhook")}
             ${integrationCard("OAuth callback", "Configure em Facebook Login.", `${location.origin}/api/auth/facebook/callback`, "copy-oauth")}
             ${integrationCard("D1 binding", "Salvamento robusto dos fluxos.", "DB", "copy-db-binding")}
-            ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins", "copy-fields")}
+            ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins, messaging_referrals", "copy-fields")}
             ${integrationCard("Verify token", "Use o mesmo valor em MESSENGER_VERIFY_TOKEN.", state.settings.verifyToken, "copy-verify")}
             ${integrationCard("Endpoint de envio", "Envio serverless protegido por token.", `${location.origin}/api/messenger/send`, "copy-send")}
           </div>
@@ -2170,7 +2170,7 @@ function handleWorkspaceClick(event) {
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
-  if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins", "Campos copiados.");
+  if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins,messaging_referrals", "Campos copiados.");
   if (action === "refresh-broadcast-eligibility") return refreshBroadcastEligibility();
   if (action === "choose-image") return document.querySelector("#imageUpload")?.click();
   if (action === "download-clean-image") return downloadCleanImage();
@@ -2494,11 +2494,16 @@ function addTriggerEvent(nodeId, triggerId) {
   const option = triggerOptionById(triggerId);
   if (!flow || !node || !option) return;
 
-  const next = new Set(nodeTriggerEvents(node));
-  next.add(triggerId);
+  const current = nodeTriggerEvents(node);
+  const next = new Set(current);
+  if (next.has(triggerId) && next.size > 1) {
+    next.delete(triggerId);
+  } else {
+    next.add(triggerId);
+  }
   node.triggerEvents = [...next];
   node.title = "Quando...";
-  node.message = option.description;
+  node.message = triggerOptionById(node.triggerEvents[0])?.description || option.description;
   flow.trigger = summarizeTriggerEvents(node);
   flow.updatedAt = new Date().toISOString();
   triggerPickerNodeId = "";
@@ -2832,7 +2837,7 @@ function simulateFlow(flow, inputText, displayName) {
   const messages = [{ from: "user", text: inputText }];
   const normalizedText = normalize(inputText);
   let current =
-    flow.nodes.find((node) => node.type === "trigger" && keywordMatches(node.keyword || flow.trigger, normalizedText)) ||
+    flow.nodes.find((node) => node.type === "trigger" && triggerMatchesSimulation(node, flow, normalizedText)) ||
     flow.nodes.find((node) => node.type === "trigger") ||
     flow.nodes[0];
   let guard = 0;
@@ -2856,6 +2861,20 @@ function simulateFlow(flow, inputText, displayName) {
   }
 
   return messages;
+}
+
+function triggerMatchesSimulation(node, flow, normalizedText) {
+  const triggers = nodeTriggerEvents(node);
+  const keywords = node.keyword || flow.trigger || "";
+  return triggers.some((trigger) => {
+    if (trigger === "messenger_message") return keywordMatches(keywords, normalizedText);
+    if (trigger === "facebook_ad") return normalizedText.includes("ad") || normalizedText.includes("anuncio");
+    if (trigger === "facebook_comment") return normalizedText.includes("comentario");
+    if (trigger === "referral_link") return normalizedText.includes("ref") || keywordMatches(keywords, normalizedText);
+    if (trigger === "qr_code") return normalizedText.includes("qr") || keywordMatches(keywords, normalizedText);
+    if (trigger === "facebook_shop_message") return normalizedText.includes("loja") || normalizedText.includes("shop");
+    return false;
+  });
 }
 
 function enableNodeDragging(flow) {

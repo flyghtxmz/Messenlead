@@ -50,8 +50,8 @@ async function handleMessengerEvent(event, env, pageId) {
   const psid = event.sender?.id;
   if (!psid) return;
 
-  const inputText = event.message?.text || event.postback?.payload || event.optin?.ref || "";
-  const replies = await buildReplies(inputText, env, pageId);
+  const context = eventContext(event);
+  const replies = await buildReplies(context, env, pageId);
   if (!replies.length) return;
 
   for (const reply of replies.slice(0, 3)) {
@@ -59,13 +59,12 @@ async function handleMessengerEvent(event, env, pageId) {
   }
 }
 
-async function buildReplies(inputText, env, pageId) {
+async function buildReplies(context, env, pageId) {
   const dbFlows = pageId ? await listFlows(env, pageId, { status: "active" }) : [];
   const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
   const activeFlows = flows.filter((flow) => flow.status === "active");
-  const normalizedInput = normalize(inputText);
   const flow =
-    activeFlows.find((item) => flowMatchesInput(item, normalizedInput)) ||
+    activeFlows.find((item) => flowMatchesInput(item, context)) ||
     activeFlows[0];
 
   if (!flow) {
@@ -73,7 +72,7 @@ async function buildReplies(inputText, env, pageId) {
   }
 
   const start =
-    flow.nodes?.find((node) => node.type === "trigger" && keywordMatches(node.keyword || flow.trigger, normalizedInput)) ||
+    flow.nodes?.find((node) => node.type === "trigger" && triggerMatchesEvent(node, flow, context)) ||
     flow.nodes?.find((node) => node.type === "trigger") ||
     flow.nodes?.[0];
 
@@ -108,10 +107,53 @@ function parseFlows(rawJson) {
   }
 }
 
-function flowMatchesInput(flow, normalizedInput) {
-  const triggerText = normalize(flow.trigger || "");
+function flowMatchesInput(flow, context) {
   const triggerNode = flow.nodes?.find((node) => node.type === "trigger");
-  return keywordMatches(triggerNode?.keyword || triggerText, normalizedInput);
+  return triggerMatchesEvent(triggerNode, flow, context);
+}
+
+function eventContext(event) {
+  const referral = event.referral || event.message?.referral || event.postback?.referral || {};
+  const inputText = event.message?.text || event.postback?.payload || event.optin?.ref || referral.ref || "";
+  return {
+    text: inputText,
+    normalizedInput: normalize(inputText),
+    eventType: event.message ? "message" : event.postback ? "postback" : event.optin ? "optin" : "unknown",
+    referralRef: normalize(referral.ref || event.optin?.ref || ""),
+    referralSource: normalize(referral.source || referral.type || ""),
+    hasReferral: Boolean(referral.ref || referral.source || referral.type || event.optin?.ref)
+  };
+}
+
+function triggerMatchesEvent(node, flow, context) {
+  if (!node) return false;
+  const triggers = Array.isArray(node.triggerEvents) && node.triggerEvents.length ? node.triggerEvents : [node.triggerKind || "messenger_message"];
+
+  return triggers.some((trigger) => {
+    if (!triggerEventMatches(trigger, context)) return false;
+    return triggerKeywordMatches(trigger, node, flow, context);
+  });
+}
+
+function triggerEventMatches(trigger, context) {
+  if (trigger === "messenger_message") return ["message", "postback", "optin"].includes(context.eventType);
+  if (trigger === "facebook_ad") return context.referralSource.includes("ad") || context.referralSource.includes("ads");
+  if (trigger === "facebook_comment") return context.referralSource.includes("comment");
+  if (trigger === "referral_link") return context.hasReferral;
+  if (trigger === "qr_code") return context.referralRef.includes("qr") || context.referralSource.includes("qr");
+  if (trigger === "facebook_shop_message") return context.referralSource.includes("shop") || context.referralSource.includes("commerce");
+  return false;
+}
+
+function triggerKeywordMatches(trigger, node, flow, context) {
+  const rawKeywords = node.keyword || flow.trigger || "";
+  if (trigger === "facebook_ad" || trigger === "facebook_comment" || trigger === "facebook_shop_message") {
+    return !rawKeywords || keywordMatches(rawKeywords, `${context.normalizedInput} ${context.referralRef} ${context.referralSource}`);
+  }
+  if (trigger === "referral_link" || trigger === "qr_code") {
+    return !rawKeywords || keywordMatches(rawKeywords, context.referralRef || context.normalizedInput);
+  }
+  return keywordMatches(rawKeywords, context.normalizedInput);
 }
 
 function keywordMatches(keywords, normalizedInput) {
