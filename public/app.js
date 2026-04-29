@@ -1208,6 +1208,8 @@ function renderFlows() {
     return;
   }
 
+  pruneInvalidFlowConnections(flow);
+
   const node = showInspector ? selectedNode(flow) : null;
   if (showInspector && node) selectedNodeId = node.id;
   canvasZoom = clamp(canvasZoom, ZOOM_MIN, ZOOM_MAX);
@@ -1325,6 +1327,7 @@ function renderFlowLibrary(flows) {
 
 function renderFlowCard(flow) {
   const nodeCount = flow.nodes?.length || 0;
+  const isActive = flow.status === "active";
   return `
     <article class="flow-card">
       <button class="flow-card-main" type="button" data-action="select-flow" data-id="${flow.id}">
@@ -1343,6 +1346,10 @@ function renderFlowCard(flow) {
         </span>
       </button>
       <div class="flow-card-actions">
+        <button class="flow-switch ${isActive ? "on" : ""}" type="button" data-action="toggle-flow-active" data-id="${flow.id}" aria-pressed="${isActive ? "true" : "false"}" title="${isActive ? "Desligar fluxo" : "Ligar fluxo"}">
+          <span class="flow-switch-track"><span></span></span>
+          <span>${isActive ? "Ligado" : "Desligado"}</span>
+        </button>
         <button class="icon-button" type="button" data-action="duplicate-flow-card" data-id="${flow.id}" title="Duplicar fluxo">${icons.copy}</button>
         <button class="icon-button danger-icon" type="button" data-action="delete-flow-card" data-id="${flow.id}" title="Excluir fluxo">${icons.trash}</button>
       </div>
@@ -2388,7 +2395,7 @@ function renderTriggerPicker(flow) {
 function renderNextStepPicker(flow) {
   const node = nextStepPickerNodeId ? flow.nodes.find((item) => item.id === nextStepPickerNodeId) : null;
   if (!node) return "";
-  const existingNodes = flow.nodes.filter((item) => item.id !== node.id);
+  const existingNodes = flow.nodes.filter((item) => item.id !== node.id && canAcceptIncomingConnection(item));
 
   return `
     <section class="next-step-picker-panel" aria-label="Escolher próximo passo">
@@ -2486,7 +2493,7 @@ function triggerExecutionLabel(triggerId) {
 
 function renderSelectedNextStep(flow, node) {
   const next = flow.nodes.find((item) => item.id === node.next);
-  if (!next) {
+  if (!next || !canAcceptIncomingConnection(next)) {
     return `<button class="choose-next-step-button" type="button" data-action="open-next-step-picker" data-id="${node.id}">Escolher Próximo Passo</button>`;
   }
   return `
@@ -2875,6 +2882,7 @@ function handleWorkspaceClick(event) {
   if (action === "duplicate-node") return duplicateNodeById(id);
   if (action === "delete-node-by-id") return deleteNodeById(id);
   if (action === "set-flow-status") return setFlowStatus(button.dataset.status);
+  if (action === "toggle-flow-active") return toggleFlowActive(id);
   if (action === "duplicate-flow") return duplicateFlow();
   if (action === "duplicate-flow-card") return duplicateFlow(id, { openCanvas: false });
   if (action === "delete-flow") return deleteFlow();
@@ -3177,6 +3185,18 @@ function setFlowStatus(status) {
   flow.updatedAt = new Date().toISOString();
   saveState();
   toastMessage(`Fluxo marcado como ${statusLabel(status).toLowerCase()}.`);
+  render();
+}
+
+function toggleFlowActive(flowId = selectedFlowId) {
+  const flow = state.flows.find((item) => item.id === flowId);
+  if (!flow) return;
+
+  flow.status = flow.status === "active" ? "paused" : "active";
+  flow.updatedAt = new Date().toISOString();
+  persistLocalState();
+  if (!flowStore.loading) syncFlowToServer(flow);
+  toastMessage(`Fluxo ${flow.status === "active" ? "ligado" : "desligado"}.`);
   render();
 }
 
@@ -3505,6 +3525,7 @@ function addNextStep(type) {
   if (!flow || !current || !normalizedType) return;
 
   const previousNext = current.next;
+  const previousTarget = flow.nodes.find((item) => item.id === previousNext);
   const node = {
     id: makeId("node"),
     type: normalizedType,
@@ -3513,7 +3534,7 @@ function addNextStep(type) {
     actions: normalizedType === "action" ? [] : undefined,
     keyword: "",
     quickReplies: normalizedType === "message" ? ["Sim", "Não"] : [],
-    next: previousNext || null,
+    next: canAcceptIncomingConnection(previousTarget) ? previousNext : null,
     x: clampNodeX(Math.round(current.x + 340)),
     y: clampNodeY(Math.round(current.y))
   };
@@ -3533,7 +3554,7 @@ function setExistingNextStep(nodeId, targetId) {
   const flow = selectedFlow();
   const node = flow?.nodes.find((item) => item.id === nodeId);
   const target = flow?.nodes.find((item) => item.id === targetId);
-  if (!flow || !node || !target || node.id === target.id) return;
+  if (!flow || !node || !target || node.id === target.id || !canAcceptIncomingConnection(target)) return;
 
   node.next = target.id;
   flow.updatedAt = new Date().toISOString();
@@ -3947,7 +3968,7 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
   if (current.type === "randomizer" && current.message) {
       messages.push({ from: "bot", text: `Randomizador: ${current.message}` });
     }
-    current = current.type === "comment" ? null : current.next ? flow.nodes.find((node) => node.id === current.next) : null;
+    current = current.type === "comment" ? null : nextExecutableNode(flow, current);
   }
 
   if (messages.length === 1) {
@@ -4097,7 +4118,7 @@ function enableConnectionDragging(flow) {
         const targetId = targetElement?.dataset.id;
         const target = targetId ? flow.nodes.find((node) => node.id === targetId) : null;
 
-        if (target && target.id !== source.id && target.type !== "comment") {
+        if (target && target.id !== source.id && canAcceptIncomingConnection(target)) {
           source.next = target.id;
           selectedNodeId = source.id;
           flow.updatedAt = new Date().toISOString();
@@ -4395,12 +4416,39 @@ function renderConnections(flow) {
     .map((node) => {
       if (!node.next) return "";
       const target = flow.nodes.find((item) => item.id === node.next);
-      if (!target) return "";
+      if (!canAcceptIncomingConnection(target)) return "";
       const start = nodeOutputPoint(node);
       const end = nodeInputPoint(target);
       return `<path d="${connectionPath(start.x, start.y, end.x, end.y)}" />`;
     })
     .join("");
+}
+
+function canAcceptIncomingConnection(node) {
+  return Boolean(node && node.type !== "trigger" && node.type !== "comment");
+}
+
+function nextExecutableNode(flow, node) {
+  const next = node?.next ? flow.nodes.find((item) => item.id === node.next) : null;
+  return canAcceptIncomingConnection(next) ? next : null;
+}
+
+function pruneInvalidFlowConnections(flow) {
+  if (!flow?.nodes?.length) return;
+  let changed = false;
+  flow.nodes.forEach((node) => {
+    if (!node.next) return;
+    const target = flow.nodes.find((item) => item.id === node.next);
+    if (canAcceptIncomingConnection(target)) return;
+    node.next = null;
+    changed = true;
+  });
+
+  if (changed) {
+    flow.updatedAt = new Date().toISOString();
+    persistLocalState();
+    if (!flowStore.loading) syncFlowToServer(flow);
+  }
 }
 
 function connectionPath(x1, y1, x2, y2) {

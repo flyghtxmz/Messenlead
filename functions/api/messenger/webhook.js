@@ -114,7 +114,7 @@ async function buildReplies(context, env, pageId) {
       actions.push(...actionStepsForNode(current));
     }
 
-    current = current.next ? flow.nodes.find((node) => node.id === current.next) : null;
+    current = nextExecutableNode(flow, current);
   }
 
   return { replies, actions };
@@ -130,6 +130,11 @@ function actionStepsForNode(node) {
   }
 
   return [];
+}
+
+function nextExecutableNode(flow, node) {
+  const next = node?.next ? flow.nodes.find((item) => item.id === node.next) : null;
+  return next && next.type !== "trigger" && next.type !== "comment" ? next : null;
 }
 
 function parseFlows(rawJson) {
