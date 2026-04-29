@@ -1265,6 +1265,18 @@ svg {
   color: var(--coral);
 }
 
+.node.comment {
+  min-height: 112px;
+  border-color: #d7dce4;
+  border-left-color: #8a98aa;
+  background: #fffdf3;
+}
+
+.node.comment .node-title svg {
+  background: #f3f6f8;
+  color: #536275;
+}
+
 .node-head {
   display: flex;
   align-items: flex-start;
@@ -2571,6 +2583,43 @@ svg {
   cursor: pointer;
   pointer-events: auto;
   user-select: none;
+}
+
+.app-shell.canvas-mode .canvas-add-menu {
+  position: absolute;
+  z-index: 90;
+  display: grid;
+  width: 154px;
+  overflow: hidden;
+  border: 1px solid #d3dae3;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.2);
+}
+
+.app-shell.canvas-mode .canvas-add-menu button {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  min-height: 29px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 1px solid #edf0f4;
+  background: #fff;
+  color: #0069df;
+  font-size: 12px;
+  text-align: left;
+}
+
+.app-shell.canvas-mode .canvas-add-menu button:hover {
+  background: #f5f9ff;
+}
+
+.app-shell.canvas-mode .canvas-add-menu button.cancel {
+  grid-template-columns: 1fr;
+  border-bottom: 0;
+  color: #667085;
 }
 
 .app-shell.canvas-mode .minimap-title {

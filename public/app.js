@@ -21,8 +21,19 @@ const nodeLabels = {
   condition: "Condição",
   delay: "Espera",
   randomizer: "Randomizador",
-  action: "Ação"
+  action: "Ação",
+  comment: "Comentário"
 };
+
+const canvasAddOptions = [
+  { type: "message", label: "Messenger" },
+  { type: "trigger", label: "Iniciar a automação" },
+  { type: "action", label: "Ações" },
+  { type: "condition", label: "Condição" },
+  { type: "randomizer", label: "Randomizador" },
+  { type: "delay", label: "Atraso Inteligente" },
+  { type: "comment", label: "Comentar" }
+];
 
 const triggerOptions = [
   {
@@ -148,7 +159,8 @@ const icons = {
   condition: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9 9-9Z"/><path d="M12 8v4l3 3"/></svg>`,
   delay: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
   action: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h8l-1 8 11-13h-8l1-7Z"/></svg>`,
-  trigger: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0"/><path d="M12 13V5m0 8 4-4m-4 4-4-4"/><path d="M5 19h14"/></svg>`
+  trigger: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0"/><path d="M12 13V5m0 8 4-4m-4 4-4-4"/><path d="M5 19h14"/></svg>`,
+  comment: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/></svg>`
 };
 
 const appShell = document.querySelector(".app-shell");
@@ -191,6 +203,7 @@ let triggerPickerNodeId = "";
 let nextStepPickerNodeId = "";
 let actionPickerNodeId = "";
 let actionPickerCategory = "contact";
+let canvasAddMenu = null;
 let subscriberPageFilter = "";
 let subscriberTagFilter = "";
 let flowStore = {
@@ -274,9 +287,7 @@ window.addEventListener("hashchange", () => {
   }
   render();
 });
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && modalState) closeModal();
-});
+document.addEventListener("keydown", handleGlobalKeydown);
 
 render();
 
@@ -1227,6 +1238,7 @@ function renderFlows() {
         <div class="canvas-minimap" id="canvasMinimap">
           ${renderMiniMapContent(flow)}
         </div>
+        ${renderCanvasAddMenu()}
       </section>
 
       <aside class="panel inspector flow-config-drawer">
@@ -1247,6 +1259,7 @@ function renderFlows() {
 
   enableNodeDragging(flow);
   enableCanvasPanning();
+  enableCanvasDoubleClickMenu();
   enableCanvasWheelZoom();
   enableMiniMapNavigation();
   if (shouldAutoFitCanvas) {
@@ -1315,6 +1328,25 @@ function renderFlowCard(flow) {
         <button class="icon-button danger-icon" type="button" data-action="delete-flow-card" data-id="${flow.id}" title="Excluir fluxo">${icons.trash}</button>
       </div>
     </article>
+  `;
+}
+
+function renderCanvasAddMenu() {
+  if (!canvasAddMenu) return "";
+  return `
+    <div class="canvas-add-menu" style="left:${canvasAddMenu.left}px; top:${canvasAddMenu.top}px" role="menu" aria-label="Adicionar bloco">
+      ${canvasAddOptions
+        .map(
+          (option) => `
+            <button type="button" data-action="add-node-at-menu" data-type="${attr(option.type)}">
+              <span>+</span>
+              <span>${escapeHtml(option.label)}</span>
+            </button>
+          `
+        )
+        .join("")}
+      <button class="cancel" type="button" data-action="close-canvas-add-menu">Cancel</button>
+    </div>
   `;
 }
 
@@ -2396,6 +2428,7 @@ function renderInspector(flow, node) {
   if (node.type === "condition") return renderConditionSettings(flow, node);
   if (node.type === "delay") return renderDelaySettings(flow, node);
   if (node.type === "randomizer") return renderRandomizerSettings(flow, node);
+  if (node.type === "comment") return renderCommentSettings(flow, node);
   return renderActionSettings(flow, node);
 }
 
@@ -2540,6 +2573,22 @@ function renderRandomizerSettings(flow, node) {
       </label>
       <label class="settings-field">
         <span>Observação interna</span>
+        <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
+      </label>
+    </form>
+  `;
+}
+
+function renderCommentSettings(flow, node) {
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Comentário", "Anotação interna no canvas", icons.comment)}
+      <label class="settings-field">
+        <span>Título</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <label class="settings-field">
+        <span>Comentário</span>
         <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
       </label>
     </form>
@@ -2713,6 +2762,7 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    canvasAddMenu = null;
     return render();
   }
   if (action === "toggle-flow-list") return toggleFlowList();
@@ -2723,6 +2773,7 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    canvasAddMenu = null;
     return render();
   }
   if (action === "add-trigger-event") return addTriggerEvent(id, button.dataset.triggerId);
@@ -2759,6 +2810,7 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    canvasAddMenu = null;
     shouldAutoFitCanvas = true;
     localStorage.setItem("messenlead.canvas.flowList", "false");
     simLog = [];
@@ -2771,10 +2823,16 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    canvasAddMenu = null;
     localStorage.setItem("messenlead.canvas.flowList", "false");
     return render();
   }
   if (action === "add-node") return addNode(button.dataset.type);
+  if (action === "add-node-at-menu") return addNodeFromCanvasMenu(button.dataset.type);
+  if (action === "close-canvas-add-menu") {
+    canvasAddMenu = null;
+    return render();
+  }
   if (action === "set-flow-status") return setFlowStatus(button.dataset.status);
   if (action === "duplicate-flow") return duplicateFlow();
   if (action === "duplicate-flow-card") return duplicateFlow(id, { openCanvas: false });
@@ -2887,6 +2945,36 @@ function handleWorkspaceKeydown(event) {
   }
 }
 
+function handleGlobalKeydown(event) {
+  if (event.key === "Escape" && modalState) {
+    closeModal();
+    return;
+  }
+
+  if (!shouldHandleFlowShortcut(event)) return;
+
+  if (event.key === "Delete") {
+    event.preventDefault();
+    deleteSelectedNode();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
+    event.preventDefault();
+    duplicateSelectedNode();
+  }
+}
+
+function shouldHandleFlowShortcut(event) {
+  if (modalState) return false;
+  if (activeView !== "flows" || !flowCanvasOpen || !selectedNodeId) return false;
+  return !isEditableTarget(event.target);
+}
+
+function isEditableTarget(target) {
+  return Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
+}
+
 function handleWorkspaceDragOver(event) {
   if (activeView !== "image") return;
   if (!event.dataTransfer?.types?.includes("Files")) return;
@@ -2993,6 +3081,52 @@ function addNode(type) {
   showInspector = true;
   saveState();
   render();
+}
+
+function addNodeFromCanvasMenu(type) {
+  if (!canvasAddMenu) return;
+  const target = canvasAddMenu;
+  canvasAddMenu = null;
+  addNodeAt(type, target.x, target.y);
+}
+
+function addNodeAt(type, x, y) {
+  const flow = selectedFlow();
+  if (!flow || !nodeLabels[type]) return;
+
+  const node = buildNode(type, x, y);
+  flow.nodes.push(node);
+  selectedNodeId = node.id;
+  showInspector = true;
+  showFlowList = false;
+  triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function buildNode(type, x, y) {
+  const node = {
+    id: makeId("node"),
+    type,
+    title: type === "trigger" ? "Quando..." : nodeLabels[type],
+    message: defaultNodeMessage(type),
+    actions: type === "action" ? [] : undefined,
+    keyword: "",
+    quickReplies: type === "message" ? ["Sim", "Não"] : [],
+    next: null,
+    x: clampNodeX(Math.round(x)),
+    y: clampNodeY(Math.round(y))
+  };
+
+  if (type === "trigger") {
+    node.triggerEvents = ["messenger_message"];
+    node.keyword = "oi";
+  }
+
+  return node;
 }
 
 function setFlowStatus(status) {
@@ -3103,6 +3237,39 @@ function deleteNode() {
   render();
 }
 
+function deleteSelectedNode() {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === selectedNodeId);
+  if (!node) return;
+  deleteNode();
+}
+
+function duplicateSelectedNode() {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === selectedNodeId);
+  if (!flow || !node) return;
+
+  const copy = JSON.parse(JSON.stringify(node));
+  copy.id = makeId("node");
+  copy.title = node.title ? `${node.title} cópia` : nodeLabels[node.type] || "Bloco";
+  copy.next = null;
+  copy.x = clampNodeX((node.x || 0) + 32);
+  copy.y = clampNodeY((node.y || 0) + 32);
+  if (Array.isArray(copy.actions)) {
+    copy.actions = copy.actions.map((step) => ({ ...step, id: makeId("act") }));
+  }
+
+  flow.nodes.push(copy);
+  selectedNodeId = copy.id;
+  showInspector = true;
+  triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
 function setCanvasZoom(value) {
   const nextZoom = clamp(value, ZOOM_MIN, ZOOM_MAX);
   const canvas = document.querySelector("#flowCanvas");
@@ -3135,6 +3302,7 @@ function closeInspectorPanel() {
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  canvasAddMenu = null;
   render();
 }
 
@@ -3150,6 +3318,7 @@ function peekInspector() {
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  canvasAddMenu = null;
   render();
 }
 
@@ -3161,6 +3330,7 @@ function openTriggerPicker(nodeId) {
   triggerPickerNodeId = node.id;
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  canvasAddMenu = null;
   showInspector = false;
   render();
 }
@@ -3186,6 +3356,7 @@ function addTriggerEvent(nodeId, triggerId) {
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  canvasAddMenu = null;
   showInspector = true;
   selectedNodeId = node.id;
   saveState();
@@ -3200,6 +3371,7 @@ function openNextStepPicker(nodeId) {
   nextStepPickerNodeId = node.id;
   triggerPickerNodeId = "";
   actionPickerNodeId = "";
+  canvasAddMenu = null;
   showInspector = true;
   render();
 }
@@ -3218,6 +3390,7 @@ function openActionPicker(nodeId) {
   actionPickerCategory = "contact";
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
+  canvasAddMenu = null;
   showInspector = true;
   render();
 }
@@ -3716,10 +3889,10 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
     if (current.type === "delay" && current.message) {
       messages.push({ from: "bot", text: `Espera configurada: ${current.message}` });
     }
-    if (current.type === "randomizer" && current.message) {
+  if (current.type === "randomizer" && current.message) {
       messages.push({ from: "bot", text: `Randomizador: ${current.message}` });
     }
-    current = current.next ? flow.nodes.find((node) => node.id === current.next) : null;
+    current = current.type === "comment" ? null : current.next ? flow.nodes.find((node) => node.id === current.next) : null;
   }
 
   if (messages.length === 1) {
@@ -3850,6 +4023,34 @@ function enableCanvasPanning() {
   });
 }
 
+function enableCanvasDoubleClickMenu() {
+  const canvas = document.querySelector("#flowCanvas");
+  const shell = document.querySelector(".canvas-shell");
+  if (!canvas || !shell) return;
+
+  canvas.addEventListener("dblclick", (event) => {
+    if (event.target.closest(".node, button, input, textarea, select, .inspector, .canvas-floating-tools, .canvas-minimap, .canvas-add-menu")) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const shellRect = shell.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const zoom = canvasZoom || 1;
+    const stageX = (canvas.scrollLeft + event.clientX - canvasRect.left) / zoom;
+    const stageY = (canvas.scrollTop + event.clientY - canvasRect.top) / zoom;
+
+    canvasAddMenu = {
+      left: clamp(event.clientX - shellRect.left, 8, shell.clientWidth - 176),
+      top: clamp(event.clientY - shellRect.top, 52, shell.clientHeight - 270),
+      x: clampNodeX(stageX - CANVAS_ORIGIN_X - NODE_WIDTH / 2),
+      y: clampNodeY(stageY - CANVAS_ORIGIN_Y - NODE_CENTER_Y)
+    };
+
+    rememberCanvasScroll();
+    render();
+  });
+}
+
 function enableCanvasWheelZoom() {
   const canvas = document.querySelector("#flowCanvas");
   if (!canvas) return;
@@ -3950,10 +4151,12 @@ function clearCanvasSelection() {
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  canvasAddMenu = null;
   document.querySelector(".canvas-focused")?.classList.remove("show-inspector");
   document.querySelector(".trigger-picker-panel")?.remove();
   document.querySelector(".next-step-picker-panel")?.remove();
   document.querySelector(".action-picker-panel")?.remove();
+  document.querySelector(".canvas-add-menu")?.remove();
   document.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
   updateMiniMap();
 }
@@ -4053,6 +4256,7 @@ function renderConnections(flow) {
 function renderNode(node, selected) {
   if (node.type === "trigger") return renderTriggerNode(node, selected);
   if (node.type === "action") return renderActionNode(node, selected);
+  if (node.type === "comment") return renderCommentNode(node, selected);
 
   const icon = icons[node.type] || icons.message;
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
@@ -4073,6 +4277,23 @@ function renderNode(node, selected) {
         <span>${node.type === "trigger" ? escapeHtml(node.keyword || "qualquer mensagem") : quickReplies}</span>
         <span>${node.next ? "conectado" : "fim"}</span>
       </div>
+    </article>
+  `;
+}
+
+function renderCommentNode(node, selected) {
+  return `
+    <article class="node comment ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      <div class="node-head">
+        <div class="node-title">
+          ${icons.comment}
+          <span>
+            <span class="node-type">Comentário</span>
+            <strong>${escapeHtml(node.title || "Comentário")}</strong>
+          </span>
+        </div>
+      </div>
+      <p>${escapeHtml(node.message || "Anotação interna do fluxo.")}</p>
     </article>
   `;
 }
@@ -4320,6 +4541,7 @@ function defaultNodeMessage(type) {
     delay: "Aguardar alguns minutos antes de continuar.",
     action: "Aplicar tag, abrir conversa ou notificar atendimento.",
     randomizer: "Distribuir contatos entre caminhos aleatórios.",
+    comment: "Anotação interna do fluxo.",
     trigger: "Mensagem recebida no Messenger."
   };
   return messages[type] || messages.message;
