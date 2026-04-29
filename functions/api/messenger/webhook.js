@@ -150,11 +150,11 @@ function flowMatchesInput(flow, context) {
 
 function eventContext(event) {
   const referral = event.referral || event.message?.referral || event.postback?.referral || {};
-  const inputText = event.message?.text || event.postback?.payload || event.optin?.ref || referral.ref || "";
+  const inputText = event.message?.quick_reply?.payload || event.message?.text || event.postback?.payload || event.optin?.ref || referral.ref || "";
   return {
     text: inputText,
     normalizedInput: normalize(inputText),
-    eventType: event.message ? "message" : event.postback ? "postback" : event.optin ? "optin" : "unknown",
+    eventType: event.message?.quick_reply ? "quick_reply" : event.message ? "message" : event.postback ? "postback" : event.optin ? "optin" : "unknown",
     referralRef: normalize(referral.ref || event.optin?.ref || ""),
     referralSource: normalize(referral.source || referral.type || ""),
     hasReferral: Boolean(referral.ref || referral.source || referral.type || event.optin?.ref)
@@ -172,12 +172,16 @@ function triggerMatchesEvent(node, flow, context) {
 }
 
 function triggerEventMatches(trigger, context) {
-  if (trigger === "messenger_message") return ["message", "postback", "optin"].includes(context.eventType);
+  if (trigger === "messenger_message") return ["message", "quick_reply", "postback", "optin"].includes(context.eventType);
   if (trigger === "facebook_ad") return context.referralSource.includes("ad") || context.referralSource.includes("ads");
   if (trigger === "facebook_comment") return context.referralSource.includes("comment");
   if (trigger === "referral_link") return context.hasReferral;
   if (trigger === "qr_code") return context.referralRef.includes("qr") || context.referralSource.includes("qr");
   if (trigger === "facebook_shop_message") return context.referralSource.includes("shop") || context.referralSource.includes("commerce");
+  if (trigger === "get_started") return context.eventType === "postback" && context.normalizedInput === "get_started";
+  if (trigger === "messenger_postback") return context.eventType === "postback" || context.eventType === "quick_reply";
+  if (trigger === "messenger_optin") return context.eventType === "optin";
+  if (trigger === "message_contains_keyword") return context.eventType === "message" || context.eventType === "quick_reply";
   return false;
 }
 
@@ -188,6 +192,18 @@ function triggerKeywordMatches(trigger, node, flow, context) {
   }
   if (trigger === "referral_link" || trigger === "qr_code") {
     return !rawKeywords || keywordMatches(rawKeywords, context.referralRef || context.normalizedInput);
+  }
+  if (trigger === "get_started") {
+    return !rawKeywords || keywordMatches(rawKeywords, context.normalizedInput);
+  }
+  if (trigger === "messenger_postback") {
+    return !rawKeywords || keywordMatches(rawKeywords, context.normalizedInput);
+  }
+  if (trigger === "messenger_optin") {
+    return !rawKeywords || keywordMatches(rawKeywords, context.referralRef || context.normalizedInput);
+  }
+  if (trigger === "message_contains_keyword") {
+    return keywordMatches(rawKeywords, context.normalizedInput);
   }
   return keywordMatches(rawKeywords, context.normalizedInput);
 }

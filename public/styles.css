@@ -2918,8 +2918,10 @@ svg {
   top: 64px;
   left: 50%;
   z-index: 55;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(560px, calc(100vw - 220px));
-  max-height: min(620px, calc(100vh - 90px));
+  height: min(620px, calc(100vh - 90px));
   overflow: hidden;
   border: 1px solid #cfd8e3;
   border-radius: 8px;
@@ -2950,7 +2952,7 @@ svg {
 .trigger-picker-body {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);
-  max-height: calc(100vh - 170px);
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -2958,9 +2960,11 @@ svg {
   display: grid;
   align-content: start;
   gap: 4px;
+  min-height: 0;
   padding: 10px;
   border-right: 1px solid var(--line);
   background: #f8fafc;
+  overflow: auto;
 }
 
 .trigger-picker-tabs button {
@@ -2984,9 +2988,12 @@ svg {
 
 .trigger-picker-list {
   display: grid;
+  align-content: start;
   gap: 12px;
+  min-height: 0;
   padding: 12px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .trigger-option {
@@ -3284,8 +3291,8 @@ svg {
 .action-picker-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(580px, calc(100vw - 40px));
-  max-height: min(436px, calc(100vh - 58px));
+  width: min(620px, calc(100vw - 40px));
+  max-height: min(500px, calc(100vh - 58px));
   overflow: hidden;
   border: 1px solid #cfd8e3;
   border-radius: 8px;
@@ -3310,8 +3317,7 @@ svg {
 .action-picker-body {
   display: grid;
   grid-template-columns: 164px minmax(0, 1fr);
-  min-height: 340px;
-  max-height: 380px;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -3329,11 +3335,13 @@ svg {
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  min-height: 36px;
+  min-height: 38px;
+  padding: 6px 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: #344054;
+  line-height: 1.25;
   text-align: left;
 }
 
@@ -3375,9 +3383,11 @@ svg {
 .action-picker-list {
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 11px;
+  min-height: 0;
+  padding: 16px 18px 18px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .action-picker-list-head {
@@ -3398,11 +3408,11 @@ svg {
 
 .action-option {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  min-height: 56px;
-  padding: 10px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-height: 70px;
+  padding: 12px 14px;
   border: 1px solid #d9e0e7;
   border-radius: 8px;
   background: #fff;
@@ -3416,6 +3426,7 @@ svg {
 
 .action-option-icon {
   display: grid;
+  margin-top: 4px;
   width: 28px;
   height: 28px;
   place-items: center;
@@ -3434,15 +3445,22 @@ svg {
   display: block;
 }
 
+.action-option > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
 .action-option strong {
   color: var(--ink);
   font-size: 13px;
+  line-height: 1.25;
 }
 
 .action-option small {
-  margin-top: 2px;
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.45;
 }
 
 .next-step-picker-header {

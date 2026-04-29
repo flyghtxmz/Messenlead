@@ -77,6 +77,34 @@ const triggerOptions = [
     source: "Mensagem da Loja Facebook",
     title: "O usuário escreve uma mensagem na sua loja do Facebook",
     description: "Dispara quando a referência da conversa indicar origem de loja."
+  },
+  {
+    id: "get_started",
+    group: "Messenger",
+    source: "Botão Começar",
+    title: "O usuário toca em Começar",
+    description: "Dispara quando o Messenger envia o postback GET_STARTED."
+  },
+  {
+    id: "messenger_postback",
+    group: "Messenger",
+    source: "Botão ou resposta rápida",
+    title: "O usuário clica em um botão da conversa",
+    description: "Dispara por postback de botão ou resposta rápida do Messenger."
+  },
+  {
+    id: "messenger_optin",
+    group: "Messenger",
+    source: "Opt-in do Messenger",
+    title: "O usuário aceita receber contato",
+    description: "Dispara quando a Meta envia um evento de opt-in para a Página."
+  },
+  {
+    id: "message_contains_keyword",
+    group: "Messenger",
+    source: "Palavra-chave",
+    title: "A mensagem contém uma palavra-chave",
+    description: "Use as palavras-chave do gatilho para iniciar o fluxo."
   }
 ];
 
@@ -3939,6 +3967,10 @@ function triggerMatchesSimulation(node, flow, normalizedText) {
     if (trigger === "referral_link") return normalizedText.includes("ref") || keywordMatches(keywords, normalizedText);
     if (trigger === "qr_code") return normalizedText.includes("qr") || keywordMatches(keywords, normalizedText);
     if (trigger === "facebook_shop_message") return normalizedText.includes("loja") || normalizedText.includes("shop");
+    if (trigger === "get_started") return normalizedText.includes("get_started") || normalizedText.includes("comecar");
+    if (trigger === "messenger_postback") return normalizedText.includes("postback") || normalizedText.includes("botao") || keywordMatches(keywords, normalizedText);
+    if (trigger === "messenger_optin") return normalizedText.includes("optin") || normalizedText.includes("opt-in") || keywordMatches(keywords, normalizedText);
+    if (trigger === "message_contains_keyword") return keywordMatches(keywords, normalizedText);
     return false;
   });
 }
