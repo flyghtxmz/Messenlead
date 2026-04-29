@@ -2747,6 +2747,12 @@ function renderSimulator() {
 }
 
 function handleWorkspaceClick(event) {
+  if (canvasAddMenu && !event.target.closest(".canvas-add-menu")) {
+    canvasAddMenu = null;
+    document.querySelector(".canvas-add-menu")?.remove();
+    if (!event.target.closest("[data-action]")) return;
+  }
+
   const button = event.target.closest("[data-action]");
   if (!button) return;
 
