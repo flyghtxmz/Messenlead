@@ -2758,6 +2758,8 @@ function renderSimulator() {
 }
 
 function handleWorkspaceClick(event) {
+  if (activeView === "flows" && flowCanvasOpen) rememberCanvasScroll();
+
   if (actionPickerNodeId && event.target.closest(".action-picker-backdrop") && !event.target.closest(".action-picker-panel")) {
     actionPickerNodeId = "";
     return render();
@@ -3983,7 +3985,7 @@ function enableNodeDragging(flow) {
   if (!canvas) return;
   canvas.querySelectorAll(".node").forEach((element) => {
     element.addEventListener("pointerdown", (event) => {
-      if (event.target.closest("button")) return;
+      if (event.target.closest("button, .node-hover-actions")) return;
       const node = flow.nodes.find((item) => item.id === element.dataset.id);
       if (!node) return;
       selectedNodeId = node.id;
