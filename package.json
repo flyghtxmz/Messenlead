@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check public/app.js && node --check functions/_lib/meta.js && node --check functions/_lib/flows.js && node --check functions/_lib/pages.js && node --check functions/api/auth/facebook/start.js && node --check functions/api/auth/facebook/callback.js && node --check functions/api/auth/logout.js && node --check functions/api/debug/config.js && node --check functions/api/flows.js && node --check functions/api/meta/me.js && node --check functions/api/meta/pages.js && node --check functions/api/meta/conversations.js && node --check functions/api/meta/messages.js && node --check functions/api/meta/send.js && node --check functions/api/messenger/webhook.js && node --check functions/api/messenger/send.js",
+    "check": "node --check public/app.js && node --check functions/_lib/meta.js && node --check functions/_lib/flows.js && node --check functions/_lib/pages.js && node --check functions/_lib/contacts.js && node --check functions/api/auth/facebook/start.js && node --check functions/api/auth/facebook/callback.js && node --check functions/api/auth/logout.js && node --check functions/api/debug/config.js && node --check functions/api/flows.js && node --check functions/api/contacts.js && node --check functions/api/meta/me.js && node --check functions/api/meta/pages.js && node --check functions/api/meta/conversations.js && node --check functions/api/meta/messages.js && node --check functions/api/meta/send.js && node --check functions/api/messenger/webhook.js && node --check functions/api/messenger/send.js",
     "dev": "wrangler pages dev public",
     "deploy": "wrangler pages deploy public"
   },

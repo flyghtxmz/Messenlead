@@ -855,6 +855,81 @@ svg {
   color: #49554d;
 }
 
+.tag-stack {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+}
+
+.tag-stack .tag {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-tag-editor {
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.editable-tag {
+  gap: 5px;
+  padding-right: 5px;
+}
+
+.editable-tag button {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(21, 27, 35, 0.08);
+  color: #344054;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.tag-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+}
+
+.tag-editor-row input {
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.tag-editor-row .icon-button {
+  width: 34px;
+  height: 34px;
+}
+
+.compact-filter {
+  display: grid;
+  gap: 4px;
+}
+
+.compact-filter span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.tag-filter-list {
+  display: flex;
+  flex: 1 1 260px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .channel-pill {
   background: #edf7f8;
   color: var(--teal);
@@ -1106,6 +1181,70 @@ svg {
 .node.action .node-title svg {
   background: var(--amber-soft);
   color: var(--amber);
+}
+
+.action-node {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-left: 1px solid #f1c86f;
+}
+
+.action-node-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 9px 12px;
+  background: #fff0bd;
+  color: #344054;
+  font-weight: 800;
+}
+
+.action-node-head svg {
+  width: 18px;
+  height: 18px;
+  color: #f4a000;
+}
+
+.action-node-body {
+  display: grid;
+  min-height: 82px;
+  padding: 12px;
+  place-items: center;
+}
+
+.action-node-empty {
+  display: grid;
+  width: 100%;
+  min-height: 62px;
+  place-items: center;
+  border: 1px dashed #d7dde6;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.action-node-list {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+}
+
+.action-node-list span {
+  overflow: hidden;
+  padding: 7px 8px;
+  border: 1px solid #f0dfb2;
+  border-radius: 6px;
+  background: #fffaf0;
+  color: #544319;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-node .node-footer {
+  margin: 0 12px 10px;
 }
 
 .node.condition {
@@ -2746,6 +2885,86 @@ svg {
   text-align: center;
 }
 
+.manychat-action-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: -14px -22px 10px;
+  padding: 14px 16px;
+  background: #fff0bd;
+  color: #1f2933;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.manychat-action-head svg {
+  width: 17px;
+  height: 17px;
+  color: #f4a000;
+}
+
+.action-settings-copy {
+  color: #344054;
+  font-size: 13px;
+}
+
+.action-step-list {
+  display: grid;
+  gap: 12px;
+}
+
+.action-add-button {
+  border-color: #f0b84a;
+  color: #b66800;
+}
+
+.action-step-card {
+  display: grid;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid #d9e0e7;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.action-step-card.compact {
+  padding: 12px;
+}
+
+.action-step-title {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.action-step-title strong {
+  color: #344054;
+  font-size: 13px;
+}
+
+.action-step-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  color: #b66800;
+}
+
+.action-step-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.action-step-card input {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 9px;
+  border: 1px solid #d4dde7;
+  border-radius: 6px;
+}
+
 .trigger-card-list {
   display: grid;
   gap: 12px;
@@ -2833,6 +3052,11 @@ svg {
   font-weight: 800;
 }
 
+.choose-next-step-button.blue {
+  border-color: #98c9ff;
+  color: #0069df;
+}
+
 .selected-next-step-card {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -2873,6 +3097,131 @@ svg {
   border-right: 1px solid #d5dde6;
   background: #ffffff;
   box-shadow: 18px 0 46px rgba(15, 23, 42, 0.14);
+}
+
+.action-picker-panel {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  z-index: 78;
+  width: min(668px, calc(100vw - 240px));
+  max-height: min(620px, calc(100vh - 90px));
+  overflow: hidden;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.28);
+  transform: translateX(-50%);
+}
+
+.action-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.action-picker-header strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.action-picker-body {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  max-height: calc(100vh - 170px);
+  overflow: hidden;
+}
+
+.action-picker-tabs {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
+  border-right: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.action-picker-tabs button {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #344054;
+  text-align: left;
+}
+
+.action-picker-tabs button.active {
+  background: #eef1ee;
+  color: var(--green-dark);
+  font-weight: 800;
+}
+
+.action-picker-tabs svg {
+  width: 16px;
+  height: 16px;
+}
+
+.action-picker-list {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  overflow: auto;
+}
+
+.action-option {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 66px;
+  padding: 11px;
+  border: 1px solid #d9e0e7;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+}
+
+.action-option:hover {
+  border-color: #caa24b;
+  box-shadow: 0 0 0 3px rgba(244, 160, 0, 0.12);
+}
+
+.action-option-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff0bd;
+  color: #b66800;
+}
+
+.action-option-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.action-option strong,
+.action-option small {
+  display: block;
+}
+
+.action-option strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.action-option small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .next-step-picker-header {

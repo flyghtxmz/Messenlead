@@ -69,6 +69,51 @@ const triggerOptions = [
   }
 ];
 
+const actionOptions = [
+  {
+    id: "add_tag",
+    category: "contact",
+    categoryLabel: "Dados do contato",
+    title: "Adicionar Tag",
+    description: "Rotule seus contatos para facilitar a organizacao e segmentacao."
+  },
+  {
+    id: "remove_tag",
+    category: "contact",
+    categoryLabel: "Dados do contato",
+    title: "Remover Tag",
+    description: "Remova tags atribuidas quando elas nao forem mais necessarias."
+  },
+  {
+    id: "set_user_field",
+    category: "contact",
+    categoryLabel: "Dados do contato",
+    title: "Definir campo do usuario",
+    description: "Salve uma informacao personalizada no contato."
+  },
+  {
+    id: "clear_custom_field",
+    category: "contact",
+    categoryLabel: "Dados do contato",
+    title: "Limpar campo personalizado",
+    description: "Remova o valor de um campo salvo no contato."
+  },
+  {
+    id: "delete_contact",
+    category: "contact",
+    categoryLabel: "Dados do contato",
+    title: "Excluir contato",
+    description: "Marque o contato como removido da automacao."
+  },
+  {
+    id: "open_inbox",
+    category: "inbox",
+    categoryLabel: "Caixa de Entrada",
+    title: "Abrir conversa",
+    description: "Mantem o contato visivel para atendimento humano."
+  }
+];
+
 const CANVAS_WIDTH = 8000;
 const CANVAS_HEIGHT = 6000;
 const CANVAS_ORIGIN_X = 3600;
@@ -144,12 +189,22 @@ let showInspector = false;
 let canvasScrollState = null;
 let triggerPickerNodeId = "";
 let nextStepPickerNodeId = "";
+let actionPickerNodeId = "";
+let actionPickerCategory = "contact";
+let subscriberPageFilter = "";
+let subscriberTagFilter = "";
 let flowStore = {
   pageId: "",
   loading: false,
   serverAvailable: null,
   status: "Local",
   saveTimer: null
+};
+let contactStore = {
+  pageId: "",
+  loading: false,
+  serverAvailable: null,
+  status: "Local"
 };
 let metaState = {
   authChecked: false,
@@ -173,6 +228,9 @@ mainNav.addEventListener("click", (event) => {
   if (activeView === "flows") {
     flowCanvasOpen = false;
     showInspector = false;
+    triggerPickerNodeId = "";
+    nextStepPickerNodeId = "";
+    actionPickerNodeId = "";
   }
   history.replaceState(null, "", `#${activeView}`);
   render();
@@ -210,6 +268,9 @@ window.addEventListener("hashchange", () => {
   if (activeView === "flows") {
     flowCanvasOpen = false;
     showInspector = false;
+    triggerPickerNodeId = "";
+    nextStepPickerNodeId = "";
+    actionPickerNodeId = "";
   }
   render();
 });
@@ -438,6 +499,7 @@ function seedWorkspace() {
             title: "Marcar lead quente",
             message: "Aplicar tag lead-quente, abrir conversa e avisar atendimento.",
             tag: "lead-quente",
+            actions: [{ id: makeId("act"), type: "add_tag", tag: "lead-quente" }],
             next: "human_handoff",
             x: 970,
             y: 105
@@ -565,6 +627,9 @@ function normalizeWorkspaceState(workspace) {
     workspace.flowsByPage && typeof workspace.flowsByPage === "object" && !Array.isArray(workspace.flowsByPage);
   const flowsByPage =
     hasScopedFlows ? workspace.flowsByPage : {};
+  const contacts = Array.isArray(workspace.contacts)
+    ? workspace.contacts.map((contact) => normalizeContactRecord(contact, activePageId))
+    : [];
 
   if (!hasScopedFlows && !flowsByPage[activePageId] && Array.isArray(workspace.flows)) {
     flowsByPage[activePageId] = workspace.flows.map((flow) => stampFlowPage(flow, activePageId));
@@ -581,6 +646,7 @@ function normalizeWorkspaceState(workspace) {
 
   return {
     ...workspace,
+    contacts,
     flowsByPage,
     flows: Array.isArray(flowsByPage[activePageId]) ? flowsByPage[activePageId] : Array.isArray(workspace.flows) ? workspace.flows : []
   };
@@ -588,6 +654,25 @@ function normalizeWorkspaceState(workspace) {
 
 function normalizeFlowPageId(pageId) {
   return String(pageId || DEFAULT_FLOW_PAGE_ID).trim() || DEFAULT_FLOW_PAGE_ID;
+}
+
+function normalizeContactRecord(contact, fallbackPageId = DEFAULT_FLOW_PAGE_ID) {
+  const pageId = normalizeFlowPageId(contact?.pageId || fallbackPageId);
+  const psid = String(contact?.psid || "").trim() || `PSID_${Math.random().toString().slice(2, 12)}`;
+  const tags = normalizeTags(contact?.tags ?? contact?.tag);
+  return {
+    ...contact,
+    id: contact?.id || `${pageId}:${psid}`,
+    pageId,
+    psid,
+    name: contact?.name || psid,
+    status: contact?.status || "open",
+    source: contact?.source || "Messenger",
+    tags,
+    tag: tags[0] || contact?.tag || "",
+    lastSeen: contact?.lastSeen || lastMessage(contact)?.at || "",
+    messages: Array.isArray(contact?.messages) ? contact.messages : []
+  };
 }
 
 function ensureFlowsByPage() {
@@ -697,12 +782,13 @@ function render() {
 }
 
 function renderNav() {
+  const pageContacts = contactsForPage(currentFlowPageId());
   const counts = {
     dashboard: "",
     pages: metaState.pages?.length || "",
     flows: state.flows.filter((flow) => flow.status === "active").length,
-    inbox: state.contacts.filter((contact) => contact.status === "open").length,
-    subscribers: state.contacts.length,
+    inbox: pageContacts.filter((contact) => contact.status === "open").length,
+    subscribers: pageContacts.length,
     broadcasts: state.campaigns.filter((campaign) => campaign.status !== "sent").length,
     image: "",
     setup: "",
@@ -732,6 +818,8 @@ function renderPageSwitcher() {
     null;
   const pageName = selectedPage?.name || state.settings.pageName || "Selecionar Página";
   const pageAvatar = renderPageAvatar(selectedPage, pageName);
+  const selectedCount = pageContactCount(selectedPage?.id || currentFlowPageId());
+  const selectedCountLabel = contactCountLabel(selectedCount);
 
   if (!pages.length) {
     pageSwitcher.innerHTML = `
@@ -739,7 +827,7 @@ function renderPageSwitcher() {
         ${pageAvatar}
         <span class="page-switcher-copy">
           <strong>${escapeHtml(pageName)}</strong>
-          <span>${metaState.profile ? "Conectar Página" : "Entrar com Facebook"}</span>
+          <span>${metaState.profile ? escapeHtml(selectedCountLabel) : "Entrar com Facebook"}</span>
         </span>
         <span class="page-switcher-chevron">v</span>
       </button>
@@ -752,11 +840,11 @@ function renderPageSwitcher() {
       ${pageAvatar}
       <span class="page-switcher-copy">
         <strong>${escapeHtml(pageName)}</strong>
-        <span>${escapeHtml(selectedPage?.category || "Página do Facebook")}</span>
+        <span>${escapeHtml(selectedCountLabel)}</span>
       </span>
       <select id="sidebarPageSelect" aria-label="Selecionar Página">
         ${pages
-          .map((page) => `<option value="${attr(page.id)}" ${page.id === (selectedPage?.id || metaState.selectedPageId) ? "selected" : ""}>${escapeHtml(page.name)}</option>`)
+          .map((page) => `<option value="${attr(page.id)}" ${page.id === (selectedPage?.id || metaState.selectedPageId) ? "selected" : ""}>${escapeHtml(`${page.name} (${pageContactCount(page.id)})`)}</option>`)
           .join("")}
       </select>
       <span class="page-switcher-chevron">v</span>
@@ -773,14 +861,15 @@ function renderPageAvatar(page, fallbackName) {
 }
 
 function renderDashboard() {
-  const open = state.contacts.filter((contact) => contact.status === "open").length;
+  const pageContacts = contactsForPage(currentFlowPageId());
+  const open = pageContacts.filter((contact) => contact.status === "open").length;
   const activeFlows = state.flows.filter((flow) => flow.status === "active").length;
   const scheduled = state.campaigns.filter((campaign) => campaign.status === "scheduled").length;
-  const hotLeads = state.contacts.filter((contact) => contact.tag === "lead-quente").length;
+  const hotLeads = pageContacts.filter((contact) => contactHasTag(contact, "lead-quente")).length;
 
   workspace.innerHTML = `
     <section class="metric-grid" aria-label="Indicadores">
-      ${metricCard("Assinantes Messenger", state.contacts.length, "PSIDs salvos neste workspace", "users")}
+      ${metricCard("Assinantes Messenger", pageContacts.length, "PSIDs salvos nesta pagina", "users")}
       ${metricCard("Conversas abertas", open, "Precisam de atenção humana", "inbox")}
       ${metricCard("Fluxos ativos", activeFlows, "Publicados no builder", "workflow")}
       ${metricCard("Disparos agendados", scheduled, "Dentro da política Messenger", "send")}
@@ -844,14 +933,14 @@ function renderDashboard() {
           </div>
         </div>
         <div class="panel-body stack">
-          ${state.contacts
+          ${pageContacts
             .slice(0, 4)
             .map(
               (contact) => `
                 <button class="contact-item" type="button" data-action="open-contact" data-id="${contact.id}">
                   <span class="avatar">${initials(contact.name)}</span>
                   <span>
-                    <span class="row-between"><strong>${escapeHtml(contact.name)}</strong>${tag(contact.tag)}</span>
+                    <span class="row-between"><strong>${escapeHtml(contact.name)}</strong>${tagsMarkup(contact)}</span>
                     <span>${escapeHtml(lastMessage(contact)?.text || "Sem mensagens")}</span>
                   </span>
                 </button>
@@ -1152,6 +1241,7 @@ function renderFlows() {
       </aside>
       ${renderTriggerPicker(flow)}
       ${renderNextStepPicker(flow)}
+      ${renderActionPicker(flow)}
     </div>
   `;
 
@@ -1229,8 +1319,10 @@ function renderFlowCard(flow) {
 }
 
 function renderInbox() {
-  const filtered = filterBySearch(state.contacts, (contact) => `${contact.name} ${contact.psid} ${contact.tag} ${lastMessage(contact)?.text || ""}`);
-  const contact = selectedContact() || filtered[0] || state.contacts[0];
+  const pageContacts = contactsForPage(currentFlowPageId());
+  if (shouldLoadContactsForCurrentPage()) loadContactsForPage(currentFlowPageId());
+  const filtered = filterBySearch(pageContacts, contactSearchText);
+  const contact = selectedContact() || filtered[0] || pageContacts[0];
   if (contact) selectedContactId = contact.id;
 
   workspace.innerHTML = `
@@ -1250,7 +1342,7 @@ function renderInbox() {
                 <button class="contact-item ${contact?.id === item.id ? "active" : ""}" type="button" data-action="select-contact" data-id="${item.id}">
                   <span class="avatar">${initials(item.name)}</span>
                   <span>
-                    <span class="row-between"><strong>${escapeHtml(item.name)}</strong>${tag(item.tag)}</span>
+                    <span class="row-between"><strong>${escapeHtml(item.name)}</strong>${tagsMarkup(item)}</span>
                     <span>${escapeHtml(lastMessage(item)?.text || "Sem mensagens")}</span>
                   </span>
                 </button>
@@ -1271,7 +1363,7 @@ function renderInbox() {
                 <span>${escapeHtml(contact.psid)} · ${escapeHtml(contact.source)}</span>
               </div>
               <div class="button-row">
-                ${tag(contact.tag)}
+                ${tagsMarkup(contact)}
                 <button class="secondary-button" type="button" data-action="run-contact-flow">${icons.play}<span>Aplicar fluxo</span></button>
                 <button class="secondary-button" type="button" data-action="toggle-contact-status">${contact.status === "open" ? "Fechar" : "Reabrir"}</button>
               </div>
@@ -1305,23 +1397,49 @@ function renderInbox() {
 }
 
 function renderSubscribers() {
-  const tags = unique(state.contacts.map((contact) => contact.tag));
-  const filtered = filterBySearch(state.contacts, (contact) => `${contact.name} ${contact.psid} ${contact.tag} ${contact.source}`);
+  const currentPageId = currentFlowPageId();
+  if (shouldLoadContactsForCurrentPage()) loadContactsForPage(currentPageId);
+
+  const selectedPageFilter = subscriberPageFilter || currentPageId;
+  const contacts = selectedPageFilter === "__all__" ? state.contacts : contactsForPage(selectedPageFilter);
+  const tags = allContactTags(contacts);
+  const filtered = filterBySearch(contacts, contactSearchText).filter((contact) =>
+    subscriberTagFilter ? contactHasTag(contact, subscriberTagFilter) : true
+  );
+  const pages = metaState.pages || [];
 
   workspace.innerHTML = `
     <section class="panel">
       <div class="panel-header">
         <div>
           <h2>Assinantes Messenger</h2>
-          <span>Base capturada pela página e pelos fluxos</span>
+          <span>${filtered.length} contato${filtered.length === 1 ? "" : "s"} neste filtro</span>
         </div>
         <div class="button-row">
+          <span class="sync-pill ${contactStore.serverAvailable ? "synced" : "local"}">${escapeHtml(contactStore.loading ? "Carregando D1" : contactStore.status)}</span>
+          <button class="secondary-button" type="button" data-action="refresh-contacts">${icons.users}<span>Atualizar</span></button>
           <button class="secondary-button" type="button" data-action="export-csv">${icons.copy}<span>CSV</span></button>
           <button class="primary-button" type="button" data-action="new-contact">${icons.plus}<span>Novo</span></button>
         </div>
       </div>
       <div class="filter-bar">
-        ${tags.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("")}
+        <label class="compact-filter">
+          <span>Pagina</span>
+          <select id="subscriberPageFilter">
+            <option value="__all__" ${selectedPageFilter === "__all__" ? "selected" : ""}>Todas as paginas (${state.contacts.length})</option>
+            ${pages
+              .map((page) => `<option value="${attr(page.id)}" ${selectedPageFilter === page.id ? "selected" : ""}>${escapeHtml(`${page.name} (${pageContactCount(page.id)})`)}</option>`)
+              .join("")}
+          </select>
+        </label>
+        <label class="compact-filter">
+          <span>Tag</span>
+          <select id="subscriberTagFilter">
+            <option value="" ${subscriberTagFilter ? "" : "selected"}>Todas as tags</option>
+            ${tags.map((value) => `<option value="${attr(value)}" ${subscriberTagFilter === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}
+          </select>
+        </label>
+        <div class="tag-filter-list">${tags.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("") || `<span class="muted">Nenhuma tag nesta pagina.</span>`}</div>
       </div>
       <div class="table-wrap">
         <table class="data-table">
@@ -1329,7 +1447,7 @@ function renderSubscribers() {
             <tr>
               <th>Nome</th>
               <th>PSID</th>
-              <th>Tag</th>
+              <th>Tags</th>
               <th>Status</th>
               <th>Origem</th>
               <th>Última mensagem</th>
@@ -1342,14 +1460,14 @@ function renderSubscribers() {
                   <tr>
                     <td><strong>${escapeHtml(contact.name)}</strong></td>
                     <td>${escapeHtml(contact.psid)}</td>
-                    <td>${tag(contact.tag)}</td>
+                    <td>${renderContactTagEditor(contact)}</td>
                     <td>${contact.status === "open" ? "Aberta" : "Fechada"}</td>
                     <td>${escapeHtml(contact.source)}</td>
                     <td>${escapeHtml(lastMessage(contact)?.text || "-")}</td>
                   </tr>
                 `
               )
-              .join("")}
+              .join("") || `<tr><td colspan="6">${emptyInline("Nenhum contato neste filtro.")}</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1731,6 +1849,7 @@ async function loadMetaConversations(pageId) {
     const conversations = result.conversations || [];
     const previousConversationId = metaState.selectedConversationId;
     metaState.conversations = conversations;
+    mergeConversationsAsContacts(pageId, selectedPageName(pageId), conversations);
     metaState.selectedConversationId =
       conversations.find((conversation) => conversation.id === previousConversationId)?.id ||
       sortMetaConversations(conversations, pageId)[0]?.id ||
@@ -1779,6 +1898,7 @@ async function loadBroadcastConversations(pages) {
           error: "",
           conversations: result.conversations || []
         };
+        mergeConversationsAsContacts(page.id, page.name, result.conversations || []);
       } catch (error) {
         broadcastState.pageConversations[page.id] = {
           loading: false,
@@ -1815,6 +1935,131 @@ async function loadMetaMessages(pageId, conversationId) {
   }
 }
 
+function shouldLoadContactsForCurrentPage() {
+  const pageId = currentFlowPageId();
+  return Boolean(pageId && contactStore.pageId !== pageId && !contactStore.loading);
+}
+
+async function loadContactsForPage(pageId) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  contactStore = {
+    ...contactStore,
+    pageId: normalizedPageId,
+    loading: true,
+    status: "Carregando D1"
+  };
+
+  try {
+    const result = await apiGet(`/api/contacts?pageId=${encodeURIComponent(normalizedPageId)}`);
+    if (currentFlowPageId() !== normalizedPageId && activeView !== "subscribers") return;
+    mergeContactsForPage(normalizedPageId, result.contacts || []);
+    contactStore.serverAvailable = true;
+    contactStore.status = "Contatos no D1";
+    persistLocalState();
+  } catch (error) {
+    contactStore.serverAvailable = false;
+    contactStore.status = contactStoreStatusFromError(error);
+  } finally {
+    contactStore.loading = false;
+    if (["subscribers", "inbox"].includes(activeView)) render();
+    renderPageSwitcher();
+    renderNav();
+  }
+}
+
+function mergeContactsForPage(pageId, contacts) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const byKey = new Map(state.contacts.map((contact) => [`${normalizeFlowPageId(contact.pageId)}:${contact.psid}`, contact]));
+
+  contacts.forEach((contact) => {
+    const normalized = normalizeContactRecord(contact, normalizedPageId);
+    const key = `${normalized.pageId}:${normalized.psid}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      Object.assign(existing, normalized, {
+        messages: existing.messages?.length ? existing.messages : normalized.messages
+      });
+    } else {
+      state.contacts.push(normalized);
+    }
+  });
+}
+
+function mergeConversationsAsContacts(pageId, pageName, conversations) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  let changed = false;
+
+  conversations.forEach((conversation) => {
+    const psid = recipientIdFromConversation(conversation, normalizedPageId);
+    if (!psid) return;
+
+    const existing = state.contacts.find((contact) => normalizeFlowPageId(contact.pageId) === normalizedPageId && contact.psid === psid);
+    const next = normalizeContactRecord(
+      {
+        id: existing?.id || `${normalizedPageId}:${psid}`,
+        pageId: normalizedPageId,
+        psid,
+        name: conversationTitle(conversation, pageName),
+        status: existing?.status || "open",
+        source: "Messenger",
+        tags: existing ? contactTags(existing) : [],
+        lastSeen: conversation.updated_time || existing?.lastSeen || new Date().toISOString(),
+        messages: existing?.messages || []
+      },
+      normalizedPageId
+    );
+
+    if (existing) {
+      Object.assign(existing, next, { messages: existing.messages || [] });
+    } else {
+      state.contacts.push(next);
+    }
+    changed = true;
+  });
+
+  if (changed) persistLocalState();
+}
+
+function selectedPageName(pageId) {
+  const page = metaState.pages?.find((item) => item.id === pageId);
+  return page?.name || state.settings.pageName || "Pagina";
+}
+
+function contactStoreStatusFromError(error) {
+  if (error.status === 401) return "Local: faça login";
+  if (error.status === 501) return "Local: configure D1";
+  return `Local: ${error.message || "sem servidor"}`;
+}
+
+function refreshContacts() {
+  contactStore.pageId = "";
+  contactStore.serverAvailable = null;
+  loadContactsForPage(currentFlowPageId());
+  render();
+}
+
+async function syncContactToServer(contact, payload = {}) {
+  if (!contact?.pageId || contact.pageId === DEFAULT_FLOW_PAGE_ID) return;
+
+  try {
+    const result = await apiPost("/api/contacts", {
+      pageId: contact.pageId,
+      contact: serializeContact(contact),
+      ...payload
+    });
+    if (result.contact) Object.assign(contact, normalizeContactRecord(result.contact, contact.pageId), { messages: contact.messages || [] });
+    contactStore.serverAvailable = true;
+    contactStore.pageId = contact.pageId;
+    contactStore.status = "Contatos no D1";
+    persistLocalState();
+    renderPageSwitcher();
+    renderNav();
+  } catch (error) {
+    contactStore.serverAvailable = false;
+    contactStore.status = contactStoreStatusFromError(error);
+  }
+}
+
 async function logoutFacebook() {
   try {
     await apiPost("/api/auth/logout", {});
@@ -1847,10 +2092,14 @@ function selectMetaPage(pageId) {
   if (page) {
     state.settings.pageId = page.id;
     state.settings.pageName = page.name;
+    subscriberPageFilter = page.id;
+    subscriberTagFilter = "";
     setActiveFlowsForPage(page.id);
     persistLocalState();
     flowStore.pageId = "";
+    contactStore.pageId = "";
     loadFlowsForPage(page.id);
+    loadContactsForPage(page.id);
   }
 
   render();
@@ -1867,6 +2116,8 @@ function selectSidebarPage(pageId) {
   metaState.messages = null;
   state.settings.pageId = page.id;
   state.settings.pageName = page.name;
+  subscriberPageFilter = page.id;
+  subscriberTagFilter = "";
   setActiveFlowsForPage(page.id);
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
   flowCanvasOpen = false;
@@ -1874,7 +2125,9 @@ function selectSidebarPage(pageId) {
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   flowStore.pageId = "";
+  contactStore.pageId = "";
   persistLocalState();
+  loadContactsForPage(page.id);
   render();
 }
 
@@ -1926,6 +2179,8 @@ function openPageFlow() {
     setActiveFlowsForPage(page.id);
     persistLocalState();
     flowStore.pageId = "";
+    contactStore.pageId = "";
+    loadContactsForPage(page.id);
   }
   navigate("flows");
 }
@@ -2329,20 +2584,117 @@ function renderRandomizerSettings(flow, node) {
 function renderActionSettings(flow, node) {
   return `
     <form class="inspector-form manychat-settings">
-      ${settingsSectionHeader("Ação", "Aplicar tag ou acionar atendimento", icons.action)}
-      <label class="settings-field">
-        <span>Nome da ação</span>
-        <input data-node-field="title" value="${attr(node.title || "")}" />
-      </label>
-      <label class="settings-field">
-        <span>Tag</span>
-        <input data-node-field="tag" value="${attr(node.tag || "")}" placeholder="lead-quente" />
-      </label>
-      <label class="settings-field">
-        <span>Instrução interna</span>
-        <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
-      </label>
+      <div class="manychat-action-head">
+        <span>${icons.action}</span>
+        <strong>Ações</strong>
+      </div>
+      <div class="action-settings-copy">Realize as seguintes ações:</div>
+      <div class="action-step-list">
+        ${nodeActionSteps(node).map((step) => renderActionStep(node.id, step)).join("")}
+        <button class="dashed-add-button action-add-button" type="button" data-action="open-action-picker" data-id="${node.id}">+ Ação</button>
+      </div>
+      <div class="next-step-divider"></div>
+      <div class="then-block">
+        ${
+          node.next
+            ? renderSelectedNextStep(flow, node)
+            : `<button class="choose-next-step-button blue" type="button" data-action="open-next-step-picker" data-id="${node.id}">Escolher Próximo Passo</button>`
+        }
+      </div>
     </form>
+  `;
+}
+
+function renderActionStep(nodeId, step) {
+  const label = actionStepLabel(step);
+  const fieldId = `action_${step.id || makeId("act")}`;
+  const removeButton = `<button class="mini-menu-button" type="button" data-action="remove-action-step" data-id="${nodeId}" data-step-id="${attr(step.id)}" title="Remover ação">&times;</button>`;
+
+  if (step.type === "add_tag" || step.type === "remove_tag") {
+    return `
+      <article class="action-step-card">
+        <div class="action-step-title">
+          <span class="action-step-icon">${icons.action}</span>
+          <strong>${escapeHtml(label)}</strong>
+          ${removeButton}
+        </div>
+        <input id="${attr(fieldId)}" data-action-step-field="tag" data-step-id="${attr(step.id)}" value="${attr(step.tag || "")}" placeholder="Digite ou selecione a tag" />
+      </article>
+    `;
+  }
+
+  if (step.type === "set_user_field" || step.type === "clear_custom_field") {
+    return `
+      <article class="action-step-card">
+        <div class="action-step-title">
+          <span class="action-step-icon">${icons.action}</span>
+          <strong>${escapeHtml(label)}</strong>
+          ${removeButton}
+        </div>
+        <input data-action-step-field="fieldName" data-step-id="${attr(step.id)}" value="${attr(step.fieldName || "")}" placeholder="Nome do campo" />
+        ${
+          step.type === "set_user_field"
+            ? `<input data-action-step-field="fieldValue" data-step-id="${attr(step.id)}" value="${attr(step.fieldValue || "")}" placeholder="Valor" />`
+            : ""
+        }
+      </article>
+    `;
+  }
+
+  return `
+    <article class="action-step-card compact">
+      <div class="action-step-title">
+        <span class="action-step-icon">${icons.action}</span>
+        <strong>${escapeHtml(label)}</strong>
+        ${removeButton}
+      </div>
+    </article>
+  `;
+}
+
+function renderActionPicker(flow) {
+  const node = actionPickerNodeId ? flow.nodes.find((item) => item.id === actionPickerNodeId) : null;
+  if (!node) return "";
+  const categories = unique(actionOptions.map((option) => option.category));
+  const activeOptions = actionOptions.filter((option) => option.category === actionPickerCategory);
+
+  return `
+    <section class="action-picker-panel" aria-label="Selecionar ação">
+      <div class="action-picker-header">
+        <strong>Realize as seguintes ações...</strong>
+        <button class="icon-button" type="button" data-action="close-action-picker" title="Fechar">&times;</button>
+      </div>
+      <div class="action-picker-body">
+        <aside class="action-picker-tabs">
+          ${categories
+            .map((category) => {
+              const option = actionOptions.find((item) => item.category === category);
+              return `
+                <button class="${actionPickerCategory === category ? "active" : ""}" type="button" data-action="select-action-category" data-category="${attr(category)}">
+                  <span>${category === "contact" ? icons.users : category === "inbox" ? icons.inbox : icons.workflow}</span>
+                  <span>${escapeHtml(option?.categoryLabel || category)}</span>
+                </button>
+              `;
+            })
+            .join("")}
+        </aside>
+        <div class="action-picker-list">
+          ${activeOptions.map((option) => renderActionOption(option)).join("")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderActionOption(option) {
+  return `
+    <button class="action-option" type="button" data-action="add-action-step" data-type="${attr(option.id)}">
+      <span class="action-option-icon">${icons.action}</span>
+      <span>
+        <strong>${escapeHtml(option.title)}</strong>
+        <small>${escapeHtml(option.description)}</small>
+      </span>
+    </button>
   `;
 }
 
@@ -2395,6 +2747,7 @@ function handleWorkspaceClick(event) {
     showInspector = false;
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
+    actionPickerNodeId = "";
     return render();
   }
   if (action === "toggle-flow-list") return toggleFlowList();
@@ -2404,6 +2757,7 @@ function handleWorkspaceClick(event) {
   if (action === "close-trigger-picker") {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
+    actionPickerNodeId = "";
     return render();
   }
   if (action === "add-trigger-event") return addTriggerEvent(id, button.dataset.triggerId);
@@ -2411,6 +2765,11 @@ function handleWorkspaceClick(event) {
   if (action === "close-next-step-picker") return closeNextStepPicker();
   if (action === "add-next-step") return addNextStep(button.dataset.type);
   if (action === "set-existing-next-step") return setExistingNextStep(id, button.dataset.targetId);
+  if (action === "open-action-picker") return openActionPicker(id);
+  if (action === "close-action-picker") return closeActionPicker();
+  if (action === "select-action-category") return selectActionCategory(button.dataset.category);
+  if (action === "add-action-step") return addActionStep(button.dataset.type);
+  if (action === "remove-action-step") return removeActionStep(id, button.dataset.stepId);
   if (action === "connect-facebook") {
     window.location.href = "/api/auth/facebook/start";
     return;
@@ -2434,6 +2793,7 @@ function handleWorkspaceClick(event) {
     showInspector = false;
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
+    actionPickerNodeId = "";
     shouldAutoFitCanvas = true;
     localStorage.setItem("messenlead.canvas.flowList", "false");
     simLog = [];
@@ -2445,6 +2805,7 @@ function handleWorkspaceClick(event) {
     showFlowList = false;
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
+    actionPickerNodeId = "";
     localStorage.setItem("messenlead.canvas.flowList", "false");
     return render();
   }
@@ -2461,6 +2822,9 @@ function handleWorkspaceClick(event) {
   if (action === "start-sim") return startSimulation();
   if (action === "send-sim") return sendSimulationMessage();
   if (action === "new-contact") return createContact();
+  if (action === "refresh-contacts") return refreshContacts();
+  if (action === "add-contact-tag") return addTagFromContactEditor(id, button.dataset.inputId);
+  if (action === "remove-contact-tag") return removeContactTag(id, button.dataset.tag);
   if (action === "select-contact") {
     selectedContactId = id;
     return render();
@@ -2502,6 +2866,15 @@ function handleWorkspaceInput(event) {
     saveState();
   }
 
+  if (target.dataset.actionStepField && node) {
+    const step = nodeActionSteps(node).find((item) => item.id === target.dataset.stepId);
+    if (!step) return;
+    step[target.dataset.actionStepField] = target.value;
+    node.message = summarizeActionSteps(node);
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
   if (target.dataset.flowField && flow) {
     flow[target.dataset.flowField] = target.value;
     flow.updatedAt = new Date().toISOString();
@@ -2521,7 +2894,18 @@ function handleWorkspaceChange(event) {
     target.value = "";
     return;
   }
-  if (target.dataset.nodeField || target.dataset.flowField || target.dataset.settingField) {
+  if (target.id === "subscriberPageFilter") {
+    subscriberPageFilter = target.value;
+    subscriberTagFilter = "";
+    render();
+    return;
+  }
+  if (target.id === "subscriberTagFilter") {
+    subscriberTagFilter = target.value;
+    render();
+    return;
+  }
+  if (target.dataset.nodeField || target.dataset.flowField || target.dataset.settingField || target.dataset.actionStepField) {
     render();
   }
 }
@@ -2630,6 +3014,7 @@ function addNode(type) {
     type,
     title: nodeLabels[type],
     message: defaultNodeMessage(type),
+    actions: type === "action" ? [] : undefined,
     keyword: "",
     quickReplies: type === "message" ? ["Sim", "Não"] : [],
     next: null,
@@ -2784,6 +3169,7 @@ function closeInspectorPanel() {
   showInspector = false;
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
   render();
 }
 
@@ -2798,6 +3184,7 @@ function peekInspector() {
   showInspector = Boolean(selectedNodeId);
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
   render();
 }
 
@@ -2808,6 +3195,7 @@ function openTriggerPicker(nodeId) {
   selectedNodeId = node.id;
   triggerPickerNodeId = node.id;
   nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
   showInspector = false;
   render();
 }
@@ -2832,6 +3220,7 @@ function addTriggerEvent(nodeId, triggerId) {
   flow.updatedAt = new Date().toISOString();
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
   showInspector = true;
   selectedNodeId = node.id;
   saveState();
@@ -2845,12 +3234,74 @@ function openNextStepPicker(nodeId) {
   selectedNodeId = node.id;
   nextStepPickerNodeId = node.id;
   triggerPickerNodeId = "";
+  actionPickerNodeId = "";
   showInspector = true;
   render();
 }
 
 function closeNextStepPicker() {
   nextStepPickerNodeId = "";
+  render();
+}
+
+function openActionPicker(nodeId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  if (!node) return;
+  selectedNodeId = node.id;
+  actionPickerNodeId = node.id;
+  actionPickerCategory = "contact";
+  triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
+  showInspector = true;
+  render();
+}
+
+function closeActionPicker() {
+  actionPickerNodeId = "";
+  render();
+}
+
+function selectActionCategory(category) {
+  if (!category) return;
+  actionPickerCategory = category;
+  render();
+}
+
+function addActionStep(type) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === actionPickerNodeId);
+  const option = actionOptions.find((item) => item.id === type);
+  if (!flow || !node || !option) return;
+
+  const step = {
+    id: makeId("act"),
+    type: option.id,
+    tag: option.id === "add_tag" ? "" : "",
+    fieldName: "",
+    fieldValue: ""
+  };
+
+  nodeActionSteps(node).push(step);
+  node.title = "Ações";
+  node.message = summarizeActionSteps(node);
+  flow.updatedAt = new Date().toISOString();
+  actionPickerNodeId = "";
+  selectedNodeId = node.id;
+  showInspector = true;
+  saveState();
+  render();
+}
+
+function removeActionStep(nodeId, stepId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  if (!flow || !node || !stepId) return;
+
+  node.actions = nodeActionSteps(node).filter((step) => step.id !== stepId);
+  node.message = summarizeActionSteps(node);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
   render();
 }
 
@@ -2866,6 +3317,7 @@ function addNextStep(type) {
     type: normalizedType,
     title: nodeLabels[normalizedType],
     message: defaultNodeMessage(normalizedType),
+    actions: normalizedType === "action" ? [] : undefined,
     keyword: "",
     quickReplies: normalizedType === "message" ? ["Sim", "Não"] : [],
     next: previousNext || null,
@@ -2878,6 +3330,7 @@ function addNextStep(type) {
   flow.updatedAt = new Date().toISOString();
   selectedNodeId = node.id;
   nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
   showInspector = true;
   saveState();
   render();
@@ -2893,6 +3346,7 @@ function setExistingNextStep(nodeId, targetId) {
   flow.updatedAt = new Date().toISOString();
   selectedNodeId = node.id;
   nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
   showInspector = true;
   saveState();
   render();
@@ -2950,12 +3404,16 @@ function createContact() {
 }
 
 function createContactFromValues({ name, psid, tag }) {
+  const pageId = currentFlowPageId();
+  const tags = normalizeTags(tag || "novo-assinante");
   const contact = {
     id: makeId("contact"),
+    pageId,
     name,
     psid: psid || `PSID_${Math.random().toString().slice(2, 12)}`,
     status: "open",
-    tag: tag || "novo-assinante",
+    tags,
+    tag: tags[0] || "",
     source: "Cadastro manual",
     lastSeen: new Date().toISOString(),
     messages: [{ from: "contact", text: "Oi, comecei uma conversa pelo Messenger.", at: new Date().toISOString() }]
@@ -2963,6 +3421,7 @@ function createContactFromValues({ name, psid, tag }) {
   state.contacts.unshift(contact);
   selectedContactId = contact.id;
   saveState();
+  syncContactToServer(contact);
   navigate("inbox");
 }
 
@@ -2975,6 +3434,7 @@ function sendContactMessage() {
   contact.status = "open";
   contact.lastSeen = new Date().toISOString();
   saveState();
+  syncContactToServer(contact);
   render();
 }
 
@@ -2989,12 +3449,14 @@ function runFlowForContact() {
   const contact = selectedContact();
   const flow = state.flows.find((item) => item.status === "active") || state.flows[0];
   if (!contact || !flow) return;
-  const messages = simulateFlow(flow, "oi", contact.name);
+  const messages = simulateFlow(flow, "oi", contact.name, { contact, applyActions: true });
   messages
     .filter((message) => message.from === "bot")
     .forEach((message) => contact.messages.push({ from: "automation", text: message.text, at: new Date().toISOString() }));
   contact.status = "open";
+  contact.lastSeen = new Date().toISOString();
   saveState();
+  syncContactToServer(contact);
   render();
 }
 
@@ -3003,7 +3465,45 @@ function toggleContactStatus() {
   if (!contact) return;
   contact.status = contact.status === "open" ? "closed" : "open";
   saveState();
+  syncContactToServer(contact);
   render();
+}
+
+function addTagFromContactEditor(contactId, inputId) {
+  const contact = state.contacts.find((item) => item.id === contactId);
+  const input = inputId ? document.getElementById(inputId) : null;
+  const value = input?.value.trim();
+  if (!contact || !value) return;
+
+  addTagToContact(contact, value);
+  if (input) input.value = "";
+  saveState();
+  syncContactToServer(contact, { action: "add_tag", tag: value });
+  render();
+}
+
+function removeContactTag(contactId, value) {
+  const contact = state.contacts.find((item) => item.id === contactId);
+  if (!contact || !value) return;
+
+  removeTagFromContact(contact, value);
+  saveState();
+  syncContactToServer(contact, { action: "remove_tag", tag: value });
+  render();
+}
+
+function addTagToContact(contact, value) {
+  const tags = normalizeTags([...contactTags(contact), value]);
+  contact.tags = tags;
+  contact.tag = tags[0] || "";
+  contact.lastSeen = contact.lastSeen || new Date().toISOString();
+}
+
+function removeTagFromContact(contact, value) {
+  const target = normalize(value);
+  const tags = contactTags(contact).filter((tagName) => normalize(tagName) !== target);
+  contact.tags = tags;
+  contact.tag = tags[0] || "";
 }
 
 function createCampaign() {
@@ -3228,7 +3728,7 @@ function sendSimulationMessage() {
   render();
 }
 
-function simulateFlow(flow, inputText, displayName) {
+function simulateFlow(flow, inputText, displayName, options = {}) {
   const messages = [{ from: "user", text: inputText }];
   const normalizedText = normalize(inputText);
   let current =
@@ -3242,8 +3742,11 @@ function simulateFlow(flow, inputText, displayName) {
     if (current.type === "message") {
       messages.push({ from: "bot", text: resolveTemplate(current.message, displayName) });
     }
-    if (current.type === "action" && current.message) {
-      messages.push({ from: "bot", text: `Ação interna: ${current.message}` });
+    if (current.type === "action") {
+      if (options.applyActions && options.contact) applyActionNodeToContact(options.contact, current);
+      nodeActionSteps(current).forEach((step) => {
+        messages.push({ from: "system", text: actionStepSummary(step) });
+      });
     }
     if (current.type === "delay" && current.message) {
       messages.push({ from: "bot", text: `Espera configurada: ${current.message}` });
@@ -3272,6 +3775,26 @@ function triggerMatchesSimulation(node, flow, normalizedText) {
     if (trigger === "qr_code") return normalizedText.includes("qr") || keywordMatches(keywords, normalizedText);
     if (trigger === "facebook_shop_message") return normalizedText.includes("loja") || normalizedText.includes("shop");
     return false;
+  });
+}
+
+function applyActionNodeToContact(contact, node) {
+  nodeActionSteps(node).forEach((step) => {
+    if (step.type === "add_tag" && step.tag) addTagToContact(contact, step.tag);
+    if (step.type === "remove_tag" && step.tag) removeTagFromContact(contact, step.tag);
+    if (step.type === "set_user_field" && step.fieldName) {
+      contact.customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
+      contact.customFields[step.fieldName] = step.fieldValue || "";
+    }
+    if (step.type === "clear_custom_field" && step.fieldName && contact.customFields) {
+      delete contact.customFields[step.fieldName];
+    }
+    if (step.type === "delete_contact") {
+      contact.status = "deleted";
+    }
+    if (step.type === "open_inbox") {
+      contact.status = "open";
+    }
   });
 }
 
@@ -3456,14 +3979,16 @@ function updateCanvasZoomLabel() {
 }
 
 function clearCanvasSelection() {
-  if (!showInspector && !selectedNodeId && !triggerPickerNodeId && !nextStepPickerNodeId) return;
+  if (!showInspector && !selectedNodeId && !triggerPickerNodeId && !nextStepPickerNodeId && !actionPickerNodeId) return;
   showInspector = false;
   selectedNodeId = "";
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
   document.querySelector(".canvas-focused")?.classList.remove("show-inspector");
   document.querySelector(".trigger-picker-panel")?.remove();
   document.querySelector(".next-step-picker-panel")?.remove();
+  document.querySelector(".action-picker-panel")?.remove();
   document.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
   updateMiniMap();
 }
@@ -3562,6 +4087,7 @@ function renderConnections(flow) {
 
 function renderNode(node, selected) {
   if (node.type === "trigger") return renderTriggerNode(node, selected);
+  if (node.type === "action") return renderActionNode(node, selected);
 
   const icon = icons[node.type] || icons.message;
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
@@ -3581,6 +4107,29 @@ function renderNode(node, selected) {
       <div class="node-footer">
         <span>${node.type === "trigger" ? escapeHtml(node.keyword || "qualquer mensagem") : quickReplies}</span>
         <span>${node.next ? "conectado" : "fim"}</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderActionNode(node, selected) {
+  const steps = nodeActionSteps(node);
+  return `
+    <article class="node action action-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      <div class="action-node-head">
+        <span>${icons.action}</span>
+        <strong>Ações</strong>
+      </div>
+      <div class="action-node-body">
+        ${
+          steps.length
+            ? `<div class="action-node-list">${steps.slice(0, 3).map((step) => `<span>${escapeHtml(actionStepSummary(step))}</span>`).join("")}</div>`
+            : `<div class="action-node-empty">Clique para adicionar uma</div>`
+        }
+      </div>
+      <div class="node-footer">
+        <span>Próximo Passo</span>
+        <span class="node-port" aria-hidden="true"></span>
       </div>
     </article>
   `;
@@ -3623,6 +4172,41 @@ function renderTriggerNode(node, selected) {
 
 function nodeAddButton(type, label) {
   return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}" title="${attr(label)}">${icons[type]}<span>${label}</span></button>`;
+}
+
+function nodeActionSteps(node) {
+  if (!node) return [];
+  if (!Array.isArray(node.actions)) {
+    node.actions = [];
+  }
+  if (node.tag && !node.actions.some((step) => step.type === "add_tag" && step.tag === node.tag)) {
+    node.actions.unshift({ id: makeId("act"), type: "add_tag", tag: node.tag });
+    node.tag = "";
+  }
+  node.actions.forEach((step) => {
+    if (!step.id) step.id = makeId("act");
+  });
+  return node.actions;
+}
+
+function actionStepLabel(step) {
+  const option = actionOptions.find((item) => item.id === step.type);
+  return option?.title || "Ação";
+}
+
+function actionStepSummary(step) {
+  if (step.type === "add_tag") return step.tag ? `Adicionar Tag: ${step.tag}` : "Adicionar Tag";
+  if (step.type === "remove_tag") return step.tag ? `Remover Tag: ${step.tag}` : "Remover Tag";
+  if (step.type === "set_user_field") return step.fieldName ? `Definir campo: ${step.fieldName}` : "Definir campo";
+  if (step.type === "clear_custom_field") return step.fieldName ? `Limpar campo: ${step.fieldName}` : "Limpar campo";
+  if (step.type === "delete_contact") return "Excluir contato";
+  if (step.type === "open_inbox") return "Abrir conversa";
+  return actionStepLabel(step);
+}
+
+function summarizeActionSteps(node) {
+  const steps = nodeActionSteps(node).map(actionStepSummary);
+  return steps.length ? steps.join(", ") : "Clique para adicionar uma ação.";
 }
 
 function nodeTriggerEvents(node) {
@@ -3680,7 +4264,8 @@ function selectedNode(flow) {
 }
 
 function selectedContact() {
-  return state.contacts.find((contact) => contact.id === selectedContactId) || state.contacts[0];
+  const pageContacts = contactsForPage(currentFlowPageId());
+  return pageContacts.find((contact) => contact.id === selectedContactId) || pageContacts[0];
 }
 
 function renderMessageContent(message) {
@@ -3780,6 +4365,9 @@ function navigate(view) {
   if (view === "flows") {
     flowCanvasOpen = false;
     showInspector = false;
+    triggerPickerNodeId = "";
+    nextStepPickerNodeId = "";
+    actionPickerNodeId = "";
   }
   history.replaceState(null, "", `#${view}`);
   render();
@@ -3846,6 +4434,78 @@ function statusBadge(status) {
 
 function tag(value) {
   return `<span class="tag">${escapeHtml(value || "sem-tag")}</span>`;
+}
+
+function tagsMarkup(contact) {
+  const tags = contactTags(contact);
+  if (!tags.length) return tag("sem-tag");
+  return `<span class="tag-stack">${tags.slice(0, 2).map((value) => tag(value)).join("")}${tags.length > 2 ? `<span class="tag muted">+${tags.length - 2}</span>` : ""}</span>`;
+}
+
+function renderContactTagEditor(contact) {
+  const inputId = `tag_input_${String(contact.id || contact.psid).replace(/[^a-z0-9_-]/gi, "_")}`;
+  const tags = contactTags(contact);
+  return `
+    <div class="contact-tag-editor">
+      <div class="tag-stack editable">
+        ${
+          tags.length
+            ? tags
+                .map(
+                  (value) => `
+                    <span class="tag editable-tag">
+                      ${escapeHtml(value)}
+                      <button type="button" data-action="remove-contact-tag" data-id="${attr(contact.id)}" data-tag="${attr(value)}" title="Remover tag">&times;</button>
+                    </span>
+                  `
+                )
+                .join("")
+            : tag("sem-tag")
+        }
+      </div>
+      <div class="tag-editor-row">
+        <input id="${attr(inputId)}" placeholder="Nova tag" />
+        <button class="icon-button" type="button" data-action="add-contact-tag" data-id="${attr(contact.id)}" data-input-id="${attr(inputId)}" title="Adicionar tag">${icons.plus}</button>
+      </div>
+    </div>
+  `;
+}
+
+function contactTags(contact) {
+  return normalizeTags(contact?.tags ?? contact?.tag);
+}
+
+function normalizeTags(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  return unique(raw.map((item) => String(item || "").trim()).filter(Boolean));
+}
+
+function contactHasTag(contact, value) {
+  const target = normalize(value);
+  return contactTags(contact).some((tagName) => normalize(tagName) === target);
+}
+
+function allContactTags(contacts = state.contacts) {
+  return unique(contacts.flatMap((contact) => contactTags(contact))).sort((a, b) => a.localeCompare(b));
+}
+
+function contactSearchText(contact) {
+  return `${contact.name} ${contact.psid} ${contactTags(contact).join(" ")} ${contact.source} ${lastMessage(contact)?.text || ""}`;
+}
+
+function contactsForPage(pageId) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  return state.contacts
+    .map((contact) => Object.assign(contact, normalizeContactRecord(contact, normalizedPageId)))
+    .filter((contact) => normalizeFlowPageId(contact.pageId) === normalizedPageId && contact.status !== "deleted");
+}
+
+function pageContactCount(pageId) {
+  return contactsForPage(pageId).length;
+}
+
+function contactCountLabel(count) {
+  return `${count} contato${count === 1 ? "" : "s"}`;
 }
 
 function metricCard(label, value, description, iconName) {
@@ -3938,8 +4598,8 @@ function eligibleContactsForBroadcast(tagName = "") {
     .filter((contact) => isBroadcastEligible(contact, tagName))
     .map((contact) => ({
       ...contact,
-      pageId: state.settings.pageId || "__local__",
-      pageName: state.settings.pageName || "Contatos locais",
+      pageId: contact.pageId || state.settings.pageId || "__local__",
+      pageName: selectedPageName(contact.pageId || state.settings.pageId) || "Contatos locais",
       live: false
     }));
 
@@ -3947,7 +4607,7 @@ function eligibleContactsForBroadcast(tagName = "") {
 }
 
 function isBroadcastEligible(contact, tagName = "") {
-  if (tagName && !contact.live && contact.tag !== tagName) return false;
+  if (tagName && !contact.live && !contactHasTag(contact, tagName)) return false;
   if (!contact.psid) return false;
   if (contact.status && contact.status !== "open") return false;
   return isInsideMessengerReplyWindow(contact);
@@ -4178,6 +4838,21 @@ function compactFlowJson() {
   return JSON.stringify({ flows: state.flows });
 }
 
+function serializeContact(contact) {
+  return {
+    id: contact.id,
+    pageId: normalizeFlowPageId(contact.pageId || currentFlowPageId()),
+    psid: contact.psid,
+    name: contact.name,
+    status: contact.status || "open",
+    source: contact.source || "Messenger",
+    tags: contactTags(contact),
+    tag: contactTags(contact)[0] || "",
+    customFields: contact.customFields || {},
+    lastSeen: contact.lastSeen || lastMessage(contact)?.at || new Date().toISOString()
+  };
+}
+
 function exportWorkspace() {
   downloadFile("messenlead-workspace.json", JSON.stringify(state, null, 2), "application/json");
 }
@@ -4211,9 +4886,11 @@ async function importWorkspace(event) {
 }
 
 function exportSubscribersCsv() {
-  const header = ["name", "psid", "tag", "status", "source"].join(",");
+  const header = ["name", "psid", "tags", "status", "source", "page_id"].join(",");
   const rows = state.contacts.map((contact) =>
-    [contact.name, contact.psid, contact.tag, contact.status, contact.source].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")
+    [contact.name, contact.psid, contactTags(contact).join("|"), contact.status, contact.source, contact.pageId]
+      .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+      .join(",")
   );
   downloadFile("messenlead-assinantes.csv", [header, ...rows].join("\n"), "text/csv");
 }

@@ -1,5 +1,6 @@
 import { listFlows } from "../../_lib/flows.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
+import { applyContactActions, upsertContact } from "../../_lib/contacts.js";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -51,7 +52,25 @@ async function handleMessengerEvent(event, env, pageId) {
   if (!psid) return;
 
   const context = eventContext(event);
-  const replies = await buildReplies(context, env, pageId);
+  await upsertContact(env, pageId, {
+    psid,
+    name: psid,
+    status: "open",
+    source: "Messenger webhook",
+    lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
+  });
+
+  const { replies, actions } = await buildReplies(context, env, pageId);
+  if (actions.length) {
+    await applyContactActions(env, pageId, psid, actions, {
+      psid,
+      name: psid,
+      status: "open",
+      source: "Messenger webhook",
+      lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
+    });
+  }
+
   if (!replies.length) return;
 
   for (const reply of replies.slice(0, 3)) {
@@ -68,7 +87,7 @@ async function buildReplies(context, env, pageId) {
     activeFlows[0];
 
   if (!flow) {
-    return [];
+    return { replies: [], actions: [] };
   }
 
   const start =
@@ -77,6 +96,7 @@ async function buildReplies(context, env, pageId) {
     flow.nodes?.[0];
 
   const replies = [];
+  const actions = [];
   let current = start;
   let guard = 0;
 
@@ -90,10 +110,26 @@ async function buildReplies(context, env, pageId) {
       });
     }
 
+    if (current.type === "action") {
+      actions.push(...actionStepsForNode(current));
+    }
+
     current = current.next ? flow.nodes.find((node) => node.id === current.next) : null;
   }
 
-  return replies;
+  return { replies, actions };
+}
+
+function actionStepsForNode(node) {
+  if (Array.isArray(node.actions) && node.actions.length) {
+    return node.actions;
+  }
+
+  if (node.tag) {
+    return [{ type: "add_tag", tag: node.tag }];
+  }
+
+  return [];
 }
 
 function parseFlows(rawJson) {
