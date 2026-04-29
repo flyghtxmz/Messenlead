@@ -1093,6 +1093,12 @@ svg {
   fill: none;
 }
 
+.connection-layer .connection-temp {
+  stroke: var(--green);
+  stroke-width: 2.4;
+  stroke-dasharray: 7 6;
+}
+
 .node {
   position: absolute;
   display: grid;
@@ -1226,12 +1232,26 @@ svg {
 }
 
 .node-port {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
+  position: absolute;
+  right: -7px;
+  top: 108px;
+  z-index: 18;
+  display: block;
+  width: 14px;
+  height: 14px;
+  padding: 0;
   border: 2px solid #8ba0b2;
   border-radius: 50%;
-  background: #fff;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+  cursor: crosshair;
+}
+
+.node-port:hover,
+.node-port:focus-visible {
+  border-color: var(--green);
+  outline: 0;
+  box-shadow: 0 0 0 4px rgba(22, 134, 95, 0.16);
 }
 
 .node.action {

@@ -131,6 +131,7 @@ const CANVAS_ORIGIN_X = 3600;
 const CANVAS_ORIGIN_Y = 2600;
 const NODE_WIDTH = 260;
 const NODE_CENTER_Y = 70;
+const NODE_CONNECT_Y = 112;
 const CANVAS_MIN_X = -CANVAS_ORIGIN_X + 80;
 const CANVAS_MAX_X = CANVAS_WIDTH - CANVAS_ORIGIN_X - NODE_WIDTH - 80;
 const CANVAS_MIN_Y = -CANVAS_ORIGIN_Y + 80;
@@ -1259,6 +1260,7 @@ function renderFlows() {
   `;
 
   enableNodeDragging(flow);
+  enableConnectionDragging(flow);
   enableCanvasPanning();
   enableCanvasDoubleClickMenu();
   enableCanvasWheelZoom();
@@ -2771,6 +2773,7 @@ function handleWorkspaceClick(event) {
     if (!event.target.closest("[data-action]")) return;
   }
 
+  if (event.target.closest(".node-port")) return;
   const button = event.target.closest("[data-action]");
   if (!button) return;
 
@@ -3985,7 +3988,7 @@ function enableNodeDragging(flow) {
   if (!canvas) return;
   canvas.querySelectorAll(".node").forEach((element) => {
     element.addEventListener("pointerdown", (event) => {
-      if (event.target.closest("button, .node-hover-actions")) return;
+      if (event.target.closest("button, .node-hover-actions, .node-port")) return;
       const node = flow.nodes.find((item) => item.id === element.dataset.id);
       if (!node) return;
       selectedNodeId = node.id;
@@ -4029,6 +4032,75 @@ function enableNodeDragging(flow) {
 
       element.addEventListener("pointermove", onMove);
       element.addEventListener("pointerup", onUp);
+    });
+  });
+}
+
+function enableConnectionDragging(flow) {
+  const canvas = document.querySelector("#flowCanvas");
+  const layer = document.querySelector(".connection-layer");
+  if (!canvas || !layer) return;
+
+  canvas.querySelectorAll(".node-port").forEach((port) => {
+    port.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    port.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const sourceId = port.dataset.portSource;
+      const source = flow.nodes.find((node) => node.id === sourceId);
+      if (!source) return;
+
+      selectedNodeId = source.id;
+      port.setPointerCapture(event.pointerId);
+      canvas.classList.add("connecting");
+      canvas.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
+      port.closest(".node")?.classList.add("selected");
+
+      const start = nodeOutputPoint(source);
+      const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      tempPath.setAttribute("class", "connection-temp");
+      layer.appendChild(tempPath);
+
+      const onMove = (moveEvent) => {
+        moveEvent.preventDefault();
+        const point = canvasPointFromEvent(moveEvent, canvas);
+        tempPath.setAttribute("d", connectionPath(start.x, start.y, point.x, point.y));
+      };
+
+      const onUp = (upEvent) => {
+        upEvent.preventDefault();
+        upEvent.stopPropagation();
+        port.removeEventListener("pointermove", onMove);
+        port.removeEventListener("pointerup", onUp);
+        if (port.hasPointerCapture?.(upEvent.pointerId)) port.releasePointerCapture(upEvent.pointerId);
+        canvas.classList.remove("connecting");
+        tempPath.remove();
+
+        const targetElement = document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest(".node");
+        const targetId = targetElement?.dataset.id;
+        const target = targetId ? flow.nodes.find((node) => node.id === targetId) : null;
+
+        if (target && target.id !== source.id && target.type !== "comment") {
+          source.next = target.id;
+          selectedNodeId = source.id;
+          flow.updatedAt = new Date().toISOString();
+          rememberCanvasScroll();
+          saveState();
+          render();
+          return;
+        }
+
+        updateLiveConnections(flow);
+      };
+
+      onMove(event);
+      port.addEventListener("pointermove", onMove);
+      port.addEventListener("pointerup", onUp);
     });
   });
 }
@@ -4284,7 +4356,7 @@ function renderMiniMapContent(flow) {
       if (!node.next) return "";
       const target = flow.nodes.find((item) => item.id === node.next);
       if (!target) return "";
-      return `<line class="minimap-link" x1="${miniX(canvasNodeLeft(node) + NODE_WIDTH)}" y1="${miniY(canvasNodeTop(node) + NODE_CENTER_Y)}" x2="${miniX(canvasNodeLeft(target))}" y2="${miniY(canvasNodeTop(target) + NODE_CENTER_Y)}" />`;
+      return `<line class="minimap-link" x1="${miniX(canvasNodeLeft(node) + NODE_WIDTH)}" y1="${miniY(canvasNodeTop(node) + NODE_CONNECT_Y)}" x2="${miniX(canvasNodeLeft(target))}" y2="${miniY(canvasNodeTop(target) + NODE_CONNECT_Y)}" />`;
     })
     .join("");
   const nodes = flow.nodes
@@ -4312,14 +4384,40 @@ function renderConnections(flow) {
       if (!node.next) return "";
       const target = flow.nodes.find((item) => item.id === node.next);
       if (!target) return "";
-      const x1 = canvasNodeLeft(node) + NODE_WIDTH;
-      const y1 = canvasNodeTop(node) + NODE_CENTER_Y;
-      const x2 = canvasNodeLeft(target);
-      const y2 = canvasNodeTop(target) + NODE_CENTER_Y;
-      const mid = Math.max(60, Math.abs(x2 - x1) / 2);
-      return `<path d="M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}" />`;
+      const start = nodeOutputPoint(node);
+      const end = nodeInputPoint(target);
+      return `<path d="${connectionPath(start.x, start.y, end.x, end.y)}" />`;
     })
     .join("");
+}
+
+function connectionPath(x1, y1, x2, y2) {
+  const mid = Math.max(60, Math.abs(x2 - x1) / 2);
+  return `M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}`;
+}
+
+function nodeOutputPoint(node) {
+  return {
+    x: canvasNodeLeft(node) + NODE_WIDTH,
+    y: canvasNodeTop(node) + NODE_CONNECT_Y
+  };
+}
+
+function nodeInputPoint(node) {
+  return {
+    x: canvasNodeLeft(node),
+    y: canvasNodeTop(node) + NODE_CONNECT_Y
+  };
+}
+
+function canvasPointFromEvent(event, canvas = document.querySelector("#flowCanvas")) {
+  if (!canvas) return { x: 0, y: 0 };
+  const rect = canvas.getBoundingClientRect();
+  const zoom = canvasZoom || 1;
+  return {
+    x: (canvas.scrollLeft + event.clientX - rect.left) / zoom,
+    y: (canvas.scrollTop + event.clientY - rect.top) / zoom
+  };
 }
 
 function renderNode(node, selected) {
@@ -4347,6 +4445,7 @@ function renderNode(node, selected) {
         <span>${node.type === "trigger" ? escapeHtml(node.keyword || "qualquer mensagem") : quickReplies}</span>
         <span>${node.next ? "conectado" : "fim"}</span>
       </div>
+      ${renderOutputPort(node)}
     </article>
   `;
 }
@@ -4387,8 +4486,8 @@ function renderActionNode(node, selected) {
       </div>
       <div class="node-footer">
         <span>Próximo Passo</span>
-        <span class="node-port" aria-hidden="true"></span>
       </div>
+      ${renderOutputPort(node)}
     </article>
   `;
 }
@@ -4423,14 +4522,19 @@ function renderTriggerNode(node, selected) {
       <button class="trigger-add-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">+ Novo Gatilho</button>
       <div class="node-footer">
         <span>Entrada</span>
-        <span class="node-port" aria-hidden="true"></span>
       </div>
+      ${renderOutputPort(node)}
     </article>
   `;
 }
 
 function nodeAddButton(type, label) {
   return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}" title="${attr(label)}">${icons[type]}<span>${label}</span></button>`;
+}
+
+function renderOutputPort(node) {
+  if (node.type === "comment") return "";
+  return `<button class="node-port" type="button" data-port-source="${attr(node.id)}" aria-label="Conectar próximo passo"></button>`;
 }
 
 function renderNodeHoverActions(node) {
