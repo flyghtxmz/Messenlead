@@ -1771,42 +1771,7 @@ MESSENLEAD_FLOW_JSON=${escapeHtml(compactFlowJson())}</pre>
 }
 
 function renderSettings() {
-  workspace.innerHTML = `
-    <div class="settings-grid">
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Ajustes da Página</h2>
-            <span>Dados usados pelo simulador e pelas funções serverless</span>
-          </div>
-        </div>
-        <div class="panel-body inspector-form">
-          ${field("Nome da página", "pageName", state.settings.pageName)}
-          ${field("Page ID", "pageId", state.settings.pageId)}
-          ${field("Saudação", "greeting", state.settings.greeting, "textarea")}
-          ${field("Resposta padrão", "defaultReply", state.settings.defaultReply, "textarea")}
-          ${field("Verify token", "verifyToken", state.settings.verifyToken)}
-          ${field("Operator token", "operatorToken", state.settings.operatorToken)}
-          ${field("Horário de atendimento", "businessHours", state.settings.businessHours)}
-          ${field("Timezone", "timezone", state.settings.timezone)}
-        </div>
-      </section>
-
-      <aside class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Workspace local</h2>
-            <span>Persistido no navegador</span>
-          </div>
-        </div>
-        <div class="panel-body stack">
-          <p class="muted">Este painel salva dados no localStorage. Em produção, use Cloudflare KV, D1 ou um banco externo para assinantes, conversas e auditoria.</p>
-          <button class="secondary-button" type="button" data-action="export-json">${icons.copy}<span>Exportar backup</span></button>
-          <button class="danger-button" type="button" data-action="reset-workspace">${icons.trash}<span>Restaurar modelo inicial</span></button>
-        </div>
-      </aside>
-    </div>
-  `;
+  workspace.innerHTML = "";
 }
 
 async function loadMetaProfile() {
