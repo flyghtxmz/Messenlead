@@ -4123,28 +4123,47 @@ function enableMiniMapNavigation() {
   const svg = miniMap?.querySelector("svg");
   if (!miniMap || !canvas || !svg) return;
 
-  const moveToEventPoint = (event) => {
+  const moveToEventPoint = (event, options = {}) => {
     event.preventDefault();
-    const rect = svg.getBoundingClientRect();
-    const miniXPos = clamp(((event.clientX - rect.left) / rect.width) * MINIMAP_WIDTH, 0, MINIMAP_WIDTH);
-    const miniYPos = clamp(((event.clientY - rect.top) / rect.height) * MINIMAP_HEIGHT, 0, MINIMAP_HEIGHT);
-    centerCanvasOnMiniMapPoint(miniXPos, miniYPos);
+    event.stopPropagation();
+    const point = miniMapPointFromEvent(event, svg, options);
+    if (!point) return false;
+    centerCanvasOnMiniMapPoint(point.x, point.y);
+    return true;
   };
 
   miniMap.addEventListener("pointerdown", (event) => {
-    moveToEventPoint(event);
+    if (!moveToEventPoint(event, { requireInside: true })) return;
+    miniMap.classList.add("dragging");
     miniMap.setPointerCapture(event.pointerId);
 
     const onMove = (moveEvent) => moveToEventPoint(moveEvent);
     const onUp = () => {
+      miniMap.classList.remove("dragging");
       miniMap.removeEventListener("pointermove", onMove);
       miniMap.removeEventListener("pointerup", onUp);
+      if (miniMap.hasPointerCapture?.(event.pointerId)) miniMap.releasePointerCapture(event.pointerId);
       rememberCanvasScroll();
     };
 
     miniMap.addEventListener("pointermove", onMove);
     miniMap.addEventListener("pointerup", onUp);
   });
+}
+
+function miniMapPointFromEvent(event, svg, options = {}) {
+  const rect = svg.getBoundingClientRect();
+  const rawX = event.clientX - rect.left;
+  const rawY = event.clientY - rect.top;
+
+  if (options.requireInside && (rawX < 0 || rawY < 0 || rawX > rect.width || rawY > rect.height)) {
+    return null;
+  }
+
+  return {
+    x: clamp((rawX / rect.width) * MINIMAP_WIDTH, 0, MINIMAP_WIDTH),
+    y: clamp((rawY / rect.height) * MINIMAP_HEIGHT, 0, MINIMAP_HEIGHT)
+  };
 }
 
 function centerCanvasOnMiniMapPoint(miniXPos, miniYPos) {
@@ -4154,8 +4173,10 @@ function centerCanvasOnMiniMapPoint(miniXPos, miniYPos) {
   const zoom = canvasZoom || 1;
   const stageX = (miniXPos / MINIMAP_WIDTH) * CANVAS_WIDTH;
   const stageY = (miniYPos / MINIMAP_HEIGHT) * CANVAS_HEIGHT;
-  canvas.scrollLeft = Math.max(0, stageX * zoom - canvas.clientWidth / 2);
-  canvas.scrollTop = Math.max(0, stageY * zoom - canvas.clientHeight / 2);
+  const maxScrollLeft = Math.max(0, canvas.scrollWidth - canvas.clientWidth);
+  const maxScrollTop = Math.max(0, canvas.scrollHeight - canvas.clientHeight);
+  canvas.scrollLeft = clamp(stageX * zoom - canvas.clientWidth / 2, 0, maxScrollLeft);
+  canvas.scrollTop = clamp(stageY * zoom - canvas.clientHeight / 2, 0, maxScrollTop);
   rememberCanvasScroll();
   updateMiniMapViewport();
 }

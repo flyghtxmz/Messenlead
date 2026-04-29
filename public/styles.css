@@ -2641,9 +2641,13 @@ svg {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.16);
-  cursor: pointer;
+  cursor: grab;
   pointer-events: auto;
   user-select: none;
+}
+
+.app-shell.canvas-mode .canvas-minimap.dragging {
+  cursor: grabbing;
 }
 
 .app-shell.canvas-mode .canvas-add-menu {
