@@ -2673,30 +2673,40 @@ function renderActionPicker(flow) {
   const activeOptions = actionOptions.filter((option) => option.category === actionPickerCategory);
 
   return `
-    <section class="action-picker-panel" aria-label="Selecionar ação">
-      <div class="action-picker-header">
-        <strong>Realize as seguintes ações...</strong>
-        <button class="icon-button" type="button" data-action="close-action-picker" title="Fechar">&times;</button>
-      </div>
-      <div class="action-picker-body">
-        <aside class="action-picker-tabs">
-          ${categories
-            .map((category) => {
-              const option = actionOptions.find((item) => item.category === category);
-              return `
-                <button class="${actionPickerCategory === category ? "active" : ""}" type="button" data-action="select-action-category" data-category="${attr(category)}">
-                  <span>${category === "contact" ? icons.users : category === "inbox" ? icons.inbox : icons.workflow}</span>
-                  <span>${escapeHtml(option?.categoryLabel || category)}</span>
-                </button>
-              `;
-            })
-            .join("")}
-        </aside>
-        <div class="action-picker-list">
-          ${activeOptions.map((option) => renderActionOption(option)).join("")}
+    <div class="action-picker-backdrop" aria-hidden="false">
+      <section class="action-picker-panel" aria-label="Selecionar ação">
+        <div class="action-picker-header">
+          <strong>Realize as seguintes ações...</strong>
+          <button class="icon-button" type="button" data-action="close-action-picker" title="Fechar">&times;</button>
         </div>
-      </div>
-    </section>
+        <div class="action-picker-body">
+          <aside class="action-picker-tabs">
+            ${categories
+              .map((category) => {
+                const option = actionOptions.find((item) => item.category === category);
+                return `
+                  <button class="${actionPickerCategory === category ? "active" : ""}" type="button" data-action="select-action-category" data-category="${attr(category)}">
+                    <span>${category === "contact" ? icons.users : category === "inbox" ? icons.inbox : icons.workflow}</span>
+                    <span>${escapeHtml(option?.categoryLabel || category)}</span>
+                  </button>
+                `;
+              })
+              .join("")}
+            <div class="action-picker-upgrade">
+              <strong>Obtenha acesso a novas ações -></strong>
+              <span>Conecte integrações e amplie as possibilidades de ações em suas automações.</span>
+            </div>
+          </aside>
+          <div class="action-picker-list">
+            <div class="action-picker-list-head">
+              <strong>${escapeHtml(actionPickerCategory === "contact" ? "Utilizado recentemente" : activeOptions[0]?.categoryLabel || "Ações")}</strong>
+              <span>Ações utilizadas recentemente.</span>
+            </div>
+            ${activeOptions.map((option) => renderActionOption(option)).join("")}
+          </div>
+        </div>
+      </section>
+    </div>
   `;
 }
 
@@ -2747,6 +2757,11 @@ function renderSimulator() {
 }
 
 function handleWorkspaceClick(event) {
+  if (actionPickerNodeId && event.target.closest(".action-picker-backdrop") && !event.target.closest(".action-picker-panel")) {
+    actionPickerNodeId = "";
+    return render();
+  }
+
   if (canvasAddMenu && !event.target.closest(".canvas-add-menu")) {
     canvasAddMenu = null;
     document.querySelector(".canvas-add-menu")?.remove();

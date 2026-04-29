@@ -3148,19 +3148,27 @@ svg {
   box-shadow: 18px 0 46px rgba(15, 23, 42, 0.14);
 }
 
+.action-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.46);
+}
+
 .action-picker-panel {
-  position: absolute;
-  top: 64px;
-  left: 50%;
-  z-index: 78;
-  width: min(668px, calc(100vw - 240px));
-  max-height: min(620px, calc(100vh - 90px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(580px, calc(100vw - 40px));
+  max-height: min(436px, calc(100vh - 58px));
   overflow: hidden;
   border: 1px solid #cfd8e3;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.28);
-  transform: translateX(-50%);
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.32);
 }
 
 .action-picker-header {
@@ -3168,19 +3176,20 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 18px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--line);
 }
 
 .action-picker-header strong {
   color: var(--ink);
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .action-picker-body {
   display: grid;
-  grid-template-columns: 170px minmax(0, 1fr);
-  max-height: calc(100vh - 170px);
+  grid-template-columns: 164px minmax(0, 1fr);
+  min-height: 340px;
+  max-height: 380px;
   overflow: hidden;
 }
 
@@ -3206,6 +3215,30 @@ svg {
   text-align: left;
 }
 
+.action-picker-upgrade {
+  align-self: end;
+  margin-top: 108px;
+  padding: 10px;
+  border-radius: 6px;
+  background: #eef6ff;
+}
+
+.action-picker-upgrade strong,
+.action-picker-upgrade span {
+  display: block;
+  font-size: 11px;
+  line-height: 1.28;
+}
+
+.action-picker-upgrade strong {
+  color: #0069df;
+}
+
+.action-picker-upgrade span {
+  margin-top: 5px;
+  color: #526070;
+}
+
 .action-picker-tabs button.active {
   background: #eef1ee;
   color: var(--green-dark);
@@ -3219,9 +3252,26 @@ svg {
 
 .action-picker-list {
   display: grid;
-  gap: 12px;
+  align-content: start;
+  gap: 10px;
   padding: 14px 16px;
   overflow: auto;
+}
+
+.action-picker-list-head {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.action-picker-list-head strong {
+  color: #344054;
+  font-size: 13px;
+}
+
+.action-picker-list-head span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .action-option {
@@ -3229,8 +3279,8 @@ svg {
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  min-height: 66px;
-  padding: 11px;
+  min-height: 56px;
+  padding: 10px;
   border: 1px solid #d9e0e7;
   border-radius: 8px;
   background: #fff;
