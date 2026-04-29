@@ -2975,7 +2975,7 @@ svg {
   z-index: 55;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(560px, calc(100vw - 220px));
+  width: min(640px, calc(100vw - 220px));
   height: min(620px, calc(100vh - 90px));
   overflow: hidden;
   border: 1px solid #cfd8e3;
@@ -3044,20 +3044,20 @@ svg {
 .trigger-picker-list {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 11px;
   min-height: 0;
-  padding: 12px;
+  padding: 14px 16px 18px;
   overflow: auto;
   scrollbar-gutter: stable;
 }
 
 .trigger-option {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-height: 76px;
-  padding: 11px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  min-height: 92px;
+  padding: 13px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -3072,6 +3072,7 @@ svg {
 
 .trigger-option-icon {
   display: grid;
+  margin-top: 8px;
   width: 28px;
   height: 28px;
   place-items: center;
@@ -3085,13 +3086,24 @@ svg {
   display: block;
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.38;
 }
 
 .trigger-option strong {
   display: block;
-  margin: 2px 0;
+  margin: 3px 0;
   color: var(--ink);
   font-size: 13px;
+  line-height: 1.28;
+}
+
+.trigger-option > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.trigger-option .badge {
+  align-self: center;
 }
 
 .trigger-token-list {
