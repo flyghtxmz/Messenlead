@@ -2968,21 +2968,27 @@ svg {
   margin-top: 8px;
 }
 
-.app-shell.canvas-mode .trigger-picker-panel {
-  position: absolute;
-  top: 64px;
-  left: 50%;
-  z-index: 55;
+.trigger-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.46);
+}
+
+.trigger-picker-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(640px, calc(100vw - 220px));
-  height: min(620px, calc(100vh - 90px));
+  width: min(620px, calc(100vw - 40px));
+  height: min(500px, calc(100vh - 58px));
   overflow: hidden;
   border: 1px solid #cfd8e3;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.28);
-  transform: translateX(-50%);
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.32);
 }
 
 .trigger-picker-header {
@@ -3006,7 +3012,7 @@ svg {
 
 .trigger-picker-body {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 164px minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
 }

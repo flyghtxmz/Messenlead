@@ -2356,7 +2356,8 @@ function renderTriggerPicker(flow) {
   const activeTriggers = nodeTriggerEvents(node);
 
   return `
-    <section class="trigger-picker-panel" aria-label="Selecionar gatilho">
+    <div class="trigger-picker-backdrop" aria-hidden="false">
+      <section class="trigger-picker-panel" aria-label="Selecionar gatilho">
       <div class="trigger-picker-header">
         <div>
           <h2>Iniciar automação quando...</h2>
@@ -2388,7 +2389,8 @@ function renderTriggerPicker(flow) {
             .join("")}
         </div>
       </div>
-    </section>
+      </section>
+    </div>
   `;
 }
 
@@ -2779,6 +2781,11 @@ function handleWorkspaceClick(event) {
 
   if (actionPickerNodeId && event.target.closest(".action-picker-backdrop") && !event.target.closest(".action-picker-panel")) {
     actionPickerNodeId = "";
+    return render();
+  }
+
+  if (triggerPickerNodeId && event.target.closest(".trigger-picker-backdrop") && !event.target.closest(".trigger-picker-panel")) {
+    triggerPickerNodeId = "";
     return render();
   }
 
