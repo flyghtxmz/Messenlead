@@ -1537,8 +1537,23 @@ svg {
   background: #eaf0f7;
 }
 
-.bubble .muted {
+.bubble .muted,
+.bubble-meta {
   font-size: 11px;
+}
+
+.bubble-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+}
+
+.bubble-meta time {
+  color: #4b5a68;
+  font-weight: 800;
 }
 
 .message-attachment {
@@ -1565,12 +1580,34 @@ svg {
   overflow: hidden;
 }
 
-.message-image img {
+.message-image img,
+.message-sticker img {
   display: block;
   width: 100%;
   max-width: 320px;
   max-height: 280px;
   object-fit: cover;
+}
+
+.message-sticker {
+  min-width: 0;
+  width: fit-content;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.message-sticker img {
+  width: auto;
+  max-width: 150px;
+  max-height: 150px;
+  object-fit: contain;
+}
+
+.message-sticker-placeholder {
+  min-width: 0;
+  width: fit-content;
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .message-file {

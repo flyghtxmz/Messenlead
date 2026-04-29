@@ -1140,19 +1140,7 @@ function renderPages() {
                         <div class="conversation">
                           ${
                             metaState.messages
-                              ? metaState.messages
-                                  .slice()
-                                  .reverse()
-                                  .map((message) => {
-                                    const direction = message.from?.id === selectedPage.id ? "outbound" : "inbound";
-                                    return `
-                                      <div class="bubble ${direction}">
-                                        ${renderMessageContent(message)}
-                                        <span class="muted">${escapeHtml(message.from?.name || "")}</span>
-                                      </div>
-                                    `;
-                                  })
-                                  .join("")
+                              ? renderMetaConversationMessages(metaState.messages, selectedPage.id)
                               : `<div class="empty-state">${icons.inbox}<span>Carregando mensagens...</span></div>`
                           }
                         </div>
@@ -1405,15 +1393,7 @@ function renderInbox() {
             </div>
           </div>
           <div class="conversation" id="conversation">
-            ${contact.messages
-              .map(
-                (message) => `
-                  <div class="bubble ${message.from === "contact" ? "inbound" : "outbound"}">
-                    ${escapeHtml(message.text)}
-                  </div>
-                `
-              )
-              .join("")}
+            ${renderLocalConversationMessages(contact.messages)}
           </div>
           <div class="composer">
             <textarea id="composerText" placeholder="Responder pelo Messenger"></textarea>
@@ -4640,6 +4620,77 @@ function selectedContact() {
   return pageContacts.find((contact) => contact.id === selectedContactId) || pageContacts[0];
 }
 
+function renderMetaConversationMessages(messages, pageId) {
+  const ordered = messages.slice().reverse();
+  return ordered
+    .map((message, index) => {
+      const direction = message.from?.id === pageId ? "outbound" : "inbound";
+      return renderConversationBubble({
+        direction,
+        content: renderMessageContent(message),
+        sender: message.from?.name || "",
+        time: messageTimeValue(message),
+        showTime: shouldShowBubbleTime(message, ordered[index - 1])
+      });
+    })
+    .join("");
+}
+
+function renderLocalConversationMessages(messages = []) {
+  return messages
+    .map((message, index) =>
+      renderConversationBubble({
+        direction: message.from === "contact" ? "inbound" : "outbound",
+        content: escapeHtml(message.text || ""),
+        time: messageTimeValue(message),
+        showTime: shouldShowBubbleTime(message, messages[index - 1])
+      })
+    )
+    .join("");
+}
+
+function renderConversationBubble({ direction, content, sender = "", time = "", showTime = false }) {
+  const footerParts = [];
+  if (sender) footerParts.push(`<span>${escapeHtml(sender)}</span>`);
+  if (showTime && time) footerParts.push(`<time datetime="${attr(time)}">${escapeHtml(formatBubbleTime(time))}</time>`);
+
+  return `
+    <div class="bubble ${direction}">
+      ${content}
+      ${footerParts.length ? `<span class="bubble-meta">${footerParts.join("")}</span>` : ""}
+    </div>
+  `;
+}
+
+function shouldShowBubbleTime(message, previousMessage) {
+  const currentKey = messageHourKey(messageTimeValue(message));
+  if (!currentKey) return false;
+  return currentKey !== messageHourKey(messageTimeValue(previousMessage));
+}
+
+function messageTimeValue(message) {
+  return message?.created_time || message?.at || message?.timestamp || "";
+}
+
+function messageHourKey(value) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return "";
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+}
+
+function formatBubbleTime(value) {
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(value));
+  } catch {
+    return "";
+  }
+}
+
 function renderMessageContent(message) {
   const text = message.message ? `<div>${escapeHtml(message.message)}</div>` : "";
   const attachments = normalizeMessageAttachments(message).map(renderAttachment).join("");
@@ -4648,9 +4699,31 @@ function renderMessageContent(message) {
 }
 
 function normalizeMessageAttachments(message) {
-  if (Array.isArray(message.attachments)) return message.attachments;
-  if (Array.isArray(message.attachments?.data)) return message.attachments.data;
-  return [];
+  const attachments = [];
+  if (Array.isArray(message.attachments)) attachments.push(...message.attachments);
+  if (Array.isArray(message.attachments?.data)) attachments.push(...message.attachments.data);
+
+  const sticker = normalizeStickerAttachment(message);
+  if (sticker) attachments.push(sticker);
+
+  return attachments;
+}
+
+function normalizeStickerAttachment(message) {
+  const sticker = message?.sticker;
+  if (!sticker && !message?.sticker_id) return null;
+
+  if (typeof sticker === "string") {
+    return { type: "sticker", url: sticker, title: "Sticker recebido" };
+  }
+
+  return {
+    type: "sticker",
+    title: "Sticker recebido",
+    url: sticker?.url || sticker?.image_url || sticker?.uri || "",
+    image_data: sticker?.image_data || null,
+    sticker_id: message.sticker_id || sticker?.id || ""
+  };
 }
 
 function renderAttachment(attachment) {
@@ -4658,10 +4731,22 @@ function renderAttachment(attachment) {
   const attachmentType = String(attachment.type || "").toLowerCase();
   const audioUrl = attachment.audio_data?.url || attachment.audio_data?.preview_url || "";
   const imageUrl = attachment.image_data?.url || attachment.image_data?.preview_url || "";
+  const stickerUrl = attachment.sticker_data?.url || attachment.sticker_data?.preview_url || attachment.payload?.sticker_url || attachment.payload?.url || "";
   const videoUrl = attachment.video_data?.url || attachment.video_data?.preview_url || "";
-  const fileUrl = attachment.file_url || attachment.url || audioUrl || imageUrl || videoUrl || "";
+  const fileUrl = attachment.file_url || attachment.url || audioUrl || imageUrl || stickerUrl || videoUrl || "";
   const fileName = attachment.name || attachment.title || "Anexo recebido";
   const lowerUrl = fileUrl.split("?")[0].toLowerCase();
+
+  if (attachmentType === "sticker" || attachment.sticker_id || stickerUrl) {
+    if (!fileUrl) {
+      return `<div class="message-attachment message-sticker-placeholder">Sticker recebido</div>`;
+    }
+    return `
+      <a class="message-attachment message-sticker" href="${attr(fileUrl)}" target="_blank" rel="noopener">
+        <img src="${attr(fileUrl)}" alt="${attr(fileName === "Anexo recebido" ? "Sticker recebido" : fileName)}" loading="lazy" />
+      </a>
+    `;
+  }
 
   if (!fileUrl) {
     return `<div class="message-attachment">${escapeHtml(fileName)}</div>`;
