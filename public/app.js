@@ -5089,7 +5089,8 @@ function enableConnectionDragging(flow) {
       canvas.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
       port.closest(".node")?.classList.add("selected");
 
-      const start = nodeOutputPoint(source);
+      const sourceField = port.dataset.portField || "";
+      const start = nodeOutputPoint(source, { field: sourceField });
       const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
       tempPath.setAttribute("class", "connection-temp");
       layer.appendChild(tempPath);
@@ -5114,7 +5115,7 @@ function enableConnectionDragging(flow) {
         const target = targetId ? flow.nodes.find((node) => node.id === targetId) : null;
 
         if (target && target.id !== source.id && canAcceptIncomingConnection(target)) {
-          assignPrimaryTarget(source, target.id);
+          assignOutputTarget(source, target.id, sourceField);
           selectedNodeId = source.id;
           flow.updatedAt = new Date().toISOString();
           rememberCanvasScroll();
@@ -5146,6 +5147,15 @@ function assignPrimaryTarget(node, targetId) {
     return;
   }
   node.next = targetId;
+}
+
+function assignOutputTarget(node, targetId, field = "") {
+  normalizeNodeStructure(node);
+  if (node.type === "condition" && (field === "yesNext" || field === "noNext")) {
+    node[field] = targetId;
+    return;
+  }
+  assignPrimaryTarget(node, targetId);
 }
 
 function enableCanvasPanning() {
@@ -5396,8 +5406,9 @@ function updateMiniMapViewport() {
 function renderMiniMapContent(flow) {
   const links = flow.nodes
     .flatMap((node) =>
-      connectionTargets(flow, node).map(({ target }) => {
-        return `<line class="minimap-link" x1="${miniX(canvasNodeLeft(node) + NODE_WIDTH)}" y1="${miniY(canvasNodeTop(node) + NODE_CONNECT_Y)}" x2="${miniX(canvasNodeLeft(target))}" y2="${miniY(canvasNodeTop(target) + NODE_CONNECT_Y)}" />`;
+      connectionTargets(flow, node).map((connection) => {
+        const start = nodeOutputPoint(node, connection);
+        return `<line class="minimap-link" x1="${miniX(start.x)}" y1="${miniY(start.y)}" x2="${miniX(canvasNodeLeft(connection.target))}" y2="${miniY(canvasNodeTop(connection.target) + NODE_CONNECT_Y)}" />`;
       })
     )
     .join("");
@@ -5423,10 +5434,11 @@ function renderMiniMapContent(flow) {
 function renderConnections(flow) {
   return flow.nodes
     .flatMap((node) =>
-      connectionTargets(flow, node).map(({ target, label }, index) => {
-      const start = nodeOutputPoint(node);
+      connectionTargets(flow, node).map((connection, index) => {
+      const { target, label } = connection;
+      const start = nodeOutputPoint(node, connection);
       const end = nodeInputPoint(target);
-      const offset = index * 8;
+      const offset = node.type === "condition" ? 0 : index * 8;
       return `<path d="${connectionPath(start.x, start.y + offset, end.x, end.y)}" /><text class="connection-label" x="${miniNumber((start.x + end.x) / 2)}" y="${miniNumber((start.y + end.y) / 2 + offset - 6)}">${escapeHtml(label || "")}</text>`;
       })
     )
@@ -5607,11 +5619,16 @@ function connectionPath(x1, y1, x2, y2) {
   return `M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}`;
 }
 
-function nodeOutputPoint(node) {
+function nodeOutputPoint(node, output = {}) {
+  const outputY = node.type === "condition" ? conditionOutputY(output.field) : NODE_CONNECT_Y;
   return {
     x: canvasNodeLeft(node) + NODE_WIDTH,
-    y: canvasNodeTop(node) + NODE_CONNECT_Y
+    y: canvasNodeTop(node) + outputY
   };
+}
+
+function conditionOutputY(field) {
+  return field === "noNext" ? 124 : 72;
 }
 
 function nodeInputPoint(node) {
@@ -5664,6 +5681,26 @@ function renderNode(node, selected) {
   `;
 }
 
+function conditionNodeLines(node) {
+  normalizeNodeStructure(node);
+  return node.conditions
+    .slice(0, 2)
+    .map((condition) => conditionNodeLine(condition))
+    .filter(Boolean);
+}
+
+function conditionNodeLine(condition) {
+  const value = String(condition.value || "").trim();
+  if (condition.type === "tag") return value ? `Tag ${condition.operator === "not_contains" ? "não é" : "está"} ${value}` : "Tag não definida";
+  if (condition.type === "field") {
+    const label = condition.fieldName || "Campo";
+    if (!value) return `${label} não definido`;
+    if (condition.operator === "not_contains") return `${label} não contém ${value}`;
+    return `${label} é ${value}`;
+  }
+  return value ? `Mensagem contém ${value}` : "Mensagem contém termo";
+}
+
 function nodeCardSummary(node) {
   const flow = selectedFlow() || { nodes: [] };
   if (node.type === "message") {
@@ -5705,6 +5742,8 @@ function nodeCardSummary(node) {
 
 function renderConditionNode(node, selected) {
   normalizeNodeStructure(node);
+  const conditionLines = conditionNodeLines(node);
+  const hasBranchPorts = conditionLines.length || node.yesNext || node.noNext;
   return `
     <article class="node condition condition-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${renderNodeHoverActions(node)}
@@ -5714,12 +5753,16 @@ function renderConditionNode(node, selected) {
       </div>
       <div class="condition-node-body">
         ${
-          node.conditions.length
-            ? `<div class="condition-node-list">${node.conditions.slice(0, 2).map((condition) => `<span>${escapeHtml(condition.label || conditionLabelForType(condition.type))}</span>`).join("")}</div>`
+          conditionLines.length
+            ? `<div class="condition-node-list">${conditionLines.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}</div>`
             : `<div class="condition-node-empty">Clique para adicionar uma condição</div>`
         }
       </div>
-      ${renderOutputPort(node)}
+      ${
+        hasBranchPorts
+          ? `<div class="condition-node-negative">O contato não corresponde a nenhuma dessas condições</div>${renderConditionOutputPorts(node)}`
+          : renderOutputPort(node)
+      }
     </article>
   `;
 }
@@ -5809,6 +5852,13 @@ function nodeAddButton(type, label) {
 function renderOutputPort(node) {
   if (node.type === "comment") return "";
   return `<button class="node-port" type="button" data-port-source="${attr(node.id)}" aria-label="Conectar próximo passo"></button>`;
+}
+
+function renderConditionOutputPorts(node) {
+  return `
+    <button class="node-port condition-node-port yes" type="button" data-port-source="${attr(node.id)}" data-port-field="yesNext" aria-label="Conectar quando corresponde"></button>
+    <button class="node-port condition-node-port no" type="button" data-port-source="${attr(node.id)}" data-port-field="noNext" aria-label="Conectar quando não corresponde"></button>
+  `;
 }
 
 function renderNodeHoverActions(node) {

@@ -1420,9 +1420,9 @@ svg {
 
 .condition-node-body {
   display: grid;
-  min-height: 92px;
-  padding: 14px;
-  place-items: center;
+  min-height: 56px;
+  padding: 13px 14px 8px;
+  place-items: stretch;
 }
 
 .condition-node-empty {
@@ -1439,16 +1439,49 @@ svg {
 .condition-node-list {
   display: grid;
   width: 100%;
-  gap: 6px;
+  gap: 4px;
 }
 
 .condition-node-list span {
-  padding: 7px 8px;
-  border: 1px solid #b9eadf;
-  border-radius: 6px;
-  background: #f2fffb;
-  color: #174d43;
+  overflow: hidden;
+  padding: 0 0 8px;
+  border-bottom: 1px solid #edf1f4;
+  color: #344054;
   font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.condition-node-negative {
+  min-height: 43px;
+  padding: 8px 16px 12px;
+  color: #737b85;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.condition-node .condition-node-port.yes {
+  top: 65px;
+  border-color: #45cf8a;
+}
+
+.condition-node .condition-node-port.no {
+  top: 117px;
+  border-color: #ff5757;
+}
+
+.condition-node .condition-node-port.yes:hover,
+.condition-node .condition-node-port.yes:focus-visible {
+  border-color: #00b871;
+  box-shadow: 0 0 0 4px rgba(0, 184, 113, 0.16);
+}
+
+.condition-node .condition-node-port.no:hover,
+.condition-node .condition-node-port.no:focus-visible {
+  border-color: #e84b4b;
+  box-shadow: 0 0 0 4px rgba(232, 75, 75, 0.16);
 }
 
 .node.delay {
