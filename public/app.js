@@ -204,6 +204,7 @@ let nextStepPickerNodeId = "";
 let actionPickerNodeId = "";
 let actionPickerCategory = "contact";
 let canvasAddMenu = null;
+let suppressedNodeClickId = "";
 let subscriberPageFilter = "";
 let subscriberTagFilter = "";
 let flowStore = {
@@ -2838,6 +2839,10 @@ function handleWorkspaceClick(event) {
     return render();
   }
   if (action === "select-node") {
+    if (suppressedNodeClickId === id) {
+      suppressedNodeClickId = "";
+      return;
+    }
     selectedNodeId = id;
     showInspector = true;
     showFlowList = false;
@@ -3995,6 +4000,10 @@ function enableNodeDragging(flow) {
         element.removeEventListener("pointermove", onMove);
         element.removeEventListener("pointerup", onUp);
         if (moved) {
+          suppressedNodeClickId = node.id;
+          window.setTimeout(() => {
+            if (suppressedNodeClickId === node.id) suppressedNodeClickId = "";
+          }, 250);
           flow.updatedAt = new Date().toISOString();
           saveState();
         }
