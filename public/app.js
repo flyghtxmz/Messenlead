@@ -2962,12 +2962,6 @@ function renderConditionSettings(flow, node) {
         <strong>Condição</strong>
         <button class="mini-menu-button" type="button" data-action="select-node" data-id="${node.id}" title="Editar nome">✎</button>
       </div>
-      <div class="condition-match-copy">
-        <span>O contato corresponde</span>
-        <button type="button" data-action="toggle-condition-match" data-id="${node.id}">
-          ${node.conditionMatch === "any" ? "qualquer uma destas condições?" : "todas as seguintes condições?"}
-        </button>
-      </div>
       <div class="condition-rule-list">
         ${node.conditions.length ? node.conditions.map((condition) => renderConditionRule(condition)).join("") : ""}
         <button class="dashed-add-button condition-add-button" type="button" data-action="open-condition-picker" data-id="${node.id}">+ Condição</button>
