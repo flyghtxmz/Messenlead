@@ -2962,15 +2962,32 @@ function renderConditionSettings(flow, node) {
         <strong>Condição</strong>
         <button class="mini-menu-button" type="button" data-action="select-node" data-id="${node.id}" title="Editar nome">✎</button>
       </div>
-      <div class="condition-rule-list">
-        ${node.conditions.length ? node.conditions.map((condition) => renderConditionRule(condition)).join("") : ""}
-        <button class="dashed-add-button condition-add-button" type="button" data-action="open-condition-picker" data-id="${node.id}">+ Condição</button>
-      </div>
-      ${conditionPickerNodeId === node.id ? renderConditionPicker(node) : ""}
-      <div class="next-step-divider"></div>
-      <div class="condition-branches">
-        ${targetSelectField(flow, node, node.yesNext, "Se corresponde", { field: "yesNext" })}
-        ${targetSelectField(flow, node, node.noNext, "Se não corresponde", { field: "noNext" })}
+      <div class="manychat-condition-content">
+        <div class="condition-match-copy">
+          <span>O contato corresponde</span>
+          <button type="button" data-action="toggle-condition-match" data-id="${node.id}">
+            ${node.conditionMatch === "any" ? "qualquer uma destas condições?" : "todas as seguintes condições?"}
+          </button>
+        </div>
+        <div class="condition-rule-list">
+          ${node.conditions.length ? node.conditions.map((condition) => renderConditionRule(condition)).join("") : ""}
+          <button class="dashed-add-button condition-add-button" type="button" data-action="open-condition-picker" data-id="${node.id}">+ Condição</button>
+        </div>
+        ${conditionPickerNodeId === node.id ? renderConditionPicker(node) : ""}
+        <div class="condition-branches">
+          ${targetSelectField(flow, node, node.yesNext, "Sim, o contato corresponde", {
+            field: "yesNext",
+            className: "condition-next-step",
+            placeholder: "Escolher Próximo Passo"
+          })}
+          <div class="condition-branch-divider"><span></span><strong>Se não</strong><span></span></div>
+          <button class="dashed-add-button condition-add-button condition-add-else-button" type="button" data-action="open-condition-picker" data-id="${node.id}">+ Adicionar outra condição</button>
+          ${targetSelectField(flow, node, node.noNext, "", {
+            field: "noNext",
+            className: "condition-next-step",
+            placeholder: "Escolher Próximo Passo"
+          })}
+        </div>
       </div>
     </form>
   `;
@@ -2995,23 +3012,20 @@ function renderTagConditionRule(condition) {
   const tags = tagOptionsForCurrentPage(condition.value);
   return `
     <article class="condition-rule-card tag-condition-rule-card">
-      <div class="condition-token-row">
-        <span class="condition-token-label">Tag</span>
-        <select class="condition-operator-select" data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
-          <option value="contains_any" ${condition.operator === "not_contains" ? "" : "selected"}>está</option>
-          <option value="not_contains" ${condition.operator === "not_contains" ? "selected" : ""}>não é</option>
-        </select>
-        <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condição">&times;</button>
-      </div>
+      <span class="condition-token-label">Tag</span>
+      <select class="condition-operator-select" data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
+        <option value="contains_any" ${condition.operator === "not_contains" ? "" : "selected"}>está</option>
+        <option value="not_contains" ${condition.operator === "not_contains" ? "selected" : ""}>não é</option>
+      </select>
       ${
         tags.length
           ? `<select class="condition-tag-select" data-condition-rule-field="value" data-condition-id="${attr(condition.id)}">
               <option value="" ${condition.value ? "" : "selected"}>Selecionar tag</option>
               ${tags.map((tagName) => `<option value="${attr(tagName)}" ${condition.value === tagName ? "selected" : ""}>${escapeHtml(tagName)}</option>`).join("")}
             </select>`
-          : `<div class="condition-empty-tags">Nenhuma tag encontrada nesta página.</div>
-             <input data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="Digite o nome da tag" />`
+          : `<input class="condition-tag-input" data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="Nome da tag" />`
       }
+      <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condição">&times;</button>
     </article>
   `;
 }
@@ -3144,7 +3158,8 @@ function renderRandomizerVariation(flow, node, variation) {
 }
 
 function targetSelectField(flow, node, value, label, data = {}) {
-  const dataAttrs = Object.entries(data)
+  const { className = "", placeholder = "Sem próximo passo", ...targetData } = data;
+  const dataAttrs = Object.entries(targetData)
     .map(([key, item]) => `data-target-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}="${attr(item)}"`)
     .join(" ");
   const options = flow.nodes
@@ -3152,10 +3167,10 @@ function targetSelectField(flow, node, value, label, data = {}) {
     .map((item) => `<option value="${attr(item.id)}" ${item.id === value ? "selected" : ""}>${escapeHtml(item.title || nodeLabels[item.type] || "Bloco")}</option>`)
     .join("");
   return `
-    <label class="settings-field">
-      <span>${escapeHtml(label)}</span>
+    <label class="settings-field ${attr(className)}">
+      ${label ? `<span>${escapeHtml(label)}</span>` : ""}
       <select data-target-select="true" ${dataAttrs}>
-        <option value="">Sem próximo passo</option>
+        <option value="">${escapeHtml(placeholder)}</option>
         ${options}
       </select>
     </label>

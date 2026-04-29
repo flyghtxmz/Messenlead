@@ -3719,6 +3719,7 @@ svg {
 
 .app-shell.canvas-mode .inspector-form {
   gap: 11px;
+  font-size: 12px;
 }
 
 .manychat-settings {
@@ -3904,6 +3905,8 @@ svg {
   min-height: calc(100vh - 54px);
   overflow-x: hidden;
   background: #fff;
+  color: #202833;
+  font-size: 12px;
 }
 
 .manychat-condition-head {
@@ -3911,10 +3914,10 @@ svg {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-height: 46px;
+  min-height: 48px;
   background: #9eeedf;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -3924,9 +3927,30 @@ svg {
   background: transparent;
 }
 
-.condition-rule-list,
-.manychat-condition-settings > .condition-branches {
-  margin: 14px 20px 0;
+.manychat-condition-content {
+  position: relative;
+  display: grid;
+  gap: 17px;
+  padding: 27px 34px 30px;
+}
+
+.condition-match-copy {
+  display: grid;
+  gap: 1px;
+  color: #26313d;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.condition-match-copy button {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0069df;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
 }
 
 .condition-rule-list {
@@ -3936,6 +3960,53 @@ svg {
 
 .condition-add-button {
   border-color: #9eeedf;
+  color: #009d72;
+}
+
+.manychat-condition-settings .condition-branches {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+}
+
+.condition-next-step {
+  gap: 9px;
+}
+
+.condition-next-step > span {
+  color: #26313d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.condition-next-step select {
+  min-height: 36px;
+  border: 1px dashed #b9dcff;
+  border-radius: 4px;
+  background: #fff;
+  color: #0069df;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  text-align-last: center;
+}
+
+.condition-branch-divider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.condition-branch-divider span {
+  height: 1px;
+  background: #d7dbe1;
+}
+
+.condition-add-else-button {
   color: #009d72;
 }
 
@@ -3976,58 +4047,54 @@ svg {
 }
 
 .tag-condition-rule-card {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-}
-
-.condition-token-row {
   display: grid;
-  grid-template-columns: auto minmax(70px, 90px) auto;
-  gap: 7px;
+  grid-template-columns: 42px 72px minmax(0, 1fr) 20px;
+  gap: 4px;
   align-items: center;
   min-width: 0;
-  padding: 7px 8px;
+  min-height: 36px;
+  padding: 0 8px;
   border: 1px solid #d9e0e7;
-  border-radius: 6px;
+  border-radius: 3px;
   background: #fff;
 }
 
 .condition-token-label {
+  overflow: hidden;
   color: #344054;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .condition-operator-select {
   min-width: 0;
-  min-height: 26px;
+  min-height: 28px;
   padding: 0 4px;
   border: 0;
   background: transparent;
-  color: #d03232;
+  color: #667085;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 500;
 }
 
-.condition-tag-select {
+.condition-tag-select,
+.condition-tag-input {
   width: 100%;
-  min-height: 32px;
-  padding: 6px 8px;
-  border: 1px solid #d4dde7;
-  border-radius: 6px;
-  background: #fff;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
   color: var(--ink);
   font-size: 12px;
 }
 
-.condition-empty-tags {
-  display: grid;
-  min-height: 34px;
-  place-items: center;
-  border: 1px dashed #d4dde7;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 11px;
+.condition-tag-input:focus,
+.condition-tag-select:focus,
+.condition-operator-select:focus {
+  outline: 0;
 }
 
 .condition-rule-icon svg {
@@ -4038,10 +4105,10 @@ svg {
 
 .condition-picker-popover {
   position: absolute;
-  top: 92px;
-  left: 10px;
+  top: 132px;
+  left: 34px;
   z-index: 80;
-  width: calc(100% - 20px);
+  width: calc(100% - 68px);
   max-width: 320px;
   overflow: hidden;
   border: 1px solid #d1d7e0;
@@ -4141,12 +4208,12 @@ svg {
 }
 
 .dashed-add-button {
-  min-height: 32px;
+  min-height: 34px;
   border: 1px dashed #2f8cff;
-  border-radius: 7px;
+  border-radius: 4px;
   background: #fff;
   color: #0069df;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
 }
 
