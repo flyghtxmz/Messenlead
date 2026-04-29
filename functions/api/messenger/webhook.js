@@ -224,6 +224,7 @@ function conditionMatchesNode(node, context = {}) {
 
   if (node.conditionType === "tag") {
     const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    if (operator === "not_contains") return terms.length ? terms.every((term) => !tags.includes(term)) : false;
     return terms.some((term) => tags.includes(term));
   }
   if (node.conditionType === "field") {
@@ -245,7 +246,9 @@ function conditionRuleMatches(condition, context = {}) {
   const expected = normalize(condition.value || "");
   if (condition.type === "tag") {
     const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
-    return expected ? tags.includes(expected) : false;
+    if (!expected) return false;
+    const hasTag = tags.includes(expected);
+    return condition.operator === "not_contains" ? !hasTag : hasTag;
   }
   if (condition.type === "field") {
     const value = normalize(context.contact?.customFields?.[condition.fieldName] || context.contact?.[condition.fieldName] || "");

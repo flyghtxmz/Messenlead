@@ -2983,6 +2983,7 @@ function renderConditionSettings(flow, node) {
 }
 
 function renderConditionRule(condition) {
+  if (condition.type === "tag") return renderTagConditionRule(condition);
   return `
     <article class="condition-rule-card">
       <span class="condition-rule-icon">${icons.condition}</span>
@@ -2996,10 +2997,44 @@ function renderConditionRule(condition) {
   `;
 }
 
+function renderTagConditionRule(condition) {
+  const tags = tagOptionsForCurrentPage(condition.value);
+  return `
+    <article class="condition-rule-card tag-condition-rule-card">
+      <div class="condition-token-row">
+        <span class="condition-token-label">Tag</span>
+        <select class="condition-operator-select" data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
+          <option value="contains_any" ${condition.operator === "not_contains" ? "" : "selected"}>está</option>
+          <option value="not_contains" ${condition.operator === "not_contains" ? "selected" : ""}>não é</option>
+        </select>
+        <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condição">&times;</button>
+      </div>
+      ${
+        tags.length
+          ? `<select class="condition-tag-select" data-condition-rule-field="value" data-condition-id="${attr(condition.id)}">
+              <option value="" ${condition.value ? "" : "selected"}>Selecionar tag</option>
+              ${tags.map((tagName) => `<option value="${attr(tagName)}" ${condition.value === tagName ? "selected" : ""}>${escapeHtml(tagName)}</option>`).join("")}
+            </select>`
+          : `<div class="condition-empty-tags">Nenhuma tag encontrada nesta página.</div>
+             <input data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="Digite o nome da tag" />`
+      }
+    </article>
+  `;
+}
+
 function conditionRuleSummary(condition) {
-  if (condition.type === "tag") return condition.value ? `possui ${condition.value}` : "Tag desconhecida";
+  if (condition.type === "tag") {
+    if (!condition.value) return "Escolha uma tag";
+    return `${condition.operator === "not_contains" ? "não é" : "está"} ${condition.value}`;
+  }
   if (condition.type === "field") return `${condition.fieldName || "campo"} ${condition.value ? `é ${condition.value}` : "não definido"}`;
   return condition.value ? `contém ${condition.value}` : "Mensagem contém termo";
+}
+
+function tagOptionsForCurrentPage(selectedValue = "") {
+  const tags = allContactTags(contactsForPage(currentFlowPageId()));
+  const selected = String(selectedValue || "").trim();
+  return unique(selected && !tags.includes(selected) ? [...tags, selected] : tags);
 }
 
 function renderConditionPicker(node) {
@@ -3614,6 +3649,17 @@ function handleWorkspaceChange(event) {
       if (target.dataset.messageOptionField === "type" && option.type !== "url" && option.type !== "phone") {
         option.type = "next";
       }
+      flow.updatedAt = new Date().toISOString();
+      saveState();
+    }
+  }
+
+  if (target.dataset.conditionRuleField && node?.type === "condition") {
+    const condition = node.conditions?.find((item) => item.id === target.dataset.conditionId);
+    if (condition) {
+      condition[target.dataset.conditionRuleField] = target.value;
+      if (condition.type === "tag" || condition.type === "message_contains") node.keyword = condition.value || "";
+      if (condition.type === "field") node.fieldValue = condition.value || "";
       flow.updatedAt = new Date().toISOString();
       saveState();
     }
@@ -5470,6 +5516,7 @@ function conditionMatchesNode(node, context = {}) {
 
   if (node.conditionType === "tag") {
     const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    if (operator === "not_contains") return rawTerms.length ? rawTerms.every((term) => !tags.includes(term)) : false;
     return rawTerms.length ? rawTerms.some((term) => tags.includes(term)) : false;
   }
 
@@ -5493,7 +5540,9 @@ function conditionRuleMatches(condition, context = {}) {
   const expected = normalize(condition.value || "");
   if (condition.type === "tag") {
     const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
-    return expected ? tags.includes(expected) : false;
+    if (!expected) return false;
+    const hasTag = tags.includes(expected);
+    return condition.operator === "not_contains" ? !hasTag : hasTag;
   }
   if (condition.type === "field") {
     const value = normalize(context.contact?.customFields?.[condition.fieldName] || context.contact?.[condition.fieldName] || "");
