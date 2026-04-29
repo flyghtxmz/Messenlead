@@ -1097,6 +1097,7 @@ svg {
   position: absolute;
   display: grid;
   gap: 8px;
+  z-index: 1;
   width: 260px;
   min-height: 136px;
   padding: 11px;
@@ -1109,9 +1110,67 @@ svg {
   user-select: none;
 }
 
+.node:hover,
+.node:focus-within {
+  z-index: 12;
+}
+
 .node.selected {
+  z-index: 10;
   border-color: var(--green);
   box-shadow: 0 0 0 3px rgba(22, 134, 95, 0.14), 0 18px 34px rgba(15, 23, 42, 0.14);
+}
+
+.node-hover-actions {
+  position: absolute;
+  top: -43px;
+  left: 50%;
+  z-index: 20;
+  display: inline-flex;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid #d7dee8;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+.node:hover .node-hover-actions,
+.node:focus-within .node-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.node-hover-actions button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #5d6b7a;
+}
+
+.node-hover-actions button:hover {
+  background: #f2f5f8;
+  color: #111827;
+}
+
+.node-hover-actions button.danger {
+  color: #d3382f;
+}
+
+.node-hover-actions svg {
+  width: 16px;
+  height: 16px;
 }
 
 .node.trigger {
@@ -1186,7 +1245,7 @@ svg {
 .action-node {
   gap: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border-left: 1px solid #f1c86f;
 }
 
@@ -1199,6 +1258,7 @@ svg {
   background: #fff0bd;
   color: #344054;
   font-weight: 800;
+  border-radius: 7px 7px 0 0;
 }
 
 .action-node-head svg {

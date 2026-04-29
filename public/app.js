@@ -2859,6 +2859,8 @@ function handleWorkspaceClick(event) {
     canvasAddMenu = null;
     return render();
   }
+  if (action === "duplicate-node") return duplicateNodeById(id);
+  if (action === "delete-node-by-id") return deleteNodeById(id);
   if (action === "set-flow-status") return setFlowStatus(button.dataset.status);
   if (action === "duplicate-flow") return duplicateFlow();
   if (action === "duplicate-flow-card") return duplicateFlow(id, { openCanvas: false });
@@ -3270,6 +3272,13 @@ function deleteSelectedNode() {
   deleteNode();
 }
 
+function deleteNodeById(nodeId) {
+  const flow = selectedFlow();
+  if (!flow?.nodes.some((node) => node.id === nodeId)) return;
+  selectedNodeId = nodeId;
+  deleteNode();
+}
+
 function duplicateSelectedNode() {
   const flow = selectedFlow();
   const node = flow?.nodes.find((item) => item.id === selectedNodeId);
@@ -3294,6 +3303,13 @@ function duplicateSelectedNode() {
   flow.updatedAt = new Date().toISOString();
   saveState();
   render();
+}
+
+function duplicateNodeById(nodeId) {
+  const flow = selectedFlow();
+  if (!flow?.nodes.some((node) => node.id === nodeId)) return;
+  selectedNodeId = nodeId;
+  duplicateSelectedNode();
 }
 
 function setCanvasZoom(value) {
@@ -4292,6 +4308,7 @@ function renderNode(node, selected) {
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
   return `
     <article class="node ${node.type} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      ${renderNodeHoverActions(node)}
       <div class="node-head">
         <div class="node-title">
           ${icon}
@@ -4314,6 +4331,7 @@ function renderNode(node, selected) {
 function renderCommentNode(node, selected) {
   return `
     <article class="node comment ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      ${renderNodeHoverActions(node)}
       <div class="node-head">
         <div class="node-title">
           ${icons.comment}
@@ -4332,6 +4350,7 @@ function renderActionNode(node, selected) {
   const steps = nodeActionSteps(node);
   return `
     <article class="node action action-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      ${renderNodeHoverActions(node)}
       <div class="action-node-head">
         <span>${icons.action}</span>
         <strong>Ações</strong>
@@ -4360,6 +4379,7 @@ function renderTriggerNode(node, selected) {
 
   return `
     <article class="node trigger trigger-start ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      ${renderNodeHoverActions(node)}
       <div class="node-head">
         <div class="node-title">
           ${icons.trigger}
@@ -4388,6 +4408,15 @@ function renderTriggerNode(node, selected) {
 
 function nodeAddButton(type, label) {
   return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}" title="${attr(label)}">${icons[type]}<span>${label}</span></button>`;
+}
+
+function renderNodeHoverActions(node) {
+  return `
+    <div class="node-hover-actions" aria-label="Ações do bloco">
+      <button type="button" data-action="duplicate-node" data-id="${attr(node.id)}" title="Duplicar bloco">${icons.copy}</button>
+      <button class="danger" type="button" data-action="delete-node-by-id" data-id="${attr(node.id)}" title="Excluir bloco">${icons.trash}</button>
+    </div>
+  `;
 }
 
 function nodeActionSteps(node) {
