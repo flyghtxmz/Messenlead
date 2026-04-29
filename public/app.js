@@ -165,6 +165,21 @@ const messageContentBlockTypes = [
   { type: "dynamic", label: "Dinamico", icon: "plug" }
 ];
 
+const conditionPickerCategories = [
+  { id: "recommended", label: "Recomendados" },
+  { id: "general", label: "Filtros Gerais" },
+  { id: "system", label: "Campos do Sistema" }
+];
+
+const conditionOptions = [
+  { id: "tag", category: "recommended", label: "Tag", icon: "tag", conditionType: "tag", operator: "contains_any", placeholder: "lead-quente" },
+  { id: "email", category: "recommended", label: "E-mail", icon: "text", conditionType: "field", fieldName: "email", operator: "contains_any", placeholder: "email@dominio.com" },
+  { id: "message_contains", category: "general", label: "Mensagem contém", icon: "message", conditionType: "message_contains", operator: "contains_any", placeholder: "preço, orçamento" },
+  { id: "custom_field", category: "general", label: "Campo personalizado", icon: "text", conditionType: "field", operator: "equals", placeholder: "valor esperado" },
+  { id: "phone", category: "system", label: "Telefone", icon: "text", conditionType: "field", fieldName: "phone", operator: "contains_any", placeholder: "+5511999999999" },
+  { id: "first_name", category: "system", label: "Primeiro nome", icon: "text", conditionType: "field", fieldName: "first_name", operator: "contains_any", placeholder: "Maria" }
+];
+
 const CANVAS_WIDTH = 8000;
 const CANVAS_HEIGHT = 6000;
 const CANVAS_ORIGIN_X = 3600;
@@ -244,6 +259,9 @@ let triggerPickerNodeId = "";
 let nextStepPickerNodeId = "";
 let actionPickerNodeId = "";
 let actionPickerCategory = "contact";
+let conditionPickerNodeId = "";
+let conditionPickerCategory = "recommended";
+let conditionPickerQuery = "";
 let canvasAddMenu = null;
 let suppressedNodeClickId = "";
 let subscriberPageFilter = "";
@@ -808,6 +826,29 @@ function normalizeNodeStructure(node) {
     node.conditionOperator = node.conditionOperator || "contains_any";
     node.yesNext = node.yesNext || node.next || null;
     node.noNext = node.noNext || null;
+    if (!Array.isArray(node.conditions)) {
+      node.conditions = node.keyword
+        ? [
+            {
+              id: makeId("cond"),
+              type: node.conditionType,
+              label: conditionLabelForType(node.conditionType),
+              operator: node.conditionOperator,
+              value: node.conditionType === "field" ? node.fieldValue || "" : node.keyword || "",
+              fieldName: node.fieldName || ""
+            }
+          ]
+        : [];
+    }
+    node.conditions = node.conditions.map((condition) => ({
+      id: condition.id || makeId("cond"),
+      type: condition.type || condition.conditionType || "tag",
+      label: condition.label || conditionLabelForType(condition.type || condition.conditionType || "tag"),
+      operator: condition.operator || "contains_any",
+      value: condition.value ?? condition.keyword ?? "",
+      fieldName: condition.fieldName || ""
+    }));
+    node.conditionMatch = node.conditionMatch || "all";
   }
 
   if (node.type === "delay") {
@@ -864,6 +905,14 @@ function normalizeMessageOptions(options, prefix) {
       };
     })
     .filter((option) => option.title);
+}
+
+function conditionLabelForType(type) {
+  return {
+    tag: "Tag",
+    field: "Campo personalizado",
+    message_contains: "Mensagem contém"
+  }[type] || "Condição";
 }
 
 function flowBelongsToPage(flow, pageId, options = {}) {
@@ -2856,7 +2905,7 @@ function legacyRenderRandomizerSettings(flow, node) {
   `;
 }
 
-function renderConditionSettings(flow, node) {
+function legacyRenderConditionSettingsManychat(flow, node) {
   normalizeNodeStructure(node);
   return `
     <form class="inspector-form manychat-settings">
@@ -2903,6 +2952,82 @@ function renderConditionSettings(flow, node) {
       </div>
     </form>
   `;
+}
+
+function renderConditionSettings(flow, node) {
+  normalizeNodeStructure(node);
+  return `
+    <form class="inspector-form manychat-condition-settings">
+      <div class="manychat-condition-head">
+        <strong>Condição</strong>
+        <button class="mini-menu-button" type="button" data-action="select-node" data-id="${node.id}" title="Editar nome">✎</button>
+      </div>
+      <div class="condition-match-copy">
+        <span>O contato corresponde</span>
+        <button type="button" data-action="toggle-condition-match" data-id="${node.id}">
+          ${node.conditionMatch === "any" ? "qualquer uma destas condições?" : "todas as seguintes condições?"}
+        </button>
+      </div>
+      <div class="condition-rule-list">
+        ${node.conditions.length ? node.conditions.map((condition) => renderConditionRule(condition)).join("") : ""}
+        <button class="dashed-add-button condition-add-button" type="button" data-action="open-condition-picker" data-id="${node.id}">+ Condição</button>
+      </div>
+      ${conditionPickerNodeId === node.id ? renderConditionPicker(node) : ""}
+      <div class="next-step-divider"></div>
+      <div class="condition-branches">
+        ${targetSelectField(flow, node, node.yesNext, "Se corresponde", { field: "yesNext" })}
+        ${targetSelectField(flow, node, node.noNext, "Se não corresponde", { field: "noNext" })}
+      </div>
+    </form>
+  `;
+}
+
+function renderConditionRule(condition) {
+  return `
+    <article class="condition-rule-card">
+      <span class="condition-rule-icon">${icons.condition}</span>
+      <div>
+        <strong>${escapeHtml(condition.label || conditionLabelForType(condition.type))}</strong>
+        <span>${escapeHtml(conditionRuleSummary(condition))}</span>
+        <input data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="${attr(condition.type === "tag" ? "Nome da tag" : condition.type === "field" ? "Valor esperado" : "Termos")}" />
+      </div>
+      <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condição">&times;</button>
+    </article>
+  `;
+}
+
+function conditionRuleSummary(condition) {
+  if (condition.type === "tag") return condition.value ? `possui ${condition.value}` : "Tag desconhecida";
+  if (condition.type === "field") return `${condition.fieldName || "campo"} ${condition.value ? `é ${condition.value}` : "não definido"}`;
+  return condition.value ? `contém ${condition.value}` : "Mensagem contém termo";
+}
+
+function renderConditionPicker(node) {
+  const query = normalize(conditionPickerQuery);
+  const options = conditionOptions.filter((option) => option.category === conditionPickerCategory && (!query || normalize(option.label).includes(query)));
+  return `
+    <div class="condition-picker-popover">
+      <input class="condition-picker-search" data-condition-search="true" value="${attr(conditionPickerQuery)}" placeholder="Pesquisar" />
+      <div class="condition-picker-body">
+        <aside class="condition-picker-tabs">
+          ${conditionPickerCategories
+            .map((category) => `<button class="${conditionPickerCategory === category.id ? "active" : ""}" type="button" data-action="select-condition-category" data-category="${attr(category.id)}">${escapeHtml(category.label)}</button>`)
+            .join("")}
+        </aside>
+        <div class="condition-picker-options">
+          ${options
+            .map((option) => `<button type="button" data-action="add-condition-rule" data-id="${node.id}" data-condition-option="${attr(option.id)}"><span>${conditionOptionIcon(option)}</span><strong>${escapeHtml(option.label)}</strong></button>`)
+            .join("") || `<span class="muted">Nenhuma condição encontrada.</span>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function conditionOptionIcon(option) {
+  if (option.icon === "tag") return "◇";
+  if (option.icon === "message") return "☰";
+  return "T";
 }
 
 function renderDelaySettings(flow, node) {
@@ -3198,6 +3323,12 @@ function handleWorkspaceClick(event) {
     return render();
   }
 
+  if (conditionPickerNodeId && !event.target.closest(".condition-picker-popover") && !event.target.closest("[data-action='open-condition-picker']")) {
+    conditionPickerNodeId = "";
+    conditionPickerQuery = "";
+    if (!event.target.closest("[data-action]")) return render();
+  }
+
   if (canvasAddMenu && !event.target.closest(".canvas-add-menu")) {
     canvasAddMenu = null;
     document.querySelector(".canvas-add-menu")?.remove();
@@ -3220,6 +3351,7 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    conditionPickerNodeId = "";
     canvasAddMenu = null;
     return render();
   }
@@ -3231,6 +3363,7 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    conditionPickerNodeId = "";
     canvasAddMenu = null;
     return render();
   }
@@ -3244,6 +3377,12 @@ function handleWorkspaceClick(event) {
   if (action === "select-action-category") return selectActionCategory(button.dataset.category);
   if (action === "add-action-step") return addActionStep(button.dataset.type);
   if (action === "remove-action-step") return removeActionStep(id, button.dataset.stepId);
+  if (action === "open-condition-picker") return openConditionPicker(id);
+  if (action === "close-condition-picker") return closeConditionPicker();
+  if (action === "select-condition-category") return selectConditionCategory(button.dataset.category);
+  if (action === "add-condition-rule") return addConditionRule(id, button.dataset.conditionOption);
+  if (action === "remove-condition-rule") return removeConditionRule(button.dataset.conditionId);
+  if (action === "toggle-condition-match") return toggleConditionMatch(id);
   if (action === "connect-facebook") {
     window.location.href = "/api/auth/facebook/start";
     return;
@@ -3390,6 +3529,22 @@ function handleWorkspaceInput(event) {
     saveState();
   }
 
+  if (target.dataset.conditionSearch) {
+    conditionPickerQuery = target.value;
+    render();
+    return;
+  }
+
+  if (target.dataset.conditionRuleField && node?.type === "condition") {
+    const condition = node.conditions?.find((item) => item.id === target.dataset.conditionId);
+    if (!condition) return;
+    condition[target.dataset.conditionRuleField] = target.value;
+    if (condition.type === "tag" || condition.type === "message_contains") node.keyword = target.value;
+    if (condition.type === "field") node.fieldValue = target.value;
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
   if (target.dataset.actionStepField && node) {
     const step = nodeActionSteps(node).find((item) => item.id === target.dataset.stepId);
     if (!step) return;
@@ -3472,6 +3627,7 @@ function handleWorkspaceChange(event) {
     target.dataset.messageBlockField ||
     target.dataset.messageOptionField ||
     target.dataset.randomVariationField ||
+    target.dataset.conditionRuleField ||
     target.dataset.targetSelect
   ) {
     render();
@@ -4047,6 +4203,79 @@ function closeActionPicker() {
 function selectActionCategory(category) {
   if (!category) return;
   actionPickerCategory = category;
+  render();
+}
+
+function openConditionPicker(nodeId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  if (!node || node.type !== "condition") return;
+  selectedNodeId = node.id;
+  conditionPickerNodeId = node.id;
+  conditionPickerCategory = "recommended";
+  conditionPickerQuery = "";
+  triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
+  showInspector = true;
+  render();
+}
+
+function closeConditionPicker() {
+  conditionPickerNodeId = "";
+  conditionPickerQuery = "";
+  render();
+}
+
+function selectConditionCategory(category) {
+  if (!conditionPickerCategories.some((item) => item.id === category)) return;
+  conditionPickerCategory = category;
+  conditionPickerQuery = "";
+  render();
+}
+
+function addConditionRule(nodeId, optionId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  const option = conditionOptions.find((item) => item.id === optionId);
+  if (!flow || !node || node.type !== "condition" || !option) return;
+  normalizeNodeStructure(node);
+  node.conditions.push({
+    id: makeId("cond"),
+    type: option.conditionType,
+    label: option.label,
+    operator: option.operator,
+    value: "",
+    fieldName: option.fieldName || ""
+  });
+  node.conditionType = option.conditionType;
+  node.conditionOperator = option.operator;
+  node.keyword = option.conditionType === "tag" ? option.placeholder || "" : node.keyword || "";
+  conditionPickerNodeId = "";
+  conditionPickerQuery = "";
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function removeConditionRule(conditionId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "condition") return;
+  normalizeNodeStructure(node);
+  node.conditions = node.conditions.filter((condition) => condition.id !== conditionId);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function toggleConditionMatch(nodeId) {
+  const flow = selectedFlow();
+  const node = flow?.nodes.find((item) => item.id === nodeId);
+  if (!flow || !node || node.type !== "condition") return;
+  node.conditionMatch = node.conditionMatch === "any" ? "all" : "any";
+  flow.updatedAt = new Date().toISOString();
+  saveState();
   render();
 }
 
@@ -5226,6 +5455,12 @@ function matchingMessageOption(node, context = {}) {
 }
 
 function conditionMatchesNode(node, context = {}) {
+  normalizeNodeStructure(node);
+  if (node.conditions?.length) {
+    const results = node.conditions.map((condition) => conditionRuleMatches(condition, context));
+    return node.conditionMatch === "any" ? results.some(Boolean) : results.every(Boolean);
+  }
+
   const normalizedInput = normalize(context.inputText || context.normalizedText || "");
   const rawTerms = String(node.keyword || "")
     .split(",")
@@ -5251,6 +5486,30 @@ function conditionMatchesNode(node, context = {}) {
   if (operator === "equals") return rawTerms.some((term) => normalizedInput === term);
   if (operator === "not_contains") return rawTerms.every((term) => !normalizedInput.includes(term));
   return rawTerms.some((term) => normalizedInput.includes(term));
+}
+
+function conditionRuleMatches(condition, context = {}) {
+  const normalizedInput = normalize(context.inputText || context.normalizedText || "");
+  const expected = normalize(condition.value || "");
+  if (condition.type === "tag") {
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    return expected ? tags.includes(expected) : false;
+  }
+  if (condition.type === "field") {
+    const value = normalize(context.contact?.customFields?.[condition.fieldName] || context.contact?.[condition.fieldName] || "");
+    if (condition.operator === "equals") return value === expected;
+    if (condition.operator === "not_contains") return expected ? !value.includes(expected) : !value;
+    return expected ? value.includes(expected) : Boolean(value);
+  }
+  const terms = String(condition.value || "")
+    .split(",")
+    .map((item) => normalize(item.trim()))
+    .filter(Boolean);
+  if (!terms.length) return true;
+  if (condition.operator === "contains_all") return terms.every((term) => normalizedInput.includes(term));
+  if (condition.operator === "equals") return terms.some((term) => normalizedInput === term);
+  if (condition.operator === "not_contains") return terms.every((term) => !normalizedInput.includes(term));
+  return terms.some((term) => normalizedInput.includes(term));
 }
 
 function pickRandomVariation(node, context = {}) {
@@ -5326,6 +5585,7 @@ function canvasPointFromEvent(event, canvas = document.querySelector("#flowCanva
 function renderNode(node, selected) {
   if (node.type === "trigger") return renderTriggerNode(node, selected);
   if (node.type === "action") return renderActionNode(node, selected);
+  if (node.type === "condition") return renderConditionNode(node, selected);
   if (node.type === "comment") return renderCommentNode(node, selected);
 
   const icon = icons[node.type] || icons.message;
@@ -5392,6 +5652,27 @@ function nodeCardSummary(node) {
     footer: node.next ? "Próximo passo" : "Sem próximo passo",
     status: node.next ? "conectado" : "fim"
   };
+}
+
+function renderConditionNode(node, selected) {
+  normalizeNodeStructure(node);
+  return `
+    <article class="node condition condition-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      ${renderNodeHoverActions(node)}
+      <div class="condition-node-head">
+        <span>${icons.condition}</span>
+        <strong>Condição</strong>
+      </div>
+      <div class="condition-node-body">
+        ${
+          node.conditions.length
+            ? `<div class="condition-node-list">${node.conditions.slice(0, 2).map((condition) => `<span>${escapeHtml(condition.label || conditionLabelForType(condition.type))}</span>`).join("")}</div>`
+            : `<div class="condition-node-empty">Clique para adicionar uma condição</div>`
+        }
+      </div>
+      ${renderOutputPort(node)}
+    </article>
+  `;
 }
 
 function renderCommentNode(node, selected) {

@@ -178,6 +178,12 @@ function normalizeNodeShape(node) {
     node.conditionOperator ||= "contains_any";
     node.yesNext ||= node.next || null;
     node.noNext ||= null;
+    node.conditionMatch ||= "all";
+    if (!Array.isArray(node.conditions)) {
+      node.conditions = node.keyword
+        ? [{ id: "legacy", type: node.conditionType, operator: node.conditionOperator, value: node.keyword, fieldName: node.fieldName || "" }]
+        : [];
+    }
   }
   if (node.type === "randomizer" && !Array.isArray(node.variations)) {
     node.variations = [{ id: "default", label: "Variação A", weight: 100, next: node.next || null }];
@@ -203,6 +209,12 @@ function normalizeMessageOptions(options, prefix) {
 }
 
 function conditionMatchesNode(node, context = {}) {
+  normalizeNodeShape(node);
+  if (node.conditions?.length) {
+    const results = node.conditions.map((condition) => conditionRuleMatches(condition, context));
+    return node.conditionMatch === "any" ? results.some(Boolean) : results.every(Boolean);
+  }
+
   const input = normalize(context.normalizedInput || context.text || "");
   const terms = String(node.keyword || "")
     .split(",")
@@ -225,6 +237,30 @@ function conditionMatchesNode(node, context = {}) {
   if (operator === "contains_all") return terms.every((term) => input.includes(term));
   if (operator === "equals") return terms.some((term) => input === term);
   if (operator === "not_contains") return terms.every((term) => !input.includes(term));
+  return terms.some((term) => input.includes(term));
+}
+
+function conditionRuleMatches(condition, context = {}) {
+  const input = normalize(context.normalizedInput || context.text || "");
+  const expected = normalize(condition.value || "");
+  if (condition.type === "tag") {
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    return expected ? tags.includes(expected) : false;
+  }
+  if (condition.type === "field") {
+    const value = normalize(context.contact?.customFields?.[condition.fieldName] || context.contact?.[condition.fieldName] || "");
+    if (condition.operator === "equals") return value === expected;
+    if (condition.operator === "not_contains") return expected ? !value.includes(expected) : !value;
+    return expected ? value.includes(expected) : Boolean(value);
+  }
+  const terms = String(condition.value || "")
+    .split(",")
+    .map((item) => normalize(item.trim()))
+    .filter(Boolean);
+  if (!terms.length) return true;
+  if (condition.operator === "contains_all") return terms.every((term) => input.includes(term));
+  if (condition.operator === "equals") return terms.some((term) => input === term);
+  if (condition.operator === "not_contains") return terms.every((term) => !input.includes(term));
   return terms.some((term) => input.includes(term));
 }
 
