@@ -153,6 +153,18 @@ const actionOptions = [
   }
 ];
 
+const messageContentBlockTypes = [
+  { type: "text", label: "Texto", icon: "message" },
+  { type: "image", label: "Imagem", icon: "image" },
+  { type: "audio", label: "Audio", icon: "send" },
+  { type: "video", label: "Video", icon: "play" },
+  { type: "file", label: "Arquivo", icon: "pages" },
+  { type: "card", label: "Card", icon: "image" },
+  { type: "gallery", label: "Galeria", icon: "workflow" },
+  { type: "data_collection", label: "Coleta de dados", icon: "users" },
+  { type: "dynamic", label: "Dinamico", icon: "plug" }
+];
+
 const CANVAS_WIDTH = 8000;
 const CANVAS_HEIGHT = 6000;
 const CANVAS_ORIGIN_X = 3600;
@@ -751,8 +763,107 @@ function setActiveFlowsForPage(pageId, flows = localFlowsForPage(pageId)) {
 function stampFlowPage(flow, pageId) {
   if (flow && typeof flow === "object") {
     flow.pageId = normalizeFlowPageId(pageId);
+    normalizeFlowStructure(flow);
   }
   return flow;
+}
+
+function normalizeFlowStructure(flow) {
+  if (!Array.isArray(flow?.nodes)) return flow;
+  flow.nodes.forEach(normalizeNodeStructure);
+  return flow;
+}
+
+function normalizeNodeStructure(node) {
+  if (!node || typeof node !== "object") return node;
+
+  if (node.type === "message") {
+    if (!Array.isArray(node.contentBlocks) || !node.contentBlocks.length) {
+      node.contentBlocks = [
+        {
+          id: makeId("block"),
+          type: "text",
+          text: node.message || ""
+        }
+      ];
+    }
+    node.contentBlocks = node.contentBlocks.map((block) => ({
+      id: block.id || makeId("block"),
+      type: block.type || "text",
+      text: block.text ?? (block.type === "text" ? node.message || "" : ""),
+      url: block.url || "",
+      title: block.title || "",
+      subtitle: block.subtitle || "",
+      fileName: block.fileName || "",
+      fieldName: block.fieldName || "",
+      endpoint: block.endpoint || "",
+      items: Array.isArray(block.items) ? block.items : []
+    }));
+    node.quickReplies = normalizeMessageOptions(node.quickReplies, "qr");
+    node.buttons = normalizeMessageOptions(node.buttons, "btn").slice(0, 3);
+  }
+
+  if (node.type === "condition") {
+    node.conditionType = node.conditionType || "message_contains";
+    node.conditionOperator = node.conditionOperator || "contains_any";
+    node.yesNext = node.yesNext || node.next || null;
+    node.noNext = node.noNext || null;
+  }
+
+  if (node.type === "delay") {
+    node.delayType = node.delayType || "duration";
+    node.delayUnit = node.delayUnit || "minutes";
+    node.delayMinutes = Math.max(0, Number(node.delayMinutes) || 0);
+    node.delayValue = Math.max(0, Number(node.delayValue ?? node.delayMinutes) || 0);
+    node.continueStart = node.continueStart || "";
+    node.continueEnd = node.continueEnd || "";
+    node.continueDays = node.continueDays || "any";
+    node.specificDate = node.specificDate || "";
+    node.dynamicField = node.dynamicField || "";
+  }
+
+  if (node.type === "randomizer") {
+    node.randomEveryTime = node.randomEveryTime !== false;
+    if (!Array.isArray(node.variations) || !node.variations.length) {
+      node.variations = [
+        { id: makeId("var"), label: "Variação A", weight: 50, next: node.next || null },
+        { id: makeId("var"), label: "Variação B", weight: 50, next: null }
+      ];
+    }
+    node.variations = node.variations.map((variation, index) => ({
+      id: variation.id || makeId("var"),
+      label: variation.label || `Variação ${index + 1}`,
+      weight: Math.max(0, Number(variation.weight) || 0),
+      next: variation.next || null
+    }));
+  }
+
+  return node;
+}
+
+function normalizeMessageOptions(options, prefix) {
+  return (Array.isArray(options) ? options : [])
+    .map((option) => {
+      if (typeof option === "string") {
+        return {
+          id: makeId(prefix),
+          title: option,
+          type: "next",
+          url: "",
+          phone: "",
+          next: null
+        };
+      }
+      return {
+        id: option.id || makeId(prefix),
+        title: option.title || option.caption || option.text || "",
+        type: option.type || "next",
+        url: option.url || "",
+        phone: option.phone || "",
+        next: option.next || null
+      };
+    })
+    .filter((option) => option.title);
 }
 
 function flowBelongsToPage(flow, pageId, options = {}) {
@@ -2509,7 +2620,7 @@ function renderSelectedNextStep(flow, node) {
   `;
 }
 
-function renderMessageSettings(flow, node) {
+function legacyRenderMessageSettings(flow, node) {
   return `
     <form class="inspector-form manychat-settings">
       ${settingsSectionHeader("Messenger", "Enviar mensagem", icons.message)}
@@ -2538,7 +2649,153 @@ function renderMessageSettings(flow, node) {
   `;
 }
 
-function renderConditionSettings(flow, node) {
+function renderMessageSettings(flow, node) {
+  normalizeNodeStructure(node);
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Messenger", "Enviar mensagem", icons.message)}
+      <label class="settings-field">
+        <span>Título do bloco</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <div class="message-builder-card">
+        <div class="message-builder-header">
+          <span class="trigger-option-icon">${icons.message}</span>
+          <div>
+            <strong>Enviar Mensagem</strong>
+            <span>Monte os blocos enviados no Messenger.</span>
+          </div>
+        </div>
+        <div class="content-block-list">
+          ${node.contentBlocks.map((block) => renderMessageContentBlock(block)).join("")}
+          <div class="content-add-row">
+            ${messageContentBlockTypes
+              .map((blockType) => `<button type="button" data-action="add-message-block" data-type="${attr(blockType.type)}">${icons[blockType.icon] || icons.message}<span>${escapeHtml(blockType.label)}</span></button>`)
+              .join("")}
+          </div>
+        </div>
+        <div class="settings-card">
+          <div class="settings-card-title">
+            <strong>Botões</strong>
+            <span>Até 3 botões fixos. Cada botão pode abrir site, telefone ou seguir para um passo.</span>
+          </div>
+          <div class="message-option-list">
+            ${node.buttons.map((option) => renderMessageOption(flow, node, option, "button")).join("")}
+            <button class="dashed-add-button" type="button" data-action="add-message-button" data-id="${node.id}">+ Botão</button>
+          </div>
+        </div>
+        <div class="settings-card">
+          <div class="settings-card-title">
+            <strong>Respostas rápidas</strong>
+            <span>Até 11 opções que somem depois que o contato escolhe.</span>
+          </div>
+          <div class="message-option-list">
+            ${node.quickReplies.map((option) => renderMessageOption(flow, node, option, "quick_reply")).join("")}
+            <button class="dashed-add-button" type="button" data-action="add-quick-reply" data-id="${node.id}">+ Resposta rápida</button>
+          </div>
+        </div>
+        <div class="next-step-divider"></div>
+        <div class="then-block">
+          <strong>Depois da mensagem...</strong>
+          ${renderSelectedNextStep(flow, node)}
+        </div>
+      </div>
+    </form>
+  `;
+}
+
+function renderMessageContentBlock(block) {
+  const type = messageContentBlockTypes.find((item) => item.type === block.type) || messageContentBlockTypes[0];
+  const removeButton = `<button class="mini-menu-button" type="button" data-action="remove-message-block" data-block-id="${attr(block.id)}" title="Remover bloco">&times;</button>`;
+
+  if (block.type === "text") {
+    return `
+      <article class="message-content-block">
+        <div class="message-content-head">${icons[type.icon] || icons.message}<strong>Texto</strong>${removeButton}</div>
+        <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Adicionar texto">${escapeHtml(block.text || "")}</textarea>
+      </article>
+    `;
+  }
+
+  if (["image", "audio", "video", "file"].includes(block.type)) {
+    return `
+      <article class="message-content-block">
+        <div class="message-content-head">${icons[type.icon] || icons.message}<strong>${escapeHtml(type.label)}</strong>${removeButton}</div>
+        <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="URL do arquivo" />
+        ${block.type === "file" ? `<input data-message-block-field="fileName" data-block-id="${attr(block.id)}" value="${attr(block.fileName || "")}" placeholder="Nome do arquivo" />` : ""}
+      </article>
+    `;
+  }
+
+  if (block.type === "card" || block.type === "gallery") {
+    return `
+      <article class="message-content-block">
+        <div class="message-content-head">${icons[type.icon] || icons.message}<strong>${escapeHtml(type.label)}</strong>${removeButton}</div>
+        <input data-message-block-field="title" data-block-id="${attr(block.id)}" value="${attr(block.title || "")}" placeholder="Título" />
+        <input data-message-block-field="subtitle" data-block-id="${attr(block.id)}" value="${attr(block.subtitle || "")}" placeholder="Subtítulo" />
+        <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="URL da imagem" />
+      </article>
+    `;
+  }
+
+  if (block.type === "data_collection") {
+    return `
+      <article class="message-content-block">
+        <div class="message-content-head">${icons[type.icon] || icons.message}<strong>Coleta de dados</strong>${removeButton}</div>
+        <input data-message-block-field="fieldName" data-block-id="${attr(block.id)}" value="${attr(block.fieldName || "")}" placeholder="Campo do usuário para salvar a resposta" />
+        <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Pergunta enviada ao contato">${escapeHtml(block.text || "Qual informação você gostaria de coletar?")}</textarea>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="message-content-block">
+      <div class="message-content-head">${icons[type.icon] || icons.message}<strong>Dinâmico</strong>${removeButton}</div>
+      <input data-message-block-field="endpoint" data-block-id="${attr(block.id)}" value="${attr(block.endpoint || "")}" placeholder="Endpoint que retornará a mensagem" />
+      <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Fallback se o endpoint falhar">${escapeHtml(block.text || "")}</textarea>
+    </article>
+  `;
+}
+
+function renderMessageOption(flow, node, option, kind) {
+  const label = kind === "button" ? "Botão" : "Resposta";
+  return `
+    <article class="message-option-card">
+      <div class="message-option-grid">
+        <label class="settings-field">
+          <span>${label}</span>
+          <input data-message-option-field="title" data-option-kind="${kind}" data-option-id="${attr(option.id)}" value="${attr(option.title || "")}" placeholder="Texto" />
+        </label>
+        ${
+          kind === "button"
+            ? `<label class="settings-field">
+                <span>Tipo</span>
+                <select data-message-option-field="type" data-option-kind="${kind}" data-option-id="${attr(option.id)}">
+                  ${optionSelect("next", "Próximo passo", option.type || "next")}
+                  ${optionSelect("url", "Abrir site", option.type || "next")}
+                  ${optionSelect("phone", "Ligar", option.type || "next")}
+                </select>
+              </label>`
+            : ""
+        }
+        ${
+          option.type === "url"
+            ? `<label class="settings-field"><span>URL</span><input data-message-option-field="url" data-option-kind="${kind}" data-option-id="${attr(option.id)}" value="${attr(option.url || "")}" placeholder="https://..." /></label>`
+            : option.type === "phone"
+              ? `<label class="settings-field"><span>Telefone</span><input data-message-option-field="phone" data-option-kind="${kind}" data-option-id="${attr(option.id)}" value="${attr(option.phone || "")}" placeholder="+5511999999999" /></label>`
+              : targetSelectField(flow, node, option.next, "Próximo passo", { field: "next", kind, id: option.id })
+        }
+      </div>
+      <button class="mini-menu-button" type="button" data-action="remove-message-option" data-option-kind="${kind}" data-option-id="${attr(option.id)}" title="Remover">&times;</button>
+    </article>
+  `;
+}
+
+function optionSelect(value, label, current) {
+  return `<option value="${attr(value)}" ${value === current ? "selected" : ""}>${escapeHtml(label)}</option>`;
+}
+
+function legacyRenderConditionSettings(flow, node) {
   return `
     <form class="inspector-form manychat-settings">
       ${settingsSectionHeader("Condição", "Definir caminho por regra", icons.condition)}
@@ -2561,7 +2818,7 @@ function renderConditionSettings(flow, node) {
   `;
 }
 
-function renderDelaySettings(flow, node) {
+function legacyRenderDelaySettings(flow, node) {
   return `
     <form class="inspector-form manychat-settings">
       ${settingsSectionHeader("Espera", "Aguardar antes de continuar", icons.delay)}
@@ -2583,7 +2840,7 @@ function renderDelaySettings(flow, node) {
   `;
 }
 
-function renderRandomizerSettings(flow, node) {
+function legacyRenderRandomizerSettings(flow, node) {
   return `
     <form class="inspector-form manychat-settings">
       ${settingsSectionHeader("Randomizador", "Distribuir contatos entre caminhos", icons.workflow)}
@@ -2596,6 +2853,158 @@ function renderRandomizerSettings(flow, node) {
         <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
       </label>
     </form>
+  `;
+}
+
+function renderConditionSettings(flow, node) {
+  normalizeNodeStructure(node);
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Condição", "Dividir caminho por regra", icons.condition)}
+      <label class="settings-field">
+        <span>Nome da condição</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <div class="settings-card">
+        <div class="settings-card-title">
+          <strong>Regra</strong>
+          <span>Escolha o dado usado para mandar o contato para Sim ou Não.</span>
+        </div>
+        <label class="settings-field">
+          <span>Tipo</span>
+          <select data-node-field="conditionType">
+            ${optionSelect("message_contains", "Mensagem contém", node.conditionType)}
+            ${optionSelect("tag", "Contato possui tag", node.conditionType)}
+            ${optionSelect("field", "Campo do usuário", node.conditionType)}
+          </select>
+        </label>
+        <label class="settings-field">
+          <span>Operador</span>
+          <select data-node-field="conditionOperator">
+            ${optionSelect("contains_any", "Contém qualquer termo", node.conditionOperator)}
+            ${optionSelect("contains_all", "Contém todos os termos", node.conditionOperator)}
+            ${optionSelect("equals", "É exatamente", node.conditionOperator)}
+            ${optionSelect("not_contains", "Não contém", node.conditionOperator)}
+          </select>
+        </label>
+        <label class="settings-field">
+          <span>${node.conditionType === "field" ? "Campo" : node.conditionType === "tag" ? "Tag" : "Termos"}</span>
+          <input data-node-field="${node.conditionType === "field" ? "fieldName" : "keyword"}" value="${attr(node.conditionType === "field" ? node.fieldName || "" : node.keyword || "")}" placeholder="preço, orçamento, lead-quente" />
+        </label>
+        ${
+          node.conditionType === "field"
+            ? `<label class="settings-field"><span>Valor esperado</span><input data-node-field="fieldValue" value="${attr(node.fieldValue || "")}" placeholder="Valor" /></label>`
+            : ""
+        }
+      </div>
+      <div class="condition-branches">
+        ${targetSelectField(flow, node, node.yesNext, "Se SIM", { field: "yesNext" })}
+        ${targetSelectField(flow, node, node.noNext, "Se NÃO", { field: "noNext" })}
+      </div>
+    </form>
+  `;
+}
+
+function renderDelaySettings(flow, node) {
+  normalizeNodeStructure(node);
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Atraso Inteligente", "Controlar quando o fluxo continua", icons.delay)}
+      <label class="settings-field">
+        <span>Nome do atraso</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <div class="settings-card">
+        <label class="settings-field">
+          <span>Tipo</span>
+          <select data-node-field="delayType">
+            ${optionSelect("duration", "Duração", node.delayType)}
+            ${optionSelect("date", "Data específica", node.delayType)}
+            ${optionSelect("dynamic_date", "Data dinâmica do contato", node.delayType)}
+          </select>
+        </label>
+        ${
+          node.delayType === "duration"
+            ? `<div class="two-field-row">
+                <label class="settings-field"><span>Quantidade</span><input type="number" min="0" data-node-field="delayValue" value="${attr(node.delayValue || node.delayMinutes || 0)}" /></label>
+                <label class="settings-field"><span>Unidade</span><select data-node-field="delayUnit">${optionSelect("minutes", "Minutos", node.delayUnit)}${optionSelect("hours", "Horas", node.delayUnit)}${optionSelect("days", "Dias", node.delayUnit)}</select></label>
+              </div>`
+            : node.delayType === "date"
+              ? `<label class="settings-field"><span>Data e hora</span><input type="datetime-local" data-node-field="specificDate" value="${attr(node.specificDate || "")}" /></label>`
+              : `<label class="settings-field"><span>Campo de data do contato</span><input data-node-field="dynamicField" value="${attr(node.dynamicField || "")}" placeholder="ex: data_agendamento" /></label>`
+        }
+        <div class="two-field-row">
+          <label class="settings-field"><span>Continuar entre</span><input type="time" data-node-field="continueStart" value="${attr(node.continueStart || "")}" /></label>
+          <label class="settings-field"><span>e</span><input type="time" data-node-field="continueEnd" value="${attr(node.continueEnd || "")}" /></label>
+        </div>
+        <label class="settings-field">
+          <span>Dias permitidos</span>
+          <select data-node-field="continueDays">
+            ${optionSelect("any", "Qualquer dia", node.continueDays)}
+            ${optionSelect("weekdays", "Segunda a sexta", node.continueDays)}
+            ${optionSelect("weekends", "Fim de semana", node.continueDays)}
+          </select>
+        </label>
+      </div>
+      ${renderSelectedNextStep(flow, node)}
+    </form>
+  `;
+}
+
+function renderRandomizerSettings(flow, node) {
+  normalizeNodeStructure(node);
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Randomizador", "Distribuir contatos entre caminhos", icons.workflow)}
+      <label class="settings-field">
+        <span>Nome do randomizador</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" data-node-field="randomEveryTime" ${node.randomEveryTime ? "checked" : ""} />
+        <span>Caminho aleatório sempre que o contato passar por aqui</span>
+      </label>
+      <div class="variation-list">
+        ${node.variations.map((variation) => renderRandomizerVariation(flow, node, variation)).join("")}
+        <button class="dashed-add-button" type="button" data-action="add-random-variation" data-id="${node.id}">+ Nova variação</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderRandomizerVariation(flow, node, variation) {
+  return `
+    <article class="variation-card">
+      <label class="settings-field">
+        <span>Nome</span>
+        <input data-random-variation-field="label" data-variation-id="${attr(variation.id)}" value="${attr(variation.label || "")}" />
+      </label>
+      <label class="settings-field">
+        <span>%</span>
+        <input type="number" min="0" max="100" data-random-variation-field="weight" data-variation-id="${attr(variation.id)}" value="${attr(variation.weight || 0)}" />
+      </label>
+      ${targetSelectField(flow, node, variation.next, "Próximo passo", { field: "next", variationId: variation.id })}
+      <button class="mini-menu-button" type="button" data-action="remove-random-variation" data-variation-id="${attr(variation.id)}" title="Remover">&times;</button>
+    </article>
+  `;
+}
+
+function targetSelectField(flow, node, value, label, data = {}) {
+  const dataAttrs = Object.entries(data)
+    .map(([key, item]) => `data-target-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}="${attr(item)}"`)
+    .join(" ");
+  const options = flow.nodes
+    .filter((item) => item.id !== node.id && canAcceptIncomingConnection(item))
+    .map((item) => `<option value="${attr(item.id)}" ${item.id === value ? "selected" : ""}>${escapeHtml(item.title || nodeLabels[item.type] || "Bloco")}</option>`)
+    .join("");
+  return `
+    <label class="settings-field">
+      <span>${escapeHtml(label)}</span>
+      <select data-target-select="true" ${dataAttrs}>
+        <option value="">Sem próximo passo</option>
+        ${options}
+      </select>
+    </label>
   `;
 }
 
@@ -2882,6 +3291,13 @@ function handleWorkspaceClick(event) {
   }
   if (action === "add-node") return addNode(button.dataset.type);
   if (action === "add-node-at-menu") return addNodeFromCanvasMenu(button.dataset.type);
+  if (action === "add-message-block") return addMessageBlock(button.dataset.type);
+  if (action === "remove-message-block") return removeMessageBlock(button.dataset.blockId);
+  if (action === "add-message-button") return addMessageButton();
+  if (action === "add-quick-reply") return addQuickReply();
+  if (action === "remove-message-option") return removeMessageOption(button.dataset.optionKind, button.dataset.optionId);
+  if (action === "add-random-variation") return addRandomVariation();
+  if (action === "remove-random-variation") return removeRandomVariation(button.dataset.variationId);
   if (action === "close-canvas-add-menu") {
     canvasAddMenu = null;
     return render();
@@ -2941,6 +3357,35 @@ function handleWorkspaceInput(event) {
   if (target.dataset.nodeField && node) {
     const fieldName = target.dataset.nodeField;
     node[fieldName] = normalizeFieldValue(fieldName, target.value);
+    if (fieldName === "delayValue" || fieldName === "delayUnit") node.delayMinutes = delayToMinutes(node);
+    if (fieldName === "message") syncTextBlockFromLegacyMessage(node);
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
+  if (target.dataset.messageBlockField && node?.type === "message") {
+    const block = node.contentBlocks?.find((item) => item.id === target.dataset.blockId);
+    if (!block) return;
+    block[target.dataset.messageBlockField] = target.value;
+    syncLegacyMessageFromBlocks(node);
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
+  if (target.dataset.messageOptionField && node?.type === "message") {
+    const list = target.dataset.optionKind === "button" ? node.buttons : node.quickReplies;
+    const option = list?.find((item) => item.id === target.dataset.optionId);
+    if (!option) return;
+    option[target.dataset.messageOptionField] = target.value;
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
+  if (target.dataset.randomVariationField && node?.type === "randomizer") {
+    const variation = node.variations?.find((item) => item.id === target.dataset.variationId);
+    if (!variation) return;
+    variation[target.dataset.randomVariationField] =
+      target.dataset.randomVariationField === "weight" ? Math.max(0, Number(target.value) || 0) : target.value;
     flow.updatedAt = new Date().toISOString();
     saveState();
   }
@@ -2968,6 +3413,9 @@ function handleWorkspaceInput(event) {
 
 function handleWorkspaceChange(event) {
   const target = event.target;
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+
   if (target.id === "imageUpload") {
     handleImageUpload(target.files?.[0]);
     target.value = "";
@@ -2984,7 +3432,48 @@ function handleWorkspaceChange(event) {
     render();
     return;
   }
-  if (target.dataset.nodeField || target.dataset.flowField || target.dataset.settingField || target.dataset.actionStepField) {
+  if (target.dataset.nodeField && node) {
+    if (target.type === "checkbox") {
+      node[target.dataset.nodeField] = target.checked;
+      flow.updatedAt = new Date().toISOString();
+      saveState();
+    } else {
+      node[target.dataset.nodeField] = normalizeFieldValue(target.dataset.nodeField, target.value);
+      if (target.dataset.nodeField === "delayValue" || target.dataset.nodeField === "delayUnit") node.delayMinutes = delayToMinutes(node);
+      flow.updatedAt = new Date().toISOString();
+      saveState();
+    }
+  }
+
+  if (target.dataset.targetSelect && node) {
+    applyTargetSelection(node, target);
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
+  if (target.dataset.messageOptionField && node?.type === "message") {
+    const list = target.dataset.optionKind === "button" ? node.buttons : node.quickReplies;
+    const option = list?.find((item) => item.id === target.dataset.optionId);
+    if (option) {
+      option[target.dataset.messageOptionField] = target.value;
+      if (target.dataset.messageOptionField === "type" && option.type !== "url" && option.type !== "phone") {
+        option.type = "next";
+      }
+      flow.updatedAt = new Date().toISOString();
+      saveState();
+    }
+  }
+
+  if (
+    target.dataset.nodeField ||
+    target.dataset.flowField ||
+    target.dataset.settingField ||
+    target.dataset.actionStepField ||
+    target.dataset.messageBlockField ||
+    target.dataset.messageOptionField ||
+    target.dataset.randomVariationField ||
+    target.dataset.targetSelect
+  ) {
     render();
   }
 }
@@ -3123,14 +3612,32 @@ function addNode(type) {
     type,
     title: nodeLabels[type],
     message: defaultNodeMessage(type),
+    contentBlocks: type === "message" ? [{ id: makeId("block"), type: "text", text: defaultNodeMessage(type) }] : undefined,
+    buttons: type === "message" ? [] : undefined,
     actions: type === "action" ? [] : undefined,
     keyword: "",
     quickReplies: type === "message" ? ["Sim", "Não"] : [],
+    conditionType: type === "condition" ? "message_contains" : undefined,
+    conditionOperator: type === "condition" ? "contains_any" : undefined,
+    yesNext: type === "condition" ? null : undefined,
+    noNext: type === "condition" ? null : undefined,
+    delayType: type === "delay" ? "duration" : undefined,
+    delayUnit: type === "delay" ? "minutes" : undefined,
+    delayValue: type === "delay" ? 5 : undefined,
+    delayMinutes: type === "delay" ? 5 : undefined,
+    randomEveryTime: type === "randomizer" ? true : undefined,
+    variations: type === "randomizer"
+      ? [
+          { id: makeId("var"), label: "Variação A", weight: 50, next: null },
+          { id: makeId("var"), label: "Variação B", weight: 50, next: null }
+        ]
+      : undefined,
     next: null,
     x: clampNodeX(Math.round(nextX)),
     y: clampNodeY(Math.round(nextY))
   };
-  if (current && !current.next) current.next = node.id;
+  normalizeNodeStructure(node);
+  if (current && !outputRefs(current).length) assignPrimaryTarget(current, node.id);
   flow.nodes.push(node);
   flow.updatedAt = new Date().toISOString();
   selectedNodeId = node.id;
@@ -3172,6 +3679,23 @@ function buildNode(type, x, y) {
     actions: type === "action" ? [] : undefined,
     keyword: "",
     quickReplies: type === "message" ? ["Sim", "Não"] : [],
+    contentBlocks: type === "message" ? [{ id: makeId("block"), type: "text", text: defaultNodeMessage(type) }] : undefined,
+    buttons: type === "message" ? [] : undefined,
+    conditionType: type === "condition" ? "message_contains" : undefined,
+    conditionOperator: type === "condition" ? "contains_any" : undefined,
+    yesNext: type === "condition" ? null : undefined,
+    noNext: type === "condition" ? null : undefined,
+    delayType: type === "delay" ? "duration" : undefined,
+    delayUnit: type === "delay" ? "minutes" : undefined,
+    delayValue: type === "delay" ? 5 : undefined,
+    delayMinutes: type === "delay" ? 5 : undefined,
+    randomEveryTime: type === "randomizer" ? true : undefined,
+    variations: type === "randomizer"
+      ? [
+          { id: makeId("var"), label: "Variação A", weight: 50, next: null },
+          { id: makeId("var"), label: "Variação B", weight: 50, next: null }
+        ]
+      : undefined,
     next: null,
     x: clampNodeX(Math.round(x)),
     y: clampNodeY(Math.round(y))
@@ -3182,7 +3706,7 @@ function buildNode(type, x, y) {
     node.keyword = "oi";
   }
 
-  return node;
+  return normalizeNodeStructure(node);
 }
 
 function setFlowStatus(status) {
@@ -3226,6 +3750,23 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
   });
   copy.nodes.forEach((node) => {
     if (node.next) node.next = idMap.get(node.next) || null;
+    if (node.yesNext) node.yesNext = idMap.get(node.yesNext) || null;
+    if (node.noNext) node.noNext = idMap.get(node.noNext) || null;
+    node.buttons?.forEach((option) => {
+      option.id = makeId("btn");
+      if (option.next) option.next = idMap.get(option.next) || null;
+    });
+    node.quickReplies?.forEach((option) => {
+      option.id = makeId("qr");
+      if (option.next) option.next = idMap.get(option.next) || null;
+    });
+    node.variations?.forEach((variation) => {
+      variation.id = makeId("var");
+      if (variation.next) variation.next = idMap.get(variation.next) || null;
+    });
+    node.contentBlocks?.forEach((block) => {
+      block.id = makeId("block");
+    });
   });
   state.flows.unshift(copy);
   selectedFlowId = copy.id;
@@ -3295,9 +3836,7 @@ function deleteNode() {
     toastMessage("O fluxo precisa ter pelo menos um bloco.");
     return;
   }
-  flow.nodes.forEach((item) => {
-    if (item.next === node.id) item.next = node.next || null;
-  });
+  flow.nodes.forEach((item) => replaceNodeReference(item, node.id, node.next || null));
   flow.nodes = flow.nodes.filter((item) => item.id !== node.id);
   selectedNodeId = flow.nodes[0]?.id;
   flow.updatedAt = new Date().toISOString();
@@ -3319,6 +3858,23 @@ function deleteNodeById(nodeId) {
   deleteNode();
 }
 
+function replaceNodeReference(node, oldId, newId = null) {
+  if (!node) return;
+  normalizeNodeStructure(node);
+  if (node.next === oldId) node.next = newId;
+  if (node.yesNext === oldId) node.yesNext = newId;
+  if (node.noNext === oldId) node.noNext = newId;
+  node.buttons?.forEach((option) => {
+    if (option.next === oldId) option.next = newId;
+  });
+  node.quickReplies?.forEach((option) => {
+    if (option.next === oldId) option.next = newId;
+  });
+  node.variations?.forEach((variation) => {
+    if (variation.next === oldId) variation.next = newId;
+  });
+}
+
 function duplicateSelectedNode() {
   const flow = selectedFlow();
   const node = flow?.nodes.find((item) => item.id === selectedNodeId);
@@ -3328,6 +3884,12 @@ function duplicateSelectedNode() {
   copy.id = makeId("node");
   copy.title = node.title ? `${node.title} cópia` : nodeLabels[node.type] || "Bloco";
   copy.next = null;
+  copy.yesNext = null;
+  copy.noNext = null;
+  if (Array.isArray(copy.buttons)) copy.buttons = copy.buttons.map((option) => ({ ...option, id: makeId("btn"), next: null }));
+  if (Array.isArray(copy.quickReplies)) copy.quickReplies = copy.quickReplies.map((option) => ({ ...option, id: makeId("qr"), next: null }));
+  if (Array.isArray(copy.variations)) copy.variations = copy.variations.map((variation) => ({ ...variation, id: makeId("var"), next: null }));
+  if (Array.isArray(copy.contentBlocks)) copy.contentBlocks = copy.contentBlocks.map((block) => ({ ...block, id: makeId("block") }));
   copy.x = clampNodeX((node.x || 0) + 32);
   copy.y = clampNodeY((node.y || 0) + 32);
   if (Array.isArray(copy.actions)) {
@@ -3488,6 +4050,110 @@ function selectActionCategory(category) {
   render();
 }
 
+function addMessageBlock(type) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  const blockType = messageContentBlockTypes.find((item) => item.type === type);
+  if (!flow || !node || node.type !== "message" || !blockType) return;
+  normalizeNodeStructure(node);
+  node.contentBlocks.push(defaultMessageBlock(type));
+  syncLegacyMessageFromBlocks(node);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function removeMessageBlock(blockId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "message") return;
+  normalizeNodeStructure(node);
+  node.contentBlocks = node.contentBlocks.filter((block) => block.id !== blockId);
+  if (!node.contentBlocks.length) node.contentBlocks.push(defaultMessageBlock("text"));
+  syncLegacyMessageFromBlocks(node);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function defaultMessageBlock(type) {
+  return {
+    id: makeId("block"),
+    type,
+    text: type === "text" ? "Nova mensagem" : "",
+    url: "",
+    title: type === "card" || type === "gallery" ? "Titulo" : "",
+    subtitle: "",
+    fileName: "",
+    fieldName: "",
+    endpoint: "",
+    items: []
+  };
+}
+
+function addMessageButton() {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "message") return;
+  normalizeNodeStructure(node);
+  if (node.buttons.length >= 3) {
+    toastMessage("O Messenger permite ate 3 botoes por mensagem.");
+    return;
+  }
+  node.buttons.push({ id: makeId("btn"), title: "Novo botao", type: "next", url: "", phone: "", next: null });
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function addQuickReply() {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "message") return;
+  normalizeNodeStructure(node);
+  if (node.quickReplies.length >= 11) {
+    toastMessage("O Messenger permite ate 11 respostas rapidas.");
+    return;
+  }
+  node.quickReplies.push({ id: makeId("qr"), title: "Nova resposta", type: "next", url: "", phone: "", next: null });
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function removeMessageOption(kind, optionId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "message") return;
+  if (kind === "button") node.buttons = node.buttons.filter((option) => option.id !== optionId);
+  else node.quickReplies = node.quickReplies.filter((option) => option.id !== optionId);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function addRandomVariation() {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "randomizer") return;
+  normalizeNodeStructure(node);
+  node.variations.push({ id: makeId("var"), label: `Variação ${node.variations.length + 1}`, weight: 0, next: null });
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function removeRandomVariation(variationId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "randomizer") return;
+  node.variations = node.variations.filter((variation) => variation.id !== variationId);
+  if (!node.variations.length) node.variations.push({ id: makeId("var"), label: "Variação A", weight: 100, next: null });
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
 function addActionStep(type) {
   const flow = selectedFlow();
   const node = flow?.nodes.find((item) => item.id === actionPickerNodeId);
@@ -3546,7 +4212,7 @@ function addNextStep(type) {
     y: clampNodeY(Math.round(current.y))
   };
 
-  current.next = node.id;
+  assignPrimaryTarget(current, node.id);
   flow.nodes.push(node);
   flow.updatedAt = new Date().toISOString();
   selectedNodeId = node.id;
@@ -3952,7 +4618,9 @@ function sendSimulationMessage() {
 function simulateFlow(flow, inputText, displayName, options = {}) {
   const messages = [{ from: "user", text: inputText }];
   const normalizedText = normalize(inputText);
+  const context = { inputText, normalizedText, contact: options.contact || null };
   let current =
+    interactiveStartNode(flow, context) ||
     flow.nodes.find((node) => node.type === "trigger" && triggerMatchesSimulation(node, flow, normalizedText)) ||
     flow.nodes.find((node) => node.type === "trigger") ||
     flow.nodes[0];
@@ -3961,7 +4629,7 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
   while (current && guard < 12) {
     guard += 1;
     if (current.type === "message") {
-      messages.push({ from: "bot", text: resolveTemplate(current.message, displayName) });
+      buildSimulationMessagesForNode(current, displayName).forEach((message) => messages.push(message));
     }
     if (current.type === "action") {
       if (options.applyActions && options.contact) applyActionNodeToContact(options.contact, current);
@@ -3970,12 +4638,16 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
       });
     }
     if (current.type === "delay" && current.message) {
-      messages.push({ from: "bot", text: `Espera configurada: ${current.message}` });
+      messages.push({ from: "bot", text: smartDelaySummary(current) });
     }
-  if (current.type === "randomizer" && current.message) {
-      messages.push({ from: "bot", text: `Randomizador: ${current.message}` });
+    if (current.type === "condition") {
+      messages.push({ from: "system", text: conditionMatchesNode(current, context) ? "Condição: caminho SIM" : "Condição: caminho NÃO" });
     }
-    current = current.type === "comment" ? null : nextExecutableNode(flow, current);
+    if (current.type === "randomizer") {
+      const variation = pickRandomVariation(current, context);
+      messages.push({ from: "system", text: `Randomizador: ${variation?.label || "sem caminho"}` });
+    }
+    current = current.type === "comment" ? null : nextExecutableNode(flow, current, context);
   }
 
   if (messages.length === 1) {
@@ -3983,6 +4655,47 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
   }
 
   return messages;
+}
+
+function interactiveStartNode(flow, context) {
+  for (const node of flow.nodes || []) {
+    if (node.type !== "message") continue;
+    normalizeNodeStructure(node);
+    const option = matchingMessageOption(node, context);
+    if (!option?.next) continue;
+    const target = flow.nodes.find((item) => item.id === option.next);
+    if (canAcceptIncomingConnection(target)) return target;
+  }
+  return null;
+}
+
+function buildSimulationMessagesForNode(node, displayName) {
+  normalizeNodeStructure(node);
+  const messages = [];
+  node.contentBlocks.forEach((block) => {
+    if (block.type === "text") messages.push({ from: "bot", text: resolveTemplate(block.text || node.message, displayName) });
+    else if (["image", "audio", "video", "file"].includes(block.type)) messages.push({ from: "bot", text: `${messageBlockTypeLabel(block.type)}: ${block.url || "sem URL"}` });
+    else if (block.type === "card") messages.push({ from: "bot", text: `Card: ${block.title || "sem título"}` });
+    else if (block.type === "gallery") messages.push({ from: "bot", text: `Galeria: ${block.title || "sem título"}` });
+    else if (block.type === "data_collection") messages.push({ from: "bot", text: resolveTemplate(block.text || "Informe o dado solicitado.", displayName) });
+    else messages.push({ from: "bot", text: resolveTemplate(block.text || "Mensagem dinâmica.", displayName) });
+  });
+  const quickReplies = node.quickReplies.map((option) => option.title).filter(Boolean);
+  const buttons = node.buttons.map((option) => option.title).filter(Boolean);
+  if (quickReplies.length) messages.push({ from: "system", text: `Respostas rápidas: ${quickReplies.join(", ")}` });
+  if (buttons.length) messages.push({ from: "system", text: `Botões: ${buttons.join(", ")}` });
+  return messages.length ? messages : [{ from: "bot", text: resolveTemplate(node.message, displayName) }];
+}
+
+function messageBlockTypeLabel(type) {
+  return messageContentBlockTypes.find((item) => item.type === type)?.label || type;
+}
+
+function smartDelaySummary(node) {
+  normalizeNodeStructure(node);
+  if (node.delayType === "date") return `Atraso até ${node.specificDate || "data não definida"}`;
+  if (node.delayType === "dynamic_date") return `Atraso até o campo ${node.dynamicField || "não definido"}`;
+  return `Atraso de ${node.delayValue || node.delayMinutes || 0} ${node.delayUnit || "minutes"}`;
 }
 
 function triggerMatchesSimulation(node, flow, normalizedText) {
@@ -4126,7 +4839,7 @@ function enableConnectionDragging(flow) {
         const target = targetId ? flow.nodes.find((node) => node.id === targetId) : null;
 
         if (target && target.id !== source.id && canAcceptIncomingConnection(target)) {
-          source.next = target.id;
+          assignPrimaryTarget(source, target.id);
           selectedNodeId = source.id;
           flow.updatedAt = new Date().toISOString();
           rememberCanvasScroll();
@@ -4143,6 +4856,21 @@ function enableConnectionDragging(flow) {
       port.addEventListener("pointerup", onUp);
     });
   });
+}
+
+function assignPrimaryTarget(node, targetId) {
+  normalizeNodeStructure(node);
+  if (node.type === "condition") {
+    if (!node.yesNext) node.yesNext = targetId;
+    else node.noNext = targetId;
+    return;
+  }
+  if (node.type === "randomizer") {
+    const empty = node.variations.find((variation) => !variation.next) || node.variations[0];
+    if (empty) empty.next = targetId;
+    return;
+  }
+  node.next = targetId;
 }
 
 function enableCanvasPanning() {
@@ -4392,12 +5120,11 @@ function updateMiniMapViewport() {
 
 function renderMiniMapContent(flow) {
   const links = flow.nodes
-    .map((node) => {
-      if (!node.next) return "";
-      const target = flow.nodes.find((item) => item.id === node.next);
-      if (!target) return "";
-      return `<line class="minimap-link" x1="${miniX(canvasNodeLeft(node) + NODE_WIDTH)}" y1="${miniY(canvasNodeTop(node) + NODE_CONNECT_Y)}" x2="${miniX(canvasNodeLeft(target))}" y2="${miniY(canvasNodeTop(target) + NODE_CONNECT_Y)}" />`;
-    })
+    .flatMap((node) =>
+      connectionTargets(flow, node).map(({ target }) => {
+        return `<line class="minimap-link" x1="${miniX(canvasNodeLeft(node) + NODE_WIDTH)}" y1="${miniY(canvasNodeTop(node) + NODE_CONNECT_Y)}" x2="${miniX(canvasNodeLeft(target))}" y2="${miniY(canvasNodeTop(target) + NODE_CONNECT_Y)}" />`;
+      })
+    )
     .join("");
   const nodes = flow.nodes
     .map((node) => {
@@ -4420,35 +5147,144 @@ function renderMiniMapContent(flow) {
 
 function renderConnections(flow) {
   return flow.nodes
-    .map((node) => {
-      if (!node.next) return "";
-      const target = flow.nodes.find((item) => item.id === node.next);
-      if (!canAcceptIncomingConnection(target)) return "";
+    .flatMap((node) =>
+      connectionTargets(flow, node).map(({ target, label }, index) => {
       const start = nodeOutputPoint(node);
       const end = nodeInputPoint(target);
-      return `<path d="${connectionPath(start.x, start.y, end.x, end.y)}" />`;
-    })
+      const offset = index * 8;
+      return `<path d="${connectionPath(start.x, start.y + offset, end.x, end.y)}" /><text class="connection-label" x="${miniNumber((start.x + end.x) / 2)}" y="${miniNumber((start.y + end.y) / 2 + offset - 6)}">${escapeHtml(label || "")}</text>`;
+      })
+    )
     .join("");
+}
+
+function connectionTargets(flow, node) {
+  return outputRefs(node)
+    .map((ref) => ({
+      ...ref,
+      target: flow.nodes.find((item) => item.id === ref.targetId)
+    }))
+    .filter((ref) => canAcceptIncomingConnection(ref.target));
+}
+
+function outputRefs(node) {
+  if (!node) return [];
+  normalizeNodeStructure(node);
+  const refs = [];
+  if (node.type === "condition") {
+    if (node.yesNext) refs.push({ targetId: node.yesNext, label: "Sim", field: "yesNext" });
+    if (node.noNext) refs.push({ targetId: node.noNext, label: "Não", field: "noNext" });
+    return refs;
+  }
+  if (node.type === "randomizer") {
+    return node.variations
+      .filter((variation) => variation.next)
+      .map((variation) => ({ targetId: variation.next, label: `${variation.label || "Variação"} ${variation.weight || 0}%`, variationId: variation.id }));
+  }
+  if (node.type === "message") {
+    if (node.next) refs.push({ targetId: node.next, label: "Depois", field: "next" });
+    node.buttons.forEach((option) => {
+      if (option.next) refs.push({ targetId: option.next, label: option.title, optionId: option.id, kind: "button" });
+    });
+    node.quickReplies.forEach((option) => {
+      if (option.next) refs.push({ targetId: option.next, label: option.title, optionId: option.id, kind: "quick_reply" });
+    });
+    return refs;
+  }
+  if (node.next) refs.push({ targetId: node.next, label: "", field: "next" });
+  return refs;
 }
 
 function canAcceptIncomingConnection(node) {
   return Boolean(node && node.type !== "trigger" && node.type !== "comment");
 }
 
-function nextExecutableNode(flow, node) {
-  const next = node?.next ? flow.nodes.find((item) => item.id === node.next) : null;
+function nextExecutableNode(flow, node, context = {}) {
+  const targetId = nextExecutableTargetId(node, context);
+  const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
   return canAcceptIncomingConnection(next) ? next : null;
+}
+
+function nextExecutableTargetId(node, context = {}) {
+  if (!node) return null;
+  normalizeNodeStructure(node);
+  if (node.type === "condition") return conditionMatchesNode(node, context) ? node.yesNext : node.noNext;
+  if (node.type === "randomizer") return pickRandomVariation(node, context)?.next || null;
+  if (node.type === "message") {
+    const option = matchingMessageOption(node, context);
+    return option?.next || node.next || null;
+  }
+  return node.next || null;
+}
+
+function matchingMessageOption(node, context = {}) {
+  const input = normalize(context.inputText || context.normalizedText || "");
+  if (!input) return null;
+  return [...(node.buttons || []), ...(node.quickReplies || [])].find((option) => {
+    return normalize(option.id) === input || normalize(option.title) === input;
+  });
+}
+
+function conditionMatchesNode(node, context = {}) {
+  const normalizedInput = normalize(context.inputText || context.normalizedText || "");
+  const rawTerms = String(node.keyword || "")
+    .split(",")
+    .map((item) => normalize(item.trim()))
+    .filter(Boolean);
+  const operator = node.conditionOperator || "contains_any";
+
+  if (node.conditionType === "tag") {
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    return rawTerms.length ? rawTerms.some((term) => tags.includes(term)) : false;
+  }
+
+  if (node.conditionType === "field") {
+    const value = normalize(context.contact?.customFields?.[node.fieldName] || "");
+    const expected = normalize(node.fieldValue || node.keyword || "");
+    if (operator === "not_contains") return expected ? !value.includes(expected) : !value;
+    if (operator === "equals") return value === expected;
+    return expected ? value.includes(expected) : Boolean(value);
+  }
+
+  if (!rawTerms.length) return true;
+  if (operator === "contains_all") return rawTerms.every((term) => normalizedInput.includes(term));
+  if (operator === "equals") return rawTerms.some((term) => normalizedInput === term);
+  if (operator === "not_contains") return rawTerms.every((term) => !normalizedInput.includes(term));
+  return rawTerms.some((term) => normalizedInput.includes(term));
+}
+
+function pickRandomVariation(node, context = {}) {
+  const variations = Array.isArray(node.variations) ? node.variations.filter((variation) => variation.next) : [];
+  if (!variations.length) return null;
+  const total = variations.reduce((sum, variation) => sum + Math.max(0, Number(variation.weight) || 0), 0) || variations.length;
+  const seed = node.randomEveryTime ? Math.random() * total : seededNumber(`${context.contact?.psid || ""}:${node.id}`, total);
+  let cursor = 0;
+  for (const variation of variations) {
+    cursor += Math.max(0, Number(variation.weight) || 0) || 1;
+    if (seed <= cursor) return variation;
+  }
+  return variations[0];
+}
+
+function seededNumber(seed, max) {
+  let hash = 0;
+  const text = String(seed || "default");
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return hash % Math.max(1, max);
 }
 
 function pruneInvalidFlowConnections(flow) {
   if (!flow?.nodes?.length) return;
   let changed = false;
   flow.nodes.forEach((node) => {
-    if (!node.next) return;
-    const target = flow.nodes.find((item) => item.id === node.next);
-    if (canAcceptIncomingConnection(target)) return;
-    node.next = null;
-    changed = true;
+    outputRefs(node).forEach((ref) => {
+      const target = flow.nodes.find((item) => item.id === ref.targetId);
+      if (canAcceptIncomingConnection(target)) return;
+      replaceNodeReference(node, ref.targetId, null);
+      changed = true;
+    });
   });
 
   if (changed) {
@@ -4493,6 +5329,8 @@ function renderNode(node, selected) {
   if (node.type === "comment") return renderCommentNode(node, selected);
 
   const icon = icons[node.type] || icons.message;
+  normalizeNodeStructure(node);
+  const summary = nodeCardSummary(node);
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
   return `
     <article class="node ${node.type} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
@@ -4507,14 +5345,53 @@ function renderNode(node, selected) {
         </div>
         <button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>
       </div>
-      <p>${escapeHtml(node.message || "")}</p>
+      <p>${escapeHtml(summary.body)}</p>
       <div class="node-footer">
-        <span>${node.type === "trigger" ? escapeHtml(node.keyword || "qualquer mensagem") : quickReplies}</span>
-        <span>${node.next ? "conectado" : "fim"}</span>
+        <span>${escapeHtml(summary.footer)}</span>
+        <span>${escapeHtml(summary.status)}</span>
       </div>
       ${renderOutputPort(node)}
     </article>
   `;
+}
+
+function nodeCardSummary(node) {
+  const flow = selectedFlow() || { nodes: [] };
+  if (node.type === "message") {
+    const blockCount = node.contentBlocks?.length || 0;
+    const choices = (node.buttons?.length || 0) + (node.quickReplies?.length || 0);
+    return {
+      body: node.contentBlocks?.find((block) => block.type === "text")?.text || node.message || "Mensagem do Messenger",
+      footer: `${blockCount} bloco${blockCount === 1 ? "" : "s"} · ${choices} opção${choices === 1 ? "" : "ões"}`,
+      status: connectionTargets(flow, node).length ? "conectado" : "fim"
+    };
+  }
+  if (node.type === "condition") {
+    return {
+      body: `${node.conditionType || "Regra"}: ${node.keyword || node.fieldName || "sem critério"}`,
+      footer: "Saídas: Sim / Não",
+      status: [node.yesNext, node.noNext].filter(Boolean).length ? "conectado" : "fim"
+    };
+  }
+  if (node.type === "delay") {
+    return {
+      body: smartDelaySummary(node),
+      footer: node.continueStart && node.continueEnd ? `${node.continueStart}-${node.continueEnd}` : "sem janela",
+      status: node.next ? "conectado" : "fim"
+    };
+  }
+  if (node.type === "randomizer") {
+    return {
+      body: `${node.variations?.length || 0} variações configuradas`,
+      footer: node.randomEveryTime ? "aleatório sempre" : "fixo por contato",
+      status: connectionTargets(flow, node).length ? "conectado" : "fim"
+    };
+  }
+  return {
+    body: node.message || "",
+    footer: node.next ? "Próximo passo" : "Sem próximo passo",
+    status: node.next ? "conectado" : "fim"
+  };
 }
 
 function renderCommentNode(node, selected) {
@@ -4888,8 +5765,44 @@ function normalizeFieldValue(fieldName, value) {
       .slice(0, 8);
   }
   if (fieldName === "delayMinutes") return Math.max(0, Number(value) || 0);
+  if (fieldName === "delayValue") return Math.max(0, Number(value) || 0);
   if (fieldName === "next") return value || null;
   return value;
+}
+
+function delayToMinutes(node) {
+  const value = Math.max(0, Number(node.delayValue ?? node.delayMinutes) || 0);
+  if (node.delayUnit === "hours") return value * 60;
+  if (node.delayUnit === "days") return value * 24 * 60;
+  return value;
+}
+
+function syncLegacyMessageFromBlocks(node) {
+  const firstText = node.contentBlocks?.find((block) => block.type === "text" && block.text);
+  if (firstText) node.message = firstText.text;
+}
+
+function syncTextBlockFromLegacyMessage(node) {
+  if (!Array.isArray(node.contentBlocks)) return;
+  const firstText = node.contentBlocks.find((block) => block.type === "text");
+  if (firstText) firstText.text = node.message || "";
+}
+
+function applyTargetSelection(node, target) {
+  const value = target.value || null;
+  const field = target.dataset.targetField || "";
+  if (target.dataset.targetKind && target.dataset.targetId && node.type === "message") {
+    const list = target.dataset.targetKind === "button" ? node.buttons : node.quickReplies;
+    const option = list?.find((item) => item.id === target.dataset.targetId);
+    if (option) option.next = value;
+    return;
+  }
+  if (target.dataset.targetVariationId && node.type === "randomizer") {
+    const variation = node.variations?.find((item) => item.id === target.dataset.targetVariationId);
+    if (variation) variation.next = value;
+    return;
+  }
+  if (field) node[field] = value;
 }
 
 function defaultNodeMessage(type) {

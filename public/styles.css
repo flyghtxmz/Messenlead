@@ -1154,6 +1154,16 @@ svg {
   stroke-dasharray: 7 6;
 }
 
+.connection-label {
+  fill: #536b80;
+  font-size: 10px;
+  font-weight: 700;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke: #ffffff;
+  stroke-width: 4px;
+}
+
 .node {
   position: absolute;
   display: grid;
@@ -3728,6 +3738,104 @@ svg {
 
 .message-builder-card textarea {
   min-height: 118px;
+}
+
+.content-block-list,
+.message-option-list,
+.variation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.content-add-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.content-add-row button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px;
+  border: 1px dashed #c7d2df;
+  border-radius: 7px;
+  background: #fbfdff;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.content-add-row svg {
+  width: 15px;
+  height: 15px;
+}
+
+.message-content-block,
+.message-option-card,
+.variation-card {
+  position: relative;
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid #d9e0e7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.message-content-head {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  color: #344054;
+  font-size: 13px;
+}
+
+.message-content-head svg {
+  width: 18px;
+  height: 18px;
+  color: #0077ff;
+}
+
+.message-option-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.message-option-grid,
+.condition-branches {
+  display: grid;
+  gap: 9px;
+}
+
+.two-field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.toggle-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.variation-card {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.variation-card > .mini-menu-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }
 
 .dashed-add-button {

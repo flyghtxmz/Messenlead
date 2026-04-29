@@ -52,7 +52,7 @@ async function handleMessengerEvent(event, env, pageId) {
   if (!psid) return;
 
   const context = eventContext(event);
-  await upsertContact(env, pageId, {
+  const contact = await upsertContact(env, pageId, {
     psid,
     name: psid,
     status: "open",
@@ -60,7 +60,7 @@ async function handleMessengerEvent(event, env, pageId) {
     lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
   });
 
-  const { replies, actions } = await buildReplies(context, env, pageId);
+  const { replies, actions } = await buildReplies(context, env, pageId, contact);
   if (actions.length) {
     await applyContactActions(env, pageId, psid, actions, {
       psid,
@@ -73,12 +73,12 @@ async function handleMessengerEvent(event, env, pageId) {
 
   if (!replies.length) return;
 
-  for (const reply of replies.slice(0, 3)) {
-    await sendMessengerMessage(psid, reply.text, reply.quickReplies || [], env, pageId);
+  for (const reply of replies.slice(0, 5)) {
+    await sendMessengerReply(psid, reply, env, pageId);
   }
 }
 
-async function buildReplies(context, env, pageId) {
+async function buildReplies(context, env, pageId, contact = null) {
   const dbFlows = pageId ? await listFlows(env, pageId, { status: "active" }) : [];
   const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
   const activeFlows = flows.filter((flow) => flow.status === "active");
@@ -91,6 +91,7 @@ async function buildReplies(context, env, pageId) {
   }
 
   const start =
+    interactiveStartNode(flow, context) ||
     flow.nodes?.find((node) => node.type === "trigger" && triggerMatchesEvent(node, flow, context)) ||
     flow.nodes?.find((node) => node.type === "trigger") ||
     flow.nodes?.[0];
@@ -103,18 +104,15 @@ async function buildReplies(context, env, pageId) {
   while (current && guard < 12) {
     guard += 1;
 
-    if (current.type === "message" && current.message) {
-      replies.push({
-        text: resolveTemplate(current.message),
-        quickReplies: Array.isArray(current.quickReplies) ? current.quickReplies : []
-      });
+    if (current.type === "message") {
+      replies.push(...repliesForMessageNode(current));
     }
 
     if (current.type === "action") {
       actions.push(...actionStepsForNode(current));
     }
 
-    current = nextExecutableNode(flow, current);
+    current = nextExecutableNode(flow, current, { ...context, contact });
   }
 
   return { replies, actions };
@@ -132,9 +130,121 @@ function actionStepsForNode(node) {
   return [];
 }
 
-function nextExecutableNode(flow, node) {
-  const next = node?.next ? flow.nodes.find((item) => item.id === node.next) : null;
+function nextExecutableNode(flow, node, context = {}) {
+  const targetId = nextExecutableTargetId(node, context);
+  const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
   return next && next.type !== "trigger" && next.type !== "comment" ? next : null;
+}
+
+function nextExecutableTargetId(node, context = {}) {
+  if (!node) return null;
+  normalizeNodeShape(node);
+  if (node.type === "condition") return conditionMatchesNode(node, context) ? node.yesNext : node.noNext;
+  if (node.type === "randomizer") return pickRandomVariation(node, context)?.next || null;
+  if (node.type === "message") return matchingMessageOption(node, context)?.next || node.next || null;
+  return node.next || null;
+}
+
+function interactiveStartNode(flow, context) {
+  for (const node of flow.nodes || []) {
+    if (node.type !== "message") continue;
+    normalizeNodeShape(node);
+    const option = matchingMessageOption(node, context);
+    if (!option?.next) continue;
+    const target = flow.nodes.find((item) => item.id === option.next);
+    if (target && target.type !== "trigger" && target.type !== "comment") return target;
+  }
+  return null;
+}
+
+function matchingMessageOption(node, context = {}) {
+  const input = normalize(context.text || context.normalizedInput || "");
+  if (!input) return null;
+  return [...(node.buttons || []), ...(node.quickReplies || [])].find((option) => {
+    return normalize(option.id) === input || normalize(option.title) === input;
+  });
+}
+
+function normalizeNodeShape(node) {
+  if (node.type === "message") {
+    if (!Array.isArray(node.contentBlocks) || !node.contentBlocks.length) {
+      node.contentBlocks = [{ id: "legacy", type: "text", text: node.message || "" }];
+    }
+    node.quickReplies = normalizeMessageOptions(node.quickReplies, "qr");
+    node.buttons = normalizeMessageOptions(node.buttons, "btn").slice(0, 3);
+  }
+  if (node.type === "condition") {
+    node.conditionType ||= "message_contains";
+    node.conditionOperator ||= "contains_any";
+    node.yesNext ||= node.next || null;
+    node.noNext ||= null;
+  }
+  if (node.type === "randomizer" && !Array.isArray(node.variations)) {
+    node.variations = [{ id: "default", label: "Variação A", weight: 100, next: node.next || null }];
+  }
+}
+
+function normalizeMessageOptions(options, prefix) {
+  return (Array.isArray(options) ? options : [])
+    .map((option, index) => {
+      if (typeof option === "string") {
+        return { id: `${prefix}_${index}`, title: option, type: "next", next: null, url: "", phone: "" };
+      }
+      return {
+        id: String(option.id || `${prefix}_${index}`),
+        title: String(option.title || option.text || option.caption || ""),
+        type: String(option.type || "next"),
+        next: option.next || null,
+        url: option.url || "",
+        phone: option.phone || ""
+      };
+    })
+    .filter((option) => option.title);
+}
+
+function conditionMatchesNode(node, context = {}) {
+  const input = normalize(context.normalizedInput || context.text || "");
+  const terms = String(node.keyword || "")
+    .split(",")
+    .map((item) => normalize(item.trim()))
+    .filter(Boolean);
+  const operator = node.conditionOperator || "contains_any";
+
+  if (node.conditionType === "tag") {
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    return terms.some((term) => tags.includes(term));
+  }
+  if (node.conditionType === "field") {
+    const value = normalize(context.contact?.customFields?.[node.fieldName] || "");
+    const expected = normalize(node.fieldValue || node.keyword || "");
+    if (operator === "not_contains") return expected ? !value.includes(expected) : !value;
+    if (operator === "equals") return value === expected;
+    return expected ? value.includes(expected) : Boolean(value);
+  }
+  if (!terms.length) return true;
+  if (operator === "contains_all") return terms.every((term) => input.includes(term));
+  if (operator === "equals") return terms.some((term) => input === term);
+  if (operator === "not_contains") return terms.every((term) => !input.includes(term));
+  return terms.some((term) => input.includes(term));
+}
+
+function pickRandomVariation(node, context = {}) {
+  const variations = (node.variations || []).filter((variation) => variation.next);
+  if (!variations.length) return null;
+  const total = variations.reduce((sum, variation) => sum + Math.max(0, Number(variation.weight) || 0), 0) || variations.length;
+  const seed = node.randomEveryTime === false ? seededNumber(`${context.contact?.psid || ""}:${node.id}`, total) : Math.random() * total;
+  let cursor = 0;
+  for (const variation of variations) {
+    cursor += Math.max(0, Number(variation.weight) || 0) || 1;
+    if (seed <= cursor) return variation;
+  }
+  return variations[0];
+}
+
+function seededNumber(seed, max) {
+  let hash = 0;
+  for (const char of String(seed || "default")) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash % Math.max(1, max);
 }
 
 function parseFlows(rawJson) {
@@ -223,20 +333,71 @@ function keywordMatches(keywords, normalizedInput) {
   return list.some((keyword) => normalizedInput.includes(keyword) || keyword.includes(normalizedInput));
 }
 
-async function sendMessengerMessage(psid, text, quickReplies, env, pageId) {
+function normalizeTags(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  return [...new Set(raw.map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
+function repliesForMessageNode(node) {
+  normalizeNodeShape(node);
+  const quickReplies = node.quickReplies.map((option) => ({
+    title: option.title,
+    payload: option.id || option.title
+  }));
+  const buttons = node.buttons.map((option) => ({
+    title: option.title,
+    type: option.type || "next",
+    url: option.url || "",
+    phone: option.phone || "",
+    payload: option.id || option.title
+  }));
+
+  return node.contentBlocks
+    .map((block, index) => {
+      if (block.type === "text") {
+        return {
+          type: "text",
+          text: resolveTemplate(block.text || node.message || ""),
+          quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : [],
+          buttons: index === node.contentBlocks.length - 1 ? buttons : []
+        };
+      }
+      if (["image", "audio", "video", "file"].includes(block.type) && block.url) {
+        return {
+          type: "attachment",
+          attachmentType: block.type,
+          url: block.url,
+          quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : []
+        };
+      }
+      if ((block.type === "card" || block.type === "gallery") && (block.title || block.url)) {
+        return {
+          type: "generic",
+          elements: [
+            {
+              title: block.title || "Card",
+              subtitle: block.subtitle || "",
+              image_url: block.url || "",
+              buttons
+            }
+          ]
+        };
+      }
+      if (block.type === "data_collection") {
+        return { type: "text", text: resolveTemplate(block.text || "Informe o dado solicitado."), quickReplies };
+      }
+      if (block.text) return { type: "text", text: resolveTemplate(block.text), quickReplies };
+      return null;
+    })
+    .filter(Boolean);
+}
+
+async function sendMessengerReply(psid, reply, env, pageId) {
   const pageAccessToken = (pageId ? await getStoredPageAccessToken(env, pageId) : "") || env.MESSENGER_PAGE_ACCESS_TOKEN;
   if (!pageAccessToken) return;
 
   const graphUrl = env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages";
-  const message = { text };
-
-  if (quickReplies.length) {
-    message.quick_replies = quickReplies.slice(0, 11).map((title) => ({
-      content_type: "text",
-      title: String(title).slice(0, 20),
-      payload: String(title).slice(0, 1000)
-    }));
-  }
+  const message = messengerMessagePayload(reply);
 
   await fetch(`${graphUrl}?access_token=${encodeURIComponent(pageAccessToken)}`, {
     method: "POST",
@@ -246,6 +407,78 @@ async function sendMessengerMessage(psid, text, quickReplies, env, pageId) {
       messaging_type: "RESPONSE",
       message
     })
+  });
+}
+
+function messengerMessagePayload(reply) {
+  const message = {};
+
+  if (reply.type === "attachment") {
+    message.attachment = {
+      type: reply.attachmentType,
+      payload: {
+        url: reply.url,
+        is_reusable: true
+      }
+    };
+  } else if (reply.type === "generic") {
+    message.attachment = {
+      type: "template",
+      payload: {
+        template_type: "generic",
+        elements: reply.elements.slice(0, 10).map((element) => ({
+          title: String(element.title || "Card").slice(0, 80),
+          subtitle: String(element.subtitle || "").slice(0, 80),
+          image_url: element.image_url || undefined,
+          buttons: messengerButtons(element.buttons || [])
+        }))
+      }
+    };
+  } else if (reply.buttons?.length) {
+    message.attachment = {
+      type: "template",
+      payload: {
+        template_type: "button",
+        text: String(reply.text || "Escolha uma opção").slice(0, 640),
+        buttons: messengerButtons(reply.buttons).slice(0, 3)
+      }
+    };
+  } else {
+    message.text = String(reply.text || "").slice(0, 2000);
+  }
+
+  if (reply.quickReplies?.length && !reply.buttons?.length) {
+    message.quick_replies = reply.quickReplies.slice(0, 11).map((option) => ({
+      content_type: "text",
+      title: String(option.title || option).slice(0, 20),
+      payload: String(option.payload || option.title || option).slice(0, 1000)
+    }));
+  }
+
+  return message;
+}
+
+function messengerButtons(buttons = []) {
+  return buttons.slice(0, 3).map((button) => {
+    if (button.type === "url" && button.url) {
+      return {
+        type: "web_url",
+        title: String(button.title || "Abrir").slice(0, 20),
+        url: button.url
+      };
+    }
+    if (button.type === "phone" && button.phone) {
+      return {
+        type: "phone_number",
+        title: String(button.title || "Ligar").slice(0, 20),
+        payload: button.phone
+      };
+    }
+    return {
+      type: "postback",
+      title: String(button.title || "Continuar").slice(0, 20),
+      payload: String(button.payload || button.id || button.title || "NEXT").slice(0, 1000)
+    };
   });
 }
 
