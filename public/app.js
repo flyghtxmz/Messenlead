@@ -2,6 +2,8 @@ const STORAGE_KEY = "messenlead.messenger.workspace.v2";
 const SIDEBAR_COLLAPSED_KEY = "messenlead.sidebar.collapsed";
 const DEFAULT_FLOW_PAGE_ID = "__global__";
 const CONVERSATION_READ_KEY = "messenlead.messenger.conversation.read.v1";
+const DEFAULT_TAG_FOLDER_ID = "default";
+const DEFAULT_TAG_FOLDER_NAME = "Tags";
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
@@ -451,6 +453,8 @@ function renderModalField(field) {
       ${
         field.type === "textarea"
           ? `<textarea name="${attr(field.name)}" rows="${field.rows || 4}">${escapeHtml(field.value || "")}</textarea>`
+          : field.type === "select"
+            ? `<select name="${attr(field.name)}">${(field.options || []).map((option) => `<option value="${attr(option.value)}" ${option.value === field.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select>`
           : `<input name="${attr(field.name)}" type="${attr(field.type || "text")}" value="${value}" placeholder="${attr(field.placeholder || "")}" />`
       }
       ${hint}
@@ -731,12 +735,72 @@ function normalizeTagLibraryByPage(library, fallbackPageId = DEFAULT_FLOW_PAGE_I
   const next = {};
   if (library && typeof library === "object" && !Array.isArray(library)) {
     Object.entries(library).forEach(([pageId, tags]) => {
-      next[normalizeFlowPageId(pageId)] = normalizeTags(tags);
+      next[normalizeFlowPageId(pageId)] = normalizeTagStore(tags);
     });
   } else if (Array.isArray(library)) {
-    next[normalizeFlowPageId(fallbackPageId)] = normalizeTags(library);
+    next[normalizeFlowPageId(fallbackPageId)] = normalizeTagStore(library);
   }
   return next;
+}
+
+function normalizeTagStore(value) {
+  if (Array.isArray(value)) {
+    return {
+      folders: [defaultTagFolder()],
+      tags: normalizeTags(value).map((name) => ({ id: makeStableTagId(name), name, folderId: DEFAULT_TAG_FOLDER_ID }))
+    };
+  }
+
+  const folders = Array.isArray(value?.folders)
+    ? value.folders
+        .map((folder) => ({
+          id: String(folder?.id || makeId("folder")),
+          name: String(folder?.name || "").trim()
+        }))
+        .filter((folder) => folder.name)
+    : [];
+  if (!folders.some((folder) => folder.id === DEFAULT_TAG_FOLDER_ID)) folders.unshift(defaultTagFolder());
+
+  const folderIds = new Set(folders.map((folder) => folder.id));
+  const tags = Array.isArray(value?.tags)
+    ? value.tags
+        .map((tag) => {
+          const name = String(tag?.name || tag || "").trim();
+          return name ? { id: String(tag?.id || makeStableTagId(name)), name, folderId: folderIds.has(tag?.folderId) ? tag.folderId : DEFAULT_TAG_FOLDER_ID } : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  return { folders: uniqueFolders(folders), tags: uniqueTagRecords(tags) };
+}
+
+function defaultTagFolder() {
+  return { id: DEFAULT_TAG_FOLDER_ID, name: DEFAULT_TAG_FOLDER_NAME };
+}
+
+function makeStableTagId(name) {
+  return `tag_${normalize(name).replace(/[^a-z0-9]+/g, "_") || Math.random().toString(36).slice(2, 8)}`;
+}
+
+function uniqueFolders(folders) {
+  const seen = new Set();
+  return folders.filter((folder) => {
+    const key = normalize(folder.name);
+    if (!key || seen.has(folder.id) || seen.has(key)) return false;
+    seen.add(folder.id);
+    seen.add(key);
+    return true;
+  });
+}
+
+function uniqueTagRecords(tags) {
+  const seen = new Set();
+  return tags.filter((tag) => {
+    const key = normalize(tag.name);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function normalizeFlowPageId(pageId) {
@@ -1997,7 +2061,103 @@ MESSENLEAD_FLOW_JSON=${escapeHtml(compactFlowJson())}</pre>
 }
 
 function renderSettings() {
-  workspace.innerHTML = "";
+  const pageId = currentFlowPageId();
+  const pageName = state.settings.pageName || state.settings.pageId || "Página atual";
+  const folders = tagFoldersForPage(pageId);
+  const tags = tagRecordsForPage(pageId);
+
+  workspace.innerHTML = `
+    <div class="settings-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Pastas de tags</h2>
+            <span>Organização de tags para ${escapeHtml(pageName)}</span>
+          </div>
+          <button class="primary-button" type="button" data-action="create-tag-folder">${icons.plus}<span>Nova pasta</span></button>
+        </div>
+        <div class="panel-body stack">
+          ${folders.map((folder) => renderTagFolderRow(folder, tags)).join("")}
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Resumo</h2>
+            <span>Biblioteca da página selecionada</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          ${metricInline("Pastas", folders.length)}
+          ${metricInline("Tags salvas", tags.length)}
+          <p class="muted">As tags criadas nos nodes de ação aparecem no dropdown e podem ser agrupadas por pasta aqui.</p>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function renderTagFolderRow(folder, tags) {
+  const folderTags = tags.filter((tag) => tag.folderId === folder.id);
+  return `
+    <article class="tag-folder-row">
+      <div>
+        <strong>${escapeHtml(folder.name)}</strong>
+        <span>${folderTags.length} tag${folderTags.length === 1 ? "" : "s"}</span>
+        ${
+          folderTags.length
+            ? `<div class="tag-folder-tags">${folderTags.slice(0, 8).map((tag) => `<span class="tag">${escapeHtml(tag.name)}</span>`).join("")}${folderTags.length > 8 ? `<span class="tag muted">+${folderTags.length - 8}</span>` : ""}</div>`
+            : `<div class="muted">Nenhuma tag nesta pasta.</div>`
+        }
+      </div>
+      ${
+        folder.id === DEFAULT_TAG_FOLDER_ID
+          ? `<span class="badge">Padrão</span>`
+          : `<button class="icon-button danger" type="button" data-action="delete-tag-folder" data-folder-id="${attr(folder.id)}" title="Excluir pasta">${icons.trash}</button>`
+      }
+    </article>
+  `;
+}
+
+function metricInline(label, value) {
+  return `
+    <div class="setting-metric-inline">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function openCreateTagFolderModal() {
+  openFormModal({
+    title: "Criar pasta",
+    description: "Pastas ajudam a organizar tags por página.",
+    submitLabel: "Criar",
+    fields: [{ name: "name", label: "Nome da pasta", value: "", required: true, placeholder: "Ex: Leads, Clientes, Pós-venda" }],
+    onSubmit: ({ name }) => {
+      const folder = addTagFolder(name.trim(), currentFlowPageId());
+      if (!folder) throw new Error("Informe o nome da pasta.");
+      saveState();
+      render();
+    }
+  });
+}
+
+function confirmDeleteTagFolder(folderId) {
+  const folder = tagFoldersForPage(currentFlowPageId()).find((item) => item.id === folderId);
+  if (!folder || folder.id === DEFAULT_TAG_FOLDER_ID) return;
+  openConfirmModal({
+    title: "Excluir pasta",
+    message: `Excluir a pasta "${folder.name}"? As tags dessa pasta serão movidas para "${DEFAULT_TAG_FOLDER_NAME}".`,
+    submitLabel: "Excluir",
+    danger: true,
+    onConfirm: () => {
+      removeTagFolder(folder.id, currentFlowPageId());
+      saveState();
+      render();
+    }
+  });
 }
 
 async function loadMetaProfile() {
@@ -3067,31 +3227,72 @@ function availableTagsForPage(pageId, selectedValue = "") {
   const normalizedPageId = normalizeFlowPageId(pageId);
   const tags = unique([
     ...allContactTags(contactsForPage(normalizedPageId)),
-    ...tagLibraryForPage(normalizedPageId),
+    ...tagRecordsForPage(normalizedPageId).map((tag) => tag.name),
     ...flowActionTagsForPage(normalizedPageId)
   ]);
   const selected = String(selectedValue || "").trim();
   return unique(selected && !tags.includes(selected) ? [...tags, selected] : tags).sort((a, b) => a.localeCompare(b));
 }
 
-function tagLibraryForPage(pageId = currentFlowPageId()) {
+function tagStoreForPage(pageId = currentFlowPageId()) {
   if (!state.tagLibraryByPage || typeof state.tagLibraryByPage !== "object" || Array.isArray(state.tagLibraryByPage)) {
     state.tagLibraryByPage = {};
   }
   const normalizedPageId = normalizeFlowPageId(pageId);
-  if (!Array.isArray(state.tagLibraryByPage[normalizedPageId])) state.tagLibraryByPage[normalizedPageId] = [];
-  state.tagLibraryByPage[normalizedPageId] = normalizeTags(state.tagLibraryByPage[normalizedPageId]);
+  state.tagLibraryByPage[normalizedPageId] = normalizeTagStore(state.tagLibraryByPage[normalizedPageId]);
   return state.tagLibraryByPage[normalizedPageId];
 }
 
-function addTagToLibrary(tagName, pageId = currentFlowPageId()) {
+function tagFoldersForPage(pageId = currentFlowPageId()) {
+  return tagStoreForPage(pageId).folders;
+}
+
+function tagRecordsForPage(pageId = currentFlowPageId()) {
+  return tagStoreForPage(pageId).tags;
+}
+
+function addTagFolder(folderName, pageId = currentFlowPageId()) {
+  const name = String(folderName || "").trim();
+  if (!name) return null;
+  const store = tagStoreForPage(pageId);
+  const existing = store.folders.find((folder) => normalize(folder.name) === normalize(name));
+  if (existing) return existing;
+  const folder = { id: makeId("folder"), name };
+  store.folders.push(folder);
+  store.folders.sort((a, b) => (a.id === DEFAULT_TAG_FOLDER_ID ? -1 : b.id === DEFAULT_TAG_FOLDER_ID ? 1 : a.name.localeCompare(b.name)));
+  return folder;
+}
+
+function removeTagFolder(folderId, pageId = currentFlowPageId()) {
+  if (!folderId || folderId === DEFAULT_TAG_FOLDER_ID) return false;
+  const store = tagStoreForPage(pageId);
+  store.folders = store.folders.filter((folder) => folder.id !== folderId);
+  store.tags.forEach((tag) => {
+    if (tag.folderId === folderId) tag.folderId = DEFAULT_TAG_FOLDER_ID;
+  });
+  return true;
+}
+
+function addTagToLibrary(tagName, pageId = currentFlowPageId(), folderIdOrName = null) {
   const value = String(tagName || "").trim();
-  if (!value) return;
-  const tags = tagLibraryForPage(pageId);
-  if (!tags.some((tag) => normalize(tag) === normalize(value))) {
-    tags.push(value);
-    tags.sort((a, b) => a.localeCompare(b));
+  if (!value) return null;
+  const store = tagStoreForPage(pageId);
+  const existing = store.tags.find((tag) => normalize(tag.name) === normalize(value));
+  const folder =
+    store.folders.find((item) => item.id === folderIdOrName) ||
+    store.folders.find((item) => normalize(item.name) === normalize(folderIdOrName)) ||
+    (folderIdOrName ? addTagFolder(folderIdOrName, pageId) : null) ||
+    defaultTagFolder();
+
+  if (existing) {
+    if (folderIdOrName) existing.folderId = folder.id;
+    return existing;
   }
+
+  const tag = { id: makeStableTagId(value), name: value, folderId: folder.id };
+  store.tags.push(tag);
+  store.tags.sort((a, b) => a.name.localeCompare(b.name));
+  return tag;
 }
 
 function flowActionTagsForPage(pageId = currentFlowPageId()) {
@@ -3605,6 +3806,8 @@ function handleWorkspaceClick(event) {
   if (action === "new-campaign") return createCampaign();
   if (action === "launch-campaign") return launchCampaign(id);
   if (action === "delete-campaign") return deleteCampaign(id);
+  if (action === "create-tag-folder") return openCreateTagFolderModal();
+  if (action === "delete-tag-folder") return confirmDeleteTagFolder(button.dataset.folderId);
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
@@ -4588,13 +4791,19 @@ function openCreateActionTagModal(stepId) {
     submitLabel: "Criar",
     fields: [
       { name: "name", label: "Nome", value: context.step.tag || "", required: true, placeholder: "Inserir nome da tag" },
-      { name: "folder", label: "Pasta", value: "Tags" }
+      {
+        name: "folder",
+        label: "Pasta",
+        type: "select",
+        value: DEFAULT_TAG_FOLDER_ID,
+        options: tagFoldersForPage(currentFlowPageId()).map((folder) => ({ value: folder.id, label: folder.name }))
+      }
     ],
-    onSubmit: ({ name }) => {
+    onSubmit: ({ name, folder }) => {
       const tagName = name.trim();
       if (!tagName) throw new Error("Informe o nome da tag.");
       context.step.tag = tagName;
-      addTagToLibrary(tagName, currentFlowPageId());
+      addTagToLibrary(tagName, currentFlowPageId(), folder || DEFAULT_TAG_FOLDER_ID);
       context.node.message = summarizeActionSteps(context.node);
       context.flow.updatedAt = new Date().toISOString();
       saveState();

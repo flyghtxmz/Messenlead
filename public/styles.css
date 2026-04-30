@@ -2130,6 +2130,60 @@ svg {
   gap: 16px;
 }
 
+.tag-folder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.tag-folder-row strong {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.tag-folder-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tag-folder-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.setting-metric-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.setting-metric-inline span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.setting-metric-inline strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.icon-button.danger {
+  color: var(--red);
+}
+
 .image-tool-panel {
   min-height: calc(100vh - 126px);
 }
@@ -2425,7 +2479,8 @@ svg {
   font-weight: 600;
 }
 
-.tag-create-modal .modal-field input {
+.tag-create-modal .modal-field input,
+.tag-create-modal .modal-field select {
   min-height: 28px;
   padding: 5px 8px;
   border-radius: 4px;
