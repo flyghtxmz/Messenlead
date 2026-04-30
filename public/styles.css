@@ -2381,6 +2381,62 @@ svg {
   font-size: 13px;
 }
 
+.tag-create-modal {
+  width: min(360px, 100%);
+  border-radius: 5px;
+}
+
+.tag-create-modal .modal-header {
+  position: relative;
+  justify-content: center;
+  padding: 8px 42px 9px;
+}
+
+.tag-create-modal .modal-header h2 {
+  font-size: 16px;
+  text-align: center;
+}
+
+.tag-create-modal .modal-header .icon-button {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+}
+
+.tag-create-modal .modal-body {
+  gap: 9px;
+  padding: 22px 24px 14px;
+}
+
+.tag-create-modal .modal-intro {
+  margin-bottom: 8px;
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tag-create-modal .modal-field {
+  gap: 5px;
+}
+
+.tag-create-modal .modal-field > span:first-child {
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tag-create-modal .modal-field input {
+  min-height: 28px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.tag-create-modal .modal-actions {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
 .segmented {
   display: inline-flex;
   overflow: hidden;
@@ -3264,6 +3320,7 @@ svg {
 }
 
 .action-step-card {
+  position: relative;
   display: grid;
   gap: 7px;
   padding: 9px;
@@ -3308,6 +3365,67 @@ svg {
   border: 1px solid #d4dde7;
   border-radius: 6px;
   font-size: 12px;
+}
+
+.action-tag-combobox {
+  position: relative;
+}
+
+.action-tag-picker {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 55;
+  display: grid;
+  width: 100%;
+  min-height: 220px;
+  overflow: hidden;
+  border: 1px solid #d7dee8;
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.16);
+}
+
+.action-tag-picker-list {
+  display: grid;
+  align-content: start;
+  max-height: 176px;
+  overflow: auto;
+  background: #fff;
+}
+
+.action-tag-picker-list button,
+.action-tag-empty {
+  min-height: 31px;
+  padding: 7px 10px;
+  border: 0;
+  background: #fff;
+  color: #344054;
+  font-size: 12px;
+  text-align: left;
+}
+
+.action-tag-picker-list button:hover {
+  background: #f5f6f8;
+}
+
+.action-tag-empty {
+  color: var(--muted);
+}
+
+.action-tag-create {
+  align-self: end;
+  min-height: 34px;
+  border: 0;
+  border-top: 1px solid #d7dee8;
+  background: #fff;
+  color: #0069df;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.action-tag-create:hover {
+  background: #f7fbff;
 }
 
 .trigger-card-list {

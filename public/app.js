@@ -259,6 +259,7 @@ let triggerPickerNodeId = "";
 let nextStepPickerNodeId = "";
 let actionPickerNodeId = "";
 let actionPickerCategory = "contact";
+let actionTagPickerStepId = "";
 let conditionPickerNodeId = "";
 let conditionPickerCategory = "recommended";
 let conditionPickerQuery = "";
@@ -396,7 +397,7 @@ function renderModal() {
 
   modalRoot.innerHTML = `
     <div class="modal-backdrop" data-modal-backdrop>
-      <section class="app-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <section class="app-modal ${attr(modalState.className || "")}" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-header">
           <div>
             <h2 id="modalTitle">${escapeHtml(modalState.title || "Acao")}</h2>
@@ -418,6 +419,7 @@ function renderModal() {
             : `
               <form class="app-modal-form">
                 <div class="modal-body modal-fields">
+                  ${modalState.intro ? `<p class="modal-intro">${escapeHtml(modalState.intro)}</p>` : ""}
                   ${(modalState.fields || []).map(renderModalField).join("")}
                   <p class="modal-error" id="modalError" hidden></p>
                 </div>
@@ -449,7 +451,7 @@ function renderModalField(field) {
       ${
         field.type === "textarea"
           ? `<textarea name="${attr(field.name)}" rows="${field.rows || 4}">${escapeHtml(field.value || "")}</textarea>`
-          : `<input name="${attr(field.name)}" type="${attr(field.type || "text")}" value="${value}" />`
+          : `<input name="${attr(field.name)}" type="${attr(field.type || "text")}" value="${value}" placeholder="${attr(field.placeholder || "")}" />`
       }
       ${hint}
     </label>
@@ -671,7 +673,8 @@ function seedWorkspace() {
       }
     ],
     contacts: [],
-    campaigns: []
+    campaigns: [],
+    tagLibraryByPage: {}
   };
 
   workspace.flowsByPage = {
@@ -718,9 +721,22 @@ function normalizeWorkspaceState(workspace) {
   return {
     ...workspace,
     contacts,
+    tagLibraryByPage: normalizeTagLibraryByPage(workspace.tagLibraryByPage, activePageId),
     flowsByPage,
     flows: Array.isArray(flowsByPage[activePageId]) ? flowsByPage[activePageId] : Array.isArray(workspace.flows) ? workspace.flows : []
   };
+}
+
+function normalizeTagLibraryByPage(library, fallbackPageId = DEFAULT_FLOW_PAGE_ID) {
+  const next = {};
+  if (library && typeof library === "object" && !Array.isArray(library)) {
+    Object.entries(library).forEach(([pageId, tags]) => {
+      next[normalizeFlowPageId(pageId)] = normalizeTags(tags);
+    });
+  } else if (Array.isArray(library)) {
+    next[normalizeFlowPageId(fallbackPageId)] = normalizeTags(library);
+  }
+  return next;
 }
 
 function normalizeFlowPageId(pageId) {
@@ -3040,9 +3056,50 @@ function conditionRuleSummary(condition) {
 }
 
 function tagOptionsForCurrentPage(selectedValue = "") {
-  const tags = allContactTags(contactsForPage(currentFlowPageId()));
+  return availableTagsForCurrentPage(selectedValue);
+}
+
+function availableTagsForCurrentPage(selectedValue = "") {
+  return availableTagsForPage(currentFlowPageId(), selectedValue);
+}
+
+function availableTagsForPage(pageId, selectedValue = "") {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const tags = unique([
+    ...allContactTags(contactsForPage(normalizedPageId)),
+    ...tagLibraryForPage(normalizedPageId),
+    ...flowActionTagsForPage(normalizedPageId)
+  ]);
   const selected = String(selectedValue || "").trim();
-  return unique(selected && !tags.includes(selected) ? [...tags, selected] : tags);
+  return unique(selected && !tags.includes(selected) ? [...tags, selected] : tags).sort((a, b) => a.localeCompare(b));
+}
+
+function tagLibraryForPage(pageId = currentFlowPageId()) {
+  if (!state.tagLibraryByPage || typeof state.tagLibraryByPage !== "object" || Array.isArray(state.tagLibraryByPage)) {
+    state.tagLibraryByPage = {};
+  }
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  if (!Array.isArray(state.tagLibraryByPage[normalizedPageId])) state.tagLibraryByPage[normalizedPageId] = [];
+  state.tagLibraryByPage[normalizedPageId] = normalizeTags(state.tagLibraryByPage[normalizedPageId]);
+  return state.tagLibraryByPage[normalizedPageId];
+}
+
+function addTagToLibrary(tagName, pageId = currentFlowPageId()) {
+  const value = String(tagName || "").trim();
+  if (!value) return;
+  const tags = tagLibraryForPage(pageId);
+  if (!tags.some((tag) => normalize(tag) === normalize(value))) {
+    tags.push(value);
+    tags.sort((a, b) => a.localeCompare(b));
+  }
+}
+
+function flowActionTagsForPage(pageId = currentFlowPageId()) {
+  return unique(
+    localFlowsForPage(pageId).flatMap((flow) =>
+      (flow.nodes || []).flatMap((node) => (node.type === "action" ? nodeActionSteps(node).map((step) => step.tag).filter(Boolean) : []))
+    )
+  );
 }
 
 function renderConditionPicker(node) {
@@ -3230,7 +3287,10 @@ function renderActionStep(nodeId, step) {
           <strong>${escapeHtml(label)}</strong>
           ${removeButton}
         </div>
-        <input id="${attr(fieldId)}" data-action-step-field="tag" data-step-id="${attr(step.id)}" value="${attr(step.tag || "")}" placeholder="Digite ou selecione a tag" />
+        <div class="action-tag-combobox">
+          <input id="${attr(fieldId)}" data-action="open-action-tag-picker" data-action-tag-input="${attr(step.id)}" data-action-step-field="tag" data-step-id="${attr(step.id)}" value="${attr(step.tag || "")}" autocomplete="off" placeholder="Digite ou selecione a tag" />
+          ${actionTagPickerStepId === step.id ? renderActionTagPicker(step) : ""}
+        </div>
       </article>
     `;
   }
@@ -3261,6 +3321,25 @@ function renderActionStep(nodeId, step) {
         ${removeButton}
       </div>
     </article>
+  `;
+}
+
+function renderActionTagPicker(step) {
+  const tags = availableTagsForCurrentPage(step.tag).filter((tagName) => {
+    const query = normalize(step.tag || "");
+    return !query || normalize(tagName).includes(query);
+  });
+  return `
+    <div class="action-tag-picker">
+      <div class="action-tag-picker-list">
+        ${
+          tags.length
+            ? tags.map((tagName) => `<button type="button" data-action="select-action-tag" data-step-id="${attr(step.id)}" data-tag="${attr(tagName)}">${escapeHtml(tagName)}</button>`).join("")
+            : `<span class="action-tag-empty">Nenhuma tag encontrada.</span>`
+        }
+      </div>
+      <button class="action-tag-create" type="button" data-action="open-create-action-tag" data-step-id="${attr(step.id)}">+ Tag</button>
+    </div>
   `;
 }
 
@@ -3373,6 +3452,11 @@ function handleWorkspaceClick(event) {
     if (!event.target.closest("[data-action]")) return render();
   }
 
+  if (actionTagPickerStepId && !event.target.closest(".action-tag-picker") && !event.target.closest("[data-action-tag-input]")) {
+    actionTagPickerStepId = "";
+    if (!event.target.closest("[data-action]")) return render();
+  }
+
   if (canvasAddMenu && !event.target.closest(".canvas-add-menu")) {
     canvasAddMenu = null;
     document.querySelector(".canvas-add-menu")?.remove();
@@ -3395,6 +3479,7 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    actionTagPickerStepId = "";
     conditionPickerNodeId = "";
     canvasAddMenu = null;
     return render();
@@ -3407,6 +3492,7 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    actionTagPickerStepId = "";
     conditionPickerNodeId = "";
     canvasAddMenu = null;
     return render();
@@ -3421,6 +3507,9 @@ function handleWorkspaceClick(event) {
   if (action === "select-action-category") return selectActionCategory(button.dataset.category);
   if (action === "add-action-step") return addActionStep(button.dataset.type);
   if (action === "remove-action-step") return removeActionStep(id, button.dataset.stepId);
+  if (action === "open-action-tag-picker") return openActionTagPicker(button.dataset.stepId);
+  if (action === "select-action-tag") return selectActionTag(button.dataset.stepId, button.dataset.tag);
+  if (action === "open-create-action-tag") return openCreateActionTagModal(button.dataset.stepId);
   if (action === "open-condition-picker") return openConditionPicker(id);
   if (action === "close-condition-picker") return closeConditionPicker();
   if (action === "select-condition-category") return selectConditionCategory(button.dataset.category);
@@ -3451,6 +3540,7 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    actionTagPickerStepId = "";
     canvasAddMenu = null;
     shouldAutoFitCanvas = true;
     localStorage.setItem("messenlead.canvas.flowList", "false");
@@ -3593,6 +3683,7 @@ function handleWorkspaceInput(event) {
     const step = nodeActionSteps(node).find((item) => item.id === target.dataset.stepId);
     if (!step) return;
     step[target.dataset.actionStepField] = target.value;
+    if (target.dataset.actionStepField === "tag") actionTagPickerStepId = step.id;
     node.message = summarizeActionSteps(node);
     flow.updatedAt = new Date().toISOString();
     saveState();
@@ -4463,6 +4554,63 @@ function addActionStep(type) {
   render();
 }
 
+function openActionTagPicker(stepId) {
+  if (!stepId) return;
+  actionTagPickerStepId = stepId;
+  render();
+  requestAnimationFrame(() => {
+    const input = document.getElementById(`action_${stepId}`);
+    input?.focus();
+  });
+}
+
+function selectActionTag(stepId, tagName) {
+  const context = actionStepContext(stepId);
+  if (!context || !tagName) return;
+  context.step.tag = tagName;
+  addTagToLibrary(tagName, currentFlowPageId());
+  context.node.message = summarizeActionSteps(context.node);
+  context.flow.updatedAt = new Date().toISOString();
+  actionTagPickerStepId = "";
+  saveState();
+  render();
+}
+
+function openCreateActionTagModal(stepId) {
+  const context = actionStepContext(stepId);
+  if (!context) return;
+  actionTagPickerStepId = "";
+  openFormModal({
+    title: "Criar tag",
+    className: "tag-create-modal",
+    intro:
+      "Uma tag é como um rótulo que descreve características dos contatos, permitindo classificar e organizar o seu público de forma eficiente. As tags são usadas para segmentar os contatos com precisão.",
+    submitLabel: "Criar",
+    fields: [
+      { name: "name", label: "Nome", value: context.step.tag || "", required: true, placeholder: "Inserir nome da tag" },
+      { name: "folder", label: "Pasta", value: "Tags" }
+    ],
+    onSubmit: ({ name }) => {
+      const tagName = name.trim();
+      if (!tagName) throw new Error("Informe o nome da tag.");
+      context.step.tag = tagName;
+      addTagToLibrary(tagName, currentFlowPageId());
+      context.node.message = summarizeActionSteps(context.node);
+      context.flow.updatedAt = new Date().toISOString();
+      saveState();
+      render();
+    }
+  });
+}
+
+function actionStepContext(stepId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "action") return null;
+  const step = nodeActionSteps(node).find((item) => item.id === stepId);
+  return step ? { flow, node, step } : null;
+}
+
 function removeActionStep(nodeId, stepId) {
   const flow = selectedFlow();
   const node = flow?.nodes.find((item) => item.id === nodeId);
@@ -4577,6 +4725,7 @@ function createContact() {
 function createContactFromValues({ name, psid, tag }) {
   const pageId = currentFlowPageId();
   const tags = normalizeTags(tag || "novo-assinante");
+  tags.forEach((tagName) => addTagToLibrary(tagName, pageId));
   const contact = {
     id: makeId("contact"),
     pageId,
@@ -4668,6 +4817,7 @@ function addTagToContact(contact, value) {
   contact.tags = tags;
   contact.tag = tags[0] || "";
   contact.lastSeen = contact.lastSeen || new Date().toISOString();
+  addTagToLibrary(value, contact.pageId || currentFlowPageId());
 }
 
 function removeTagFromContact(contact, value) {
