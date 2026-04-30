@@ -2258,6 +2258,53 @@ svg {
   padding-right: 4px;
 }
 
+.webhook-diagnostic {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.webhook-diagnostic.ok {
+  border-color: #b7ebd0;
+  background: #f0fdf4;
+}
+
+.webhook-diagnostic.warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.webhook-diagnostic.error {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.webhook-diagnostic strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.webhook-diagnostic > span:not(.badge) {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.webhook-diagnostic pre {
+  flex-basis: 100%;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 11px;
+}
+
 .flow-log-row {
   display: grid;
   gap: 7px;

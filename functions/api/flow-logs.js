@@ -1,4 +1,4 @@
-import { clearFlowLogs, listFlowLogs } from "../_lib/flowLogs.js";
+import { addFlowLog, clearFlowLogs, listFlowLogs } from "../_lib/flowLogs.js";
 import { getSession, json } from "../_lib/meta.js";
 
 export async function onRequestGet({ request, env }) {
@@ -33,6 +33,40 @@ export async function onRequestDelete({ request, env }) {
 
   try {
     await clearFlowLogs(env, pageId);
+    return json({ ok: true, pageId });
+  } catch (error) {
+    return json({ error: error.message }, 500);
+  }
+}
+
+export async function onRequestPost({ request, env }) {
+  const auth = await authorizeLogRequest(request, env);
+  if (!auth.ok) return auth.response;
+
+  if (!env.DB) {
+    return json({ error: "D1 binding DB is not configured" }, 501);
+  }
+
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+
+  const pageId = body.pageId || new URL(request.url).searchParams.get("pageId");
+
+  try {
+    await addFlowLog(env, {
+      pageId,
+      level: "info",
+      event: "manual_log_test",
+      message: "Teste manual de logs criado pelo dashboard.",
+      data: {
+        source: "dashboard",
+        createdBy: "flow-logs-api"
+      }
+    });
     return json({ ok: true, pageId });
   } catch (error) {
     return json({ error: error.message }, 500);

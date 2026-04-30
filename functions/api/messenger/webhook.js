@@ -18,28 +18,66 @@ export async function onRequestGet({ request, env }) {
 
 export async function onRequestPost({ request, env }) {
   const rawBody = await request.arrayBuffer();
+  const rawText = new TextDecoder().decode(rawBody);
   const signatureOk = await verifyMetaSignature(request, rawBody, env.MESSENGER_APP_SECRET);
 
   if (!signatureOk) {
+    const payload = parsePayloadForDiagnostics(rawText);
+    await safeAddFlowLog(env, {
+      pageId: pageIdFromPayload(payload),
+      level: "error",
+      event: "invalid_signature",
+      message: "Webhook recebeu POST, mas a assinatura da Meta não validou.",
+      data: {
+        hasSignature: Boolean(request.headers.get("x-hub-signature-256") || request.headers.get("x-hub-signature")),
+        bodyPreview: rawText.slice(0, 800)
+      }
+    });
     return new Response("Invalid signature", { status: 403 });
   }
 
   let payload;
   try {
-    payload = JSON.parse(new TextDecoder().decode(rawBody));
+    payload = JSON.parse(rawText);
   } catch {
+    await safeAddFlowLog(env, {
+      pageId: "__global__",
+      level: "error",
+      event: "invalid_json",
+      message: "Webhook recebeu POST com JSON inválido.",
+      data: { bodyPreview: rawText.slice(0, 800) }
+    });
     return new Response("Invalid JSON", { status: 400 });
   }
 
   if (payload.object !== "page") {
+    await safeAddFlowLog(env, {
+      pageId: pageIdFromPayload(payload),
+      level: "warn",
+      event: "ignored_object",
+      message: "Webhook recebeu evento que não é de Página.",
+      data: { object: payload.object || "", bodyPreview: rawText.slice(0, 800) }
+    });
     return new Response("Ignored", { status: 200 });
   }
 
   const work = [];
+  let eventCount = 0;
   for (const entry of payload.entry || []) {
     for (const event of entry.messaging || []) {
+      eventCount += 1;
       work.push(handleMessengerEvent(event, env, entry.id));
     }
+  }
+
+  if (!eventCount) {
+    await safeAddFlowLog(env, {
+      pageId: pageIdFromPayload(payload),
+      level: "warn",
+      event: "no_messaging_events",
+      message: "Webhook recebeu payload de Página, mas sem eventos de messaging.",
+      data: { bodyPreview: rawText.slice(0, 800) }
+    });
   }
   await Promise.all(work);
 
@@ -47,10 +85,29 @@ export async function onRequestPost({ request, env }) {
 }
 
 async function handleMessengerEvent(event, env, pageId) {
-  if (event.message?.is_echo) return;
+  if (event.message?.is_echo) {
+    await safeAddFlowLog(env, {
+      pageId,
+      psid: event.sender?.id || "",
+      level: "info",
+      event: "echo_ignored",
+      message: "Evento ignorado porque é eco de mensagem enviada pela própria Página.",
+      data: { mid: event.message?.mid || "" }
+    });
+    return;
+  }
 
   const psid = event.sender?.id;
-  if (!psid) return;
+  if (!psid) {
+    await safeAddFlowLog(env, {
+      pageId,
+      level: "warn",
+      event: "missing_psid",
+      message: "Evento de Messenger chegou sem sender.id.",
+      data: { event }
+    });
+    return;
+  }
 
   const context = eventContext(event);
   const log = flowEventLogger(env, pageId, psid);
@@ -231,6 +288,18 @@ function flowEventLogger(env, pageId, psid) {
 
 function nodeLogName(node) {
   return `${node.type || "node"} ${node.title || node.name || node.id || ""}`.trim();
+}
+
+function parsePayloadForDiagnostics(rawText) {
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    return null;
+  }
+}
+
+function pageIdFromPayload(payload) {
+  return payload?.entry?.find((entry) => entry?.id)?.id || "__global__";
 }
 
 function runtimeContactFrom(contact = {}) {

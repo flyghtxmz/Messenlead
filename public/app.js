@@ -289,6 +289,12 @@ let flowLogState = {
   logs: [],
   error: ""
 };
+let webhookDiagState = {
+  pageId: "",
+  loading: false,
+  data: null,
+  error: ""
+};
 let metaState = {
   authChecked: false,
   profile: null,
@@ -2114,10 +2120,14 @@ function renderSettings() {
           </div>
           <div class="panel-actions">
             <button class="secondary-button" type="button" data-action="refresh-flow-logs">${icons.refresh}<span>Atualizar</span></button>
+            <button class="secondary-button" type="button" data-action="test-flow-log">${icons.play}<span>Testar D1</span></button>
+            <button class="secondary-button" type="button" data-action="check-webhook-subscription">${icons.plug}<span>Verificar webhook</span></button>
+            <button class="secondary-button" type="button" data-action="subscribe-page-webhook">${icons.workflow}<span>Inscrever Página</span></button>
             <button class="secondary-button danger" type="button" data-action="clear-flow-logs">${icons.trash}<span>Limpar</span></button>
           </div>
         </div>
         <div class="panel-body">
+          ${renderWebhookDiagnostic(pageId)}
           ${renderFlowLogsPanel(pageId)}
         </div>
       </section>
@@ -2144,6 +2154,36 @@ function renderFlowLogsPanel(pageId) {
   return `
     <div class="flow-log-list">
       ${flowLogState.logs.map(renderFlowLogRow).join("")}
+    </div>
+  `;
+}
+
+function renderWebhookDiagnostic(pageId) {
+  if (webhookDiagState.loading && webhookDiagState.pageId === pageId) {
+    return `<div class="webhook-diagnostic"><span class="badge">Verificando</span><strong>Consultando a Meta...</strong></div>`;
+  }
+  if (webhookDiagState.error && webhookDiagState.pageId === pageId) {
+    return `<div class="webhook-diagnostic error"><span class="badge paused">Erro</span><strong>${escapeHtml(webhookDiagState.error)}</strong></div>`;
+  }
+  if (webhookDiagState.pageId !== pageId || !webhookDiagState.data) {
+    return `
+      <div class="webhook-diagnostic">
+        <span class="badge">Webhook</span>
+        <strong>Clique em Verificar webhook para saber se esta Página está inscrita no app.</strong>
+      </div>
+    `;
+  }
+
+  const data = webhookDiagState.data;
+  const subscribed = Boolean(data.isCurrentAppSubscribed);
+  const fields = data.currentApp?.subscribed_fields || data.currentApp?.subscribedFields || [];
+  return `
+    <div class="webhook-diagnostic ${subscribed ? "ok" : "warn"}">
+      <span class="badge ${subscribed ? "active" : "paused"}">${subscribed ? "Inscrito" : "Não inscrito"}</span>
+      <strong>${subscribed ? "A Página está inscrita nos webhooks deste app." : "A Página não aparece inscrita nos webhooks deste app."}</strong>
+      <span>Token da Página: ${data.hasPageAccessToken ? "salvo" : "ausente"} · Apps retornados: ${(data.subscriptions || []).length}</span>
+      ${fields.length ? `<span>Campos: ${escapeHtml(fields.join(", "))}</span>` : ""}
+      ${data.error ? `<pre>${escapeHtml(data.error)}</pre>` : ""}
     </div>
   `;
 }
@@ -2727,6 +2767,50 @@ async function loadFlowLogsForPage(pageId = currentFlowPageId(), options = {}) {
 
 function refreshFlowLogs() {
   return loadFlowLogsForPage(currentFlowPageId());
+}
+
+async function testFlowLog() {
+  const pageId = currentFlowPageId();
+  try {
+    await apiPost("/api/flow-logs", { pageId });
+    toastMessage("Log de teste criado.");
+    await loadFlowLogsForPage(pageId);
+  } catch (error) {
+    toastMessage(error.message || "Não foi possível criar log de teste.");
+  }
+}
+
+async function checkWebhookSubscription() {
+  const pageId = currentFlowPageId();
+  webhookDiagState = { pageId, loading: true, data: null, error: "" };
+  if (activeView === "settings") render();
+
+  try {
+    const data = await apiGet(`/api/debug/webhook?pageId=${encodeURIComponent(pageId)}`);
+    webhookDiagState = { pageId, loading: false, data, error: "" };
+  } catch (error) {
+    webhookDiagState = { pageId, loading: false, data: null, error: error.message || "Erro ao verificar webhook" };
+  }
+
+  if (activeView === "settings") render();
+}
+
+async function subscribePageWebhook() {
+  const pageId = currentFlowPageId();
+  webhookDiagState = { pageId, loading: true, data: null, error: "" };
+  if (activeView === "settings") render();
+
+  try {
+    const data = await apiPost("/api/debug/webhook", { pageId });
+    webhookDiagState = { pageId, loading: false, data, error: "" };
+    toastMessage(data.isCurrentAppSubscribed ? "Página inscrita no webhook." : "A Meta não confirmou a inscrição.");
+    await loadFlowLogsForPage(pageId, { silent: true });
+  } catch (error) {
+    webhookDiagState = { pageId, loading: false, data: null, error: error.message || "Erro ao inscrever Página" };
+    toastMessage(webhookDiagState.error);
+  }
+
+  if (activeView === "settings") render();
 }
 
 async function clearFlowLogs() {
@@ -3937,6 +4021,9 @@ function handleWorkspaceClick(event) {
   if (action === "create-tag-folder") return openCreateTagFolderModal();
   if (action === "delete-tag-folder") return confirmDeleteTagFolder(button.dataset.folderId);
   if (action === "refresh-flow-logs") return refreshFlowLogs();
+  if (action === "test-flow-log") return testFlowLog();
+  if (action === "check-webhook-subscription") return checkWebhookSubscription();
+  if (action === "subscribe-page-webhook") return subscribePageWebhook();
   if (action === "clear-flow-logs") return clearFlowLogs();
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
