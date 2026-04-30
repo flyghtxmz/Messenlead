@@ -380,6 +380,9 @@ function triggerEventMatches(trigger, context) {
 
 function triggerKeywordMatches(trigger, node, flow, context) {
   const rawKeywords = node.keyword || flow.trigger || "";
+  if (trigger === "messenger_message") {
+    return true;
+  }
   if (trigger === "facebook_ad" || trigger === "facebook_comment" || trigger === "facebook_shop_message") {
     return !rawKeywords || keywordMatches(rawKeywords, `${context.normalizedInput} ${context.referralRef} ${context.referralSource}`);
   }

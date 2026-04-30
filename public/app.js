@@ -4209,7 +4209,7 @@ function buildNode(type, x, y) {
 
   if (type === "trigger") {
     node.triggerEvents = ["messenger_message"];
-    node.keyword = "oi";
+    node.keyword = "";
   }
 
   return normalizeNodeStructure(node);
@@ -5346,7 +5346,7 @@ function triggerMatchesSimulation(node, flow, normalizedText) {
   const triggers = nodeTriggerEvents(node);
   const keywords = node.keyword || flow.trigger || "";
   return triggers.some((trigger) => {
-    if (trigger === "messenger_message") return keywordMatches(keywords, normalizedText);
+    if (trigger === "messenger_message") return true;
     if (trigger === "facebook_ad") return normalizedText.includes("ad") || normalizedText.includes("anuncio");
     if (trigger === "facebook_comment") return normalizedText.includes("comentario");
     if (trigger === "referral_link") return normalizedText.includes("ref") || keywordMatches(keywords, normalizedText);
@@ -6180,10 +6180,13 @@ function renderActionNode(node, selected) {
 
 function renderTriggerNode(node, selected) {
   const activeTriggers = nodeTriggerEvents(node);
-  const triggerSummary = activeTriggers
-    .map((id) => triggerOptionById(id)?.title)
+  const triggerItems = activeTriggers
+    .map((id, index) => ({ id, option: triggerOptionById(id), index }))
+    .filter((item) => item.option);
+  const triggerSummary = triggerItems
+    .map((item) => item.option.title)
     .filter(Boolean)
-    .slice(0, 2);
+    .join(", ");
 
   return `
     <article class="node trigger trigger-start ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
@@ -6197,11 +6200,11 @@ function renderTriggerNode(node, selected) {
           </span>
         </div>
       </div>
-      <p>O gatilho é responsável por acionar a automação. Clique para adicionar um gatilho.</p>
+      <p title="${attr(triggerSummary || "Nenhum gatilho configurado")}">${escapeHtml(triggerSummary || "Adicione gatilhos para iniciar este fluxo.")}</p>
       <div class="trigger-list">
         ${
-          triggerSummary.length
-            ? triggerSummary.map((title) => `<span>${escapeHtml(title)}</span>`).join("")
+          triggerItems.length
+            ? triggerItems.map((item) => renderTriggerNodeItem(item)).join("")
             : `<span>Nenhum gatilho configurado</span>`
         }
       </div>
@@ -6211,6 +6214,18 @@ function renderTriggerNode(node, selected) {
       </div>
       ${renderOutputPort(node)}
     </article>
+  `;
+}
+
+function renderTriggerNodeItem(item) {
+  return `
+    <div class="trigger-node-item" title="${attr(item.option.title)}">
+      <span class="trigger-node-item-icon">${icons.message}</span>
+      <span>
+        <small>${escapeHtml(item.option.source || "Messenger")} #${item.index + 1}</small>
+        <strong>${escapeHtml(item.option.title)}</strong>
+      </span>
+    </div>
   `;
 }
 
