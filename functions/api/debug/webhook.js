@@ -55,11 +55,13 @@ export async function onRequestPost({ request, env }) {
     data: subscription
   });
 
+  const appStatus = await readAppWebhookSubscriptionStatus(env, config, pageId);
   const status = await readWebhookSubscriptionStatus(env, config, pageId, pageAccessToken);
   return json({
     pageId,
     hasPageAccessToken: true,
     appSubscription,
+    ...appStatus,
     subscription,
     ...status
   }, subscription.ok && appSubscription.ok ? 200 : 500);
