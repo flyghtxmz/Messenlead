@@ -285,6 +285,7 @@ let contactStore = {
 };
 let flowLogState = {
   pageId: "",
+  scope: "current",
   loading: false,
   logs: [],
   error: ""
@@ -2079,8 +2080,9 @@ function renderSettings() {
   const pageName = state.settings.pageName || state.settings.pageId || "Página atual";
   const folders = tagFoldersForPage(pageId);
   const tags = tagRecordsForPage(pageId);
-  if (flowLogState.pageId !== pageId && !flowLogState.loading) {
-    loadFlowLogsForPage(pageId, { silent: true });
+  const logPageId = flowLogState.scope === "all" ? "__all__" : pageId;
+  if (flowLogState.pageId !== logPageId && !flowLogState.loading) {
+    loadFlowLogsForPage(logPageId, { silent: true });
   }
 
   workspace.innerHTML = `
@@ -2116,19 +2118,21 @@ function renderSettings() {
         <div class="panel-header">
           <div>
             <h2>Logs do fluxo</h2>
-            <span>Diagnóstico real do webhook para ${escapeHtml(pageName)}</span>
+            <span>${flowLogState.scope === "all" ? "Todas as Páginas conectadas" : `Diagnóstico real do webhook para ${escapeHtml(pageName)}`}</span>
           </div>
           <div class="panel-actions">
+            <button class="secondary-button ${flowLogState.scope === "current" ? "active" : ""}" type="button" data-action="set-flow-log-scope" data-scope="current"><span>Página atual</span></button>
+            <button class="secondary-button ${flowLogState.scope === "all" ? "active" : ""}" type="button" data-action="set-flow-log-scope" data-scope="all"><span>Todas</span></button>
             <button class="secondary-button" type="button" data-action="refresh-flow-logs">${icons.refresh}<span>Atualizar</span></button>
             <button class="secondary-button" type="button" data-action="test-flow-log">${icons.play}<span>Testar D1</span></button>
             <button class="secondary-button" type="button" data-action="check-webhook-subscription">${icons.plug}<span>Verificar webhook</span></button>
-            <button class="secondary-button" type="button" data-action="subscribe-page-webhook">${icons.workflow}<span>Inscrever Página</span></button>
+            <button class="secondary-button" type="button" data-action="subscribe-page-webhook">${icons.workflow}<span>Inscrever app/Página</span></button>
             <button class="secondary-button danger" type="button" data-action="clear-flow-logs">${icons.trash}<span>Limpar</span></button>
           </div>
         </div>
         <div class="panel-body">
           ${renderWebhookDiagnostic(pageId)}
-          ${renderFlowLogsPanel(pageId)}
+          ${renderFlowLogsPanel(logPageId)}
         </div>
       </section>
     </div>
@@ -2176,14 +2180,21 @@ function renderWebhookDiagnostic(pageId) {
 
   const data = webhookDiagState.data;
   const subscribed = Boolean(data.isCurrentAppSubscribed);
+  const appWebhook = data.appWebhook || {};
+  const appReady = Boolean(appWebhook.hasPageObjectSubscription && appWebhook.includesMessages);
   const fields = data.currentApp?.subscribed_fields || data.currentApp?.subscribedFields || [];
+  const appFields = appWebhook.fields || [];
   return `
-    <div class="webhook-diagnostic ${subscribed ? "ok" : "warn"}">
-      <span class="badge ${subscribed ? "active" : "paused"}">${subscribed ? "Inscrito" : "Não inscrito"}</span>
-      <strong>${subscribed ? "A Página está inscrita nos webhooks deste app." : "A Página não aparece inscrita nos webhooks deste app."}</strong>
+    <div class="webhook-diagnostic ${subscribed && appReady ? "ok" : "warn"}">
+      <span class="badge ${subscribed ? "active" : "paused"}">${subscribed ? "Página inscrita" : "Página não inscrita"}</span>
+      <span class="badge ${appReady ? "active" : "paused"}">${appReady ? "App recebe page/messages" : "App sem page/messages"}</span>
+      <strong>${subscribed && appReady ? "A Página e o app estão prontos para receber eventos." : "Ainda falta uma parte da configuração de webhook."}</strong>
       <span>Token da Página: ${data.hasPageAccessToken ? "salvo" : "ausente"} · Apps retornados: ${(data.subscriptions || []).length}</span>
-      ${fields.length ? `<span>Campos: ${escapeHtml(fields.join(", "))}</span>` : ""}
+      ${fields.length ? `<span>Campos da Página: ${escapeHtml(fields.join(", "))}</span>` : ""}
+      ${appFields.length ? `<span>Campos do app/page: ${escapeHtml(appFields.join(", "))}</span>` : ""}
+      ${appWebhook.callbackUrl ? `<span>Callback do app: ${escapeHtml(appWebhook.callbackUrl)}</span>` : ""}
       ${data.error ? `<pre>${escapeHtml(data.error)}</pre>` : ""}
+      ${appWebhook.error ? `<pre>${escapeHtml(appWebhook.error)}</pre>` : ""}
     </div>
   `;
 }
@@ -2199,6 +2210,7 @@ function renderFlowLogRow(log) {
       </div>
       <div class="flow-log-meta">
         <span>${escapeHtml(log.event || "")}</span>
+        <span>Página ${escapeHtml(log.pageId || "")}</span>
         ${log.flowName ? `<span>${escapeHtml(log.flowName)}</span>` : ""}
         ${log.psid ? `<span>PSID ${escapeHtml(log.psid)}</span>` : ""}
       </div>
@@ -2766,7 +2778,7 @@ async function loadFlowLogsForPage(pageId = currentFlowPageId(), options = {}) {
 }
 
 function refreshFlowLogs() {
-  return loadFlowLogsForPage(currentFlowPageId());
+  return loadFlowLogsForPage(currentFlowLogPageId());
 }
 
 async function testFlowLog() {
@@ -2814,22 +2826,35 @@ async function subscribePageWebhook() {
 }
 
 async function clearFlowLogs() {
-  const pageId = currentFlowPageId();
+  const pageId = currentFlowLogPageId();
   openConfirmModal({
     title: "Limpar logs",
-    message: "Apagar todos os logs de fluxo desta Página?",
+    message: pageId === "__all__" ? "Apagar todos os logs de fluxo de todas as Páginas?" : "Apagar todos os logs de fluxo desta Página?",
     submitLabel: "Limpar",
     danger: true,
     onConfirm: async () => {
       try {
         await apiDelete(`/api/flow-logs?pageId=${encodeURIComponent(pageId)}`);
-        flowLogState = { pageId, loading: false, logs: [], error: "" };
+        flowLogState = { ...flowLogState, pageId, loading: false, logs: [], error: "" };
         render();
       } catch (error) {
         toastMessage(error.message || "Não foi possível limpar os logs.");
       }
     }
   });
+}
+
+function setFlowLogScope(scope) {
+  flowLogState = {
+    ...flowLogState,
+    scope: scope === "all" ? "all" : "current",
+    pageId: ""
+  };
+  return loadFlowLogsForPage(currentFlowLogPageId());
+}
+
+function currentFlowLogPageId() {
+  return flowLogState.scope === "all" ? "__all__" : currentFlowPageId();
 }
 
 async function deleteFlowFromServer(flowId, pageId) {
@@ -4020,6 +4045,7 @@ function handleWorkspaceClick(event) {
   if (action === "delete-campaign") return deleteCampaign(id);
   if (action === "create-tag-folder") return openCreateTagFolderModal();
   if (action === "delete-tag-folder") return confirmDeleteTagFolder(button.dataset.folderId);
+  if (action === "set-flow-log-scope") return setFlowLogScope(button.dataset.scope);
   if (action === "refresh-flow-logs") return refreshFlowLogs();
   if (action === "test-flow-log") return testFlowLog();
   if (action === "check-webhook-subscription") return checkWebhookSubscription();

@@ -262,6 +262,97 @@ export async function subscribePageToMessengerWebhooks(page, config) {
   }
 }
 
+export async function getAppWebhookSubscriptions(config) {
+  if (!config.appId || !config.appSecret) {
+    return {
+      ok: false,
+      error: "Missing app id or app secret",
+      subscriptions: [],
+      pageSubscription: null
+    };
+  }
+
+  try {
+    const result = await graphFetch(
+      graphUrl(config, `/${config.appId}/subscriptions`, {
+        access_token: appAccessToken(config)
+      })
+    );
+    const subscriptions = result.data || [];
+    return {
+      ok: true,
+      subscriptions,
+      pageSubscription: subscriptions.find((subscription) => subscription.object === "page") || null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: error.status || 500,
+      error: error.message,
+      details: error.payload || null,
+      subscriptions: [],
+      pageSubscription: null
+    };
+  }
+}
+
+export async function subscribeAppToPageWebhooks(config, callbackUrl, verifyToken) {
+  if (!config.appId || !config.appSecret) {
+    return { ok: false, error: "Missing app id or app secret" };
+  }
+  if (!callbackUrl || !verifyToken) {
+    return { ok: false, error: "Missing callback URL or verify token" };
+  }
+
+  const fields = [
+    "messages",
+    "messaging_postbacks",
+    "messaging_optins",
+    "messaging_referrals"
+  ].join(",");
+
+  try {
+    const body = new URLSearchParams({
+      object: "page",
+      callback_url: callbackUrl,
+      verify_token: verifyToken,
+      fields
+    });
+    const result = await graphFetch(
+      graphUrl(config, `/${config.appId}/subscriptions`, {
+        access_token: appAccessToken(config)
+      }),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body
+      }
+    );
+
+    return {
+      ok: true,
+      object: "page",
+      callbackUrl,
+      fields,
+      result
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      object: "page",
+      callbackUrl,
+      fields,
+      status: error.status || 500,
+      error: error.message,
+      details: error.payload || null
+    };
+  }
+}
+
+function appAccessToken(config) {
+  return `${config.appId}|${config.appSecret}`;
+}
+
 export async function getPageAccessToken(request, env, pageId) {
   const session = await getSession(request, env);
   if (!session?.accessToken) return "";

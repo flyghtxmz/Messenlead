@@ -66,6 +66,19 @@ export async function listFlowLogs(env, pageId, options = {}) {
   if (!hasDb) return [];
 
   const limit = Math.max(1, Math.min(300, Number(options.limit) || 100));
+  if (isAllPages(pageId)) {
+    const rows = await env.DB.prepare(`
+      SELECT id, page_id, psid, flow_id, flow_name, level, event, message, data_json, created_at
+      FROM flow_logs
+      ORDER BY created_at DESC
+      LIMIT ?
+    `)
+      .bind(limit)
+      .all();
+
+    return (rows.results || []).map(normalizeFlowLogRow);
+  }
+
   const rows = await env.DB.prepare(`
     SELECT id, page_id, psid, flow_id, flow_name, level, event, message, data_json, created_at
     FROM flow_logs
@@ -82,6 +95,11 @@ export async function listFlowLogs(env, pageId, options = {}) {
 export async function clearFlowLogs(env, pageId) {
   const hasDb = await ensureFlowLogSchema(env);
   if (!hasDb) return false;
+
+  if (isAllPages(pageId)) {
+    await env.DB.prepare("DELETE FROM flow_logs").run();
+    return true;
+  }
 
   await env.DB.prepare("DELETE FROM flow_logs WHERE page_id = ?")
     .bind(normalizePageId(pageId))
@@ -107,6 +125,10 @@ function normalizeFlowLogRow(row) {
 
 function normalizePageId(pageId) {
   return String(pageId || "__global__").trim() || "__global__";
+}
+
+function isAllPages(pageId) {
+  return ["__all__", "*", "all"].includes(String(pageId || "").trim());
 }
 
 function parseJson(value) {

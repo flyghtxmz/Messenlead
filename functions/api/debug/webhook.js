@@ -1,5 +1,5 @@
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
-import { getMetaConfig, getSession, graphFetch, graphUrl, json, subscribePageToMessengerWebhooks } from "../../_lib/meta.js";
+import { getAppWebhookSubscriptions, getMetaConfig, getSession, graphFetch, graphUrl, json, subscribeAppToPageWebhooks, subscribePageToMessengerWebhooks } from "../../_lib/meta.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
 
 export async function onRequestGet({ request, env }) {
@@ -33,6 +33,19 @@ export async function onRequestPost({ request, env }) {
     return json({ pageId, hasPageAccessToken: false, error: "No stored Page access token for this Page" }, 403);
   }
 
+  const appSubscription = await subscribeAppToPageWebhooks(
+    config,
+    new URL("/api/messenger/webhook", request.url).toString(),
+    env.MESSENGER_VERIFY_TOKEN
+  );
+  await safeAddFlowLog(env, {
+    pageId,
+    level: appSubscription.ok ? "info" : "error",
+    event: "manual_app_webhook_subscription",
+    message: appSubscription.ok ? "App inscrito no objeto page para receber webhooks." : "Falha ao inscrever app no objeto page.",
+    data: appSubscription
+  });
+
   const subscription = await subscribePageToMessengerWebhooks({ id: pageId, access_token: pageAccessToken }, config);
   await safeAddFlowLog(env, {
     pageId,
@@ -46,16 +59,18 @@ export async function onRequestPost({ request, env }) {
   return json({
     pageId,
     hasPageAccessToken: true,
+    appSubscription,
     subscription,
     ...status
-  }, subscription.ok ? 200 : 500);
+  }, subscription.ok && appSubscription.ok ? 200 : 500);
 }
 
 async function webhookSubscriptionStatus(request, env, pageId) {
   const config = getMetaConfig(request, env);
   const pageAccessToken = await getStoredPageAccessToken(env, pageId);
+  const appStatus = await readAppWebhookSubscriptionStatus(env, config, pageId);
   if (!pageAccessToken) {
-    return json({ pageId, appId: config.appId || "", hasPageAccessToken: false, subscriptions: [] });
+    return json({ pageId, appId: config.appId || "", hasPageAccessToken: false, subscriptions: [], ...appStatus });
   }
 
   const status = await readWebhookSubscriptionStatus(env, config, pageId, pageAccessToken);
@@ -63,8 +78,48 @@ async function webhookSubscriptionStatus(request, env, pageId) {
     pageId,
     appId: config.appId || "",
     hasPageAccessToken: true,
+    ...appStatus,
     ...status
   });
+}
+
+async function readAppWebhookSubscriptionStatus(env, config, pageId) {
+  const status = await getAppWebhookSubscriptions(config);
+  if (!status.ok) {
+    await safeAddFlowLog(env, {
+      pageId,
+      level: "error",
+      event: "app_webhook_subscription_check_failed",
+      message: "Falha ao consultar subscription do app para objeto page.",
+      data: status
+    });
+  }
+
+  const fields = normalizeSubscriptionFields(status.pageSubscription);
+  const callbackUrl = status.pageSubscription?.callback_url || "";
+  return {
+    appWebhook: {
+      ok: status.ok,
+      hasPageObjectSubscription: Boolean(status.pageSubscription),
+      callbackUrl,
+      fields,
+      includesMessages: fields.includes("messages"),
+      subscription: status.pageSubscription,
+      error: status.error || "",
+      details: status.details || null
+    }
+  };
+}
+
+function normalizeSubscriptionFields(subscription) {
+  if (!subscription) return [];
+  if (Array.isArray(subscription.fields)) {
+    return subscription.fields.map((field) => typeof field === "string" ? field : field?.name).filter(Boolean);
+  }
+  return String(subscription.fields || "")
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean);
 }
 
 async function readWebhookSubscriptionStatus(env, config, pageId, pageAccessToken) {
