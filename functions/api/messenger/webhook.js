@@ -68,6 +68,10 @@ export async function onRequestPost({ request, env }) {
       eventCount += 1;
       work.push(handleMessengerEvent(event, env, entry.id));
     }
+    for (const event of entry.standby || []) {
+      eventCount += 1;
+      work.push(handleMessengerEvent(event, env, entry.id, { channel: "standby" }));
+    }
   }
 
   if (!eventCount) {
@@ -84,7 +88,23 @@ export async function onRequestPost({ request, env }) {
   return new Response("EVENT_RECEIVED", { status: 200 });
 }
 
-async function handleMessengerEvent(event, env, pageId) {
+async function handleMessengerEvent(event, env, pageId, options = {}) {
+  if (options.channel === "standby") {
+    await safeAddFlowLog(env, {
+      pageId,
+      psid: event.sender?.id || "",
+      level: "warn",
+      event: "standby_received",
+      message: "Mensagem chegou no canal standby. Outro app pode estar como receptor primário da Página.",
+      data: {
+        eventType: event.message ? "message" : event.postback ? "postback" : "unknown",
+        text: event.message?.text || event.postback?.payload || "",
+        note: "Configure este app como Primary Receiver na Meta para executar automações e responder."
+      }
+    });
+    return;
+  }
+
   if (event.message?.is_echo) {
     await safeAddFlowLog(env, {
       pageId,

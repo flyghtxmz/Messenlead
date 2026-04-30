@@ -2010,7 +2010,7 @@ function renderSetup() {
             ${integrationCard("Webhook", "Configure esta URL no app da Meta.", webhookUrl(), "copy-webhook")}
             ${integrationCard("OAuth callback", "Configure em Facebook Login.", `${location.origin}/api/auth/facebook/callback`, "copy-oauth")}
             ${integrationCard("D1 binding", "Salvamento robusto dos fluxos.", "DB", "copy-db-binding")}
-            ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins, messaging_referrals", "copy-fields")}
+            ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins, messaging_referrals, message_echoes, messaging_handovers, standby", "copy-fields")}
             ${integrationCard("Verify token", "Use o mesmo valor em MESSENGER_VERIFY_TOKEN.", state.settings.verifyToken, "copy-verify")}
             ${integrationCard("Endpoint de envio", "Envio serverless protegido por token.", `${location.origin}/api/messenger/send`, "copy-send")}
           </div>
@@ -4054,7 +4054,7 @@ function handleWorkspaceClick(event) {
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
-  if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins,messaging_referrals", "Campos copiados.");
+  if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins,messaging_referrals,message_echoes,messaging_handovers,standby", "Campos copiados.");
   if (action === "refresh-broadcast-eligibility") return refreshBroadcastEligibility();
   if (action === "choose-image") return document.querySelector("#imageUpload")?.click();
   if (action === "download-clean-image") return downloadCleanImage();

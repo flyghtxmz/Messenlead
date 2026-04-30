@@ -232,7 +232,10 @@ export async function subscribePageToMessengerWebhooks(page, config) {
     "messages",
     "messaging_postbacks",
     "messaging_optins",
-    "messaging_referrals"
+    "messaging_referrals",
+    "message_echoes",
+    "messaging_handovers",
+    "standby"
   ].join(",");
 
   try {
@@ -308,7 +311,10 @@ export async function subscribeAppToPageWebhooks(config, callbackUrl, verifyToke
     "messages",
     "messaging_postbacks",
     "messaging_optins",
-    "messaging_referrals"
+    "messaging_referrals",
+    "message_echoes",
+    "messaging_handovers",
+    "standby"
   ].join(",");
 
   try {
