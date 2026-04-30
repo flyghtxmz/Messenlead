@@ -1,6 +1,7 @@
 import { listFlows } from "../../_lib/flows.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
+import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -52,6 +53,15 @@ async function handleMessengerEvent(event, env, pageId) {
   if (!psid) return;
 
   const context = eventContext(event);
+  const log = flowEventLogger(env, pageId, psid);
+  await log("info", "event_received", "Mensagem recebida pelo webhook.", {
+    eventType: context.eventType,
+    text: context.text,
+    hasReferral: context.hasReferral,
+    referralRef: context.referralRef,
+    referralSource: context.referralSource
+  });
+
   const contact = await upsertContact(env, pageId, {
     psid,
     name: psid,
@@ -60,7 +70,12 @@ async function handleMessengerEvent(event, env, pageId) {
     lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
   });
 
-  const { replies, actions } = await buildReplies(context, env, pageId, contact);
+  await log("info", "contact_loaded", "Contato carregado para avaliar o fluxo.", {
+    tags: contact.tags || [],
+    status: contact.status || ""
+  });
+
+  const { replies, actions, flow } = await buildReplies(context, env, pageId, contact, log);
   if (actions.length) {
     await applyContactActions(env, pageId, psid, actions, {
       psid,
@@ -69,32 +84,60 @@ async function handleMessengerEvent(event, env, pageId) {
       source: "Messenger webhook",
       lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
     });
+    await log("info", "actions_applied", "Ações do fluxo foram aplicadas no contato.", { actions }, flow);
   }
 
-  if (!replies.length) return;
+  if (!replies.length) {
+    await log("warn", "no_replies", "O fluxo terminou sem resposta para enviar.", { actions }, flow);
+    return;
+  }
 
   for (const reply of replies.slice(0, 5)) {
-    await sendMessengerReply(psid, reply, env, pageId);
+    await sendMessengerReply(psid, reply, env, pageId, log, flow);
   }
 }
 
-async function buildReplies(context, env, pageId, contact = null) {
+async function buildReplies(context, env, pageId, contact = null, log = null) {
   const dbFlows = pageId ? await listFlows(env, pageId, { status: "active" }) : [];
   const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
   const activeFlows = flows.filter((flow) => flow.status === "active");
+  await log?.("info", "active_flows_loaded", "Fluxos ativos carregados para a Página.", {
+    activeFlowCount: activeFlows.length,
+    source: dbFlows.length ? "D1" : "MESSENLEAD_FLOW_JSON"
+  });
   const flow =
     activeFlows.find((item) => flowMatchesInput(item, context)) ||
     activeFlows[0];
 
   if (!flow) {
-    return { replies: [], actions: [] };
+    await log?.("warn", "no_active_flow", "Nenhum fluxo ativo foi encontrado para esta Página.", {
+      activeFlowCount: activeFlows.length
+    });
+    return { replies: [], actions: [], flow: null };
   }
+
+  await log?.("info", "flow_selected", `Fluxo selecionado: ${flow.name || flow.id}.`, {
+    flowId: flow.id,
+    flowName: flow.name || "",
+    trigger: flow.trigger || "",
+    nodeCount: flow.nodes?.length || 0
+  }, flow);
 
   const start =
     interactiveStartNode(flow, context) ||
     flow.nodes?.find((node) => node.type === "trigger" && triggerMatchesEvent(node, flow, context)) ||
     flow.nodes?.find((node) => node.type === "trigger") ||
     flow.nodes?.[0];
+
+  if (!start) {
+    await log?.("warn", "no_start_node", "O fluxo selecionado não possui bloco inicial.", {}, flow);
+    return { replies: [], actions: [], flow };
+  }
+
+  await log?.("info", "start_node_selected", `Bloco inicial: ${nodeLogName(start)}.`, {
+    nodeId: start.id,
+    nodeType: start.type
+  }, flow);
 
   const replies = [];
   const actions = [];
@@ -104,21 +147,90 @@ async function buildReplies(context, env, pageId, contact = null) {
 
   while (current && guard < 12) {
     guard += 1;
+    const stepContext = { ...context, contact: runtimeContact };
+    await log?.("info", "node_enter", `Executando bloco: ${nodeLogName(current)}.`, {
+      step: guard,
+      nodeId: current.id,
+      nodeType: current.type,
+      nodeTitle: current.title || current.name || "",
+      contactTags: runtimeContact.tags || []
+    }, flow);
 
     if (current.type === "message") {
-      replies.push(...repliesForMessageNode(current));
+      const nodeReplies = repliesForMessageNode(current);
+      replies.push(...nodeReplies);
+      await log?.("info", "message_prepared", "Mensagem preparada para envio.", {
+        nodeId: current.id,
+        replyCount: nodeReplies.length,
+        replyTypes: nodeReplies.map((reply) => reply.type || "text")
+      }, flow);
     }
 
     if (current.type === "action") {
       const nodeActions = actionStepsForNode(current);
       actions.push(...nodeActions);
       applyRuntimeContactActions(runtimeContact, nodeActions);
+      await log?.("info", "action_node_executed", "Bloco de ação executado no estado do contato.", {
+        nodeId: current.id,
+        actions: nodeActions,
+        resultingTags: runtimeContact.tags || []
+      }, flow);
     }
 
-    current = nextExecutableNode(flow, current, { ...context, contact: runtimeContact });
+    if (current.type === "condition") {
+      const matched = conditionMatchesNode(current, stepContext);
+      await log?.(matched ? "info" : "warn", "condition_result", `Condição ${matched ? "correspondeu" : "não correspondeu"}.`, {
+        nodeId: current.id,
+        result: matched ? "yes" : "no",
+        conditions: current.conditions || [],
+        contactTags: runtimeContact.tags || [],
+        yesNext: current.yesNext || "",
+        noNext: current.noNext || ""
+      }, flow);
+    }
+
+    const targetId = nextExecutableTargetId(current, stepContext);
+    const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
+    await log?.(next ? "info" : "warn", "next_node", next ? `Próximo bloco: ${nodeLogName(next)}.` : "Nenhum próximo bloco executável encontrado.", {
+      fromNodeId: current.id,
+      targetId: targetId || "",
+      nextNodeId: next?.id || "",
+      nextNodeType: next?.type || ""
+    }, flow);
+    current = next && next.type !== "trigger" && next.type !== "comment" ? next : null;
   }
 
-  return { replies, actions };
+  if (guard >= 12 && current) {
+    await log?.("warn", "guard_limit", "Execução interrompida para evitar loop no fluxo.", {
+      lastNodeId: current.id
+    }, flow);
+  }
+
+  await log?.("info", "flow_finished", "Execução do fluxo finalizada.", {
+    replyCount: replies.length,
+    actionCount: actions.length
+  }, flow);
+
+  return { replies, actions, flow };
+}
+
+function flowEventLogger(env, pageId, psid) {
+  return async (level, event, message, data = {}, flow = null) => {
+    await safeAddFlowLog(env, {
+      pageId,
+      psid,
+      flowId: flow?.id || data.flowId || "",
+      flowName: flow?.name || data.flowName || "",
+      level,
+      event,
+      message,
+      data
+    });
+  };
+}
+
+function nodeLogName(node) {
+  return `${node.type || "node"} ${node.title || node.name || node.id || ""}`.trim();
 }
 
 function runtimeContactFrom(contact = {}) {
@@ -473,15 +585,21 @@ function repliesForMessageNode(node) {
     .filter(Boolean);
 }
 
-async function sendMessengerReply(psid, reply, env, pageId) {
+async function sendMessengerReply(psid, reply, env, pageId, log = null, flow = null) {
   const pageAccessToken = (pageId ? await getStoredPageAccessToken(env, pageId) : "") || env.MESSENGER_PAGE_ACCESS_TOKEN;
   if (!pageAccessToken) {
     console.warn("Messenlead Messenger send skipped: missing page access token", { pageId });
+    await log?.("error", "send_skipped", "Envio ignorado: token da Página não encontrado.", {
+      replyType: reply.type || "text"
+    }, flow);
     return;
   }
 
   const graphUrl = env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages";
   const message = messengerMessagePayload(reply);
+  await log?.("info", "send_attempt", "Tentando enviar resposta pelo Messenger.", {
+    replyType: reply.type || "text"
+  }, flow);
 
   const response = await fetch(`${graphUrl}?access_token=${encodeURIComponent(pageAccessToken)}`, {
     method: "POST",
@@ -500,7 +618,18 @@ async function sendMessengerReply(psid, reply, env, pageId) {
       status: response.status,
       body: body.slice(0, 500)
     });
+    await log?.("error", "send_failed", "Falha ao enviar resposta pela Graph API.", {
+      status: response.status,
+      body: body.slice(0, 500)
+    }, flow);
+    return;
   }
+
+  const body = await response.text().catch(() => "");
+  await log?.("info", "send_success", "Resposta enviada pelo Messenger.", {
+    status: response.status,
+    body: body.slice(0, 500)
+  }, flow);
 }
 
 function messengerMessagePayload(reply) {

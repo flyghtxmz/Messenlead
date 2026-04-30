@@ -213,6 +213,7 @@ const icons = {
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-1 5v6M9 11v6M5 6l1 15h12l1-15"/></svg>`,
   copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h12v12H8V8Z"/><path d="M4 16V4h12"/></svg>`,
+  refresh: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v6h-6"/><path d="M4 18v-6h6"/><path d="M19 12a7 7 0 0 0-12-5l-3 3"/><path d="M5 12a7 7 0 0 0 12 5l3-3"/></svg>`,
   message: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/></svg>`,
   condition: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9 9-9Z"/><path d="M12 8v4l3 3"/></svg>`,
   delay: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
@@ -281,6 +282,12 @@ let contactStore = {
   loading: false,
   serverAvailable: null,
   status: "Local"
+};
+let flowLogState = {
+  pageId: "",
+  loading: false,
+  logs: [],
+  error: ""
 };
 let metaState = {
   authChecked: false,
@@ -1203,6 +1210,7 @@ function renderDashboard() {
           ${checkItem("Persistência", "Vincule um banco D1 como DB para salvar os fluxos por Página.")}
         </div>
       </aside>
+
     </div>
 
     <div class="two-column" style="margin-top:16px">
@@ -2065,6 +2073,9 @@ function renderSettings() {
   const pageName = state.settings.pageName || state.settings.pageId || "Página atual";
   const folders = tagFoldersForPage(pageId);
   const tags = tagRecordsForPage(pageId);
+  if (flowLogState.pageId !== pageId && !flowLogState.loading) {
+    loadFlowLogsForPage(pageId, { silent: true });
+  }
 
   workspace.innerHTML = `
     <div class="settings-grid">
@@ -2094,7 +2105,65 @@ function renderSettings() {
           <p class="muted">As tags criadas nos nodes de ação aparecem no dropdown e podem ser agrupadas por pasta aqui.</p>
         </div>
       </aside>
+
+      <section class="panel settings-wide-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Logs do fluxo</h2>
+            <span>Diagnóstico real do webhook para ${escapeHtml(pageName)}</span>
+          </div>
+          <div class="panel-actions">
+            <button class="secondary-button" type="button" data-action="refresh-flow-logs">${icons.refresh}<span>Atualizar</span></button>
+            <button class="secondary-button danger" type="button" data-action="clear-flow-logs">${icons.trash}<span>Limpar</span></button>
+          </div>
+        </div>
+        <div class="panel-body">
+          ${renderFlowLogsPanel(pageId)}
+        </div>
+      </section>
     </div>
+  `;
+}
+
+function renderFlowLogsPanel(pageId) {
+  if (flowLogState.loading && flowLogState.pageId === pageId) {
+    return `<div class="empty-state">Carregando logs do D1...</div>`;
+  }
+  if (flowLogState.error && flowLogState.pageId === pageId) {
+    return `<div class="empty-state">Não foi possível carregar os logs: ${escapeHtml(flowLogState.error)}</div>`;
+  }
+  if (flowLogState.pageId !== pageId || !flowLogState.logs.length) {
+    return `
+      <div class="empty-state">
+        Nenhum log encontrado para esta Página.
+        Envie uma mensagem no Messenger e clique em Atualizar. Se continuar vazio, o webhook da Meta não chegou no projeto.
+      </div>
+    `;
+  }
+
+  return `
+    <div class="flow-log-list">
+      ${flowLogState.logs.map(renderFlowLogRow).join("")}
+    </div>
+  `;
+}
+
+function renderFlowLogRow(log) {
+  const data = log.data && Object.keys(log.data).length ? JSON.stringify(log.data, null, 2) : "";
+  return `
+    <article class="flow-log-row ${attr(log.level || "info")}">
+      <div class="flow-log-main">
+        <span class="flow-log-level">${escapeHtml(log.level || "info")}</span>
+        <strong>${escapeHtml(log.message || log.event || "Evento")}</strong>
+        <span>${escapeHtml(formatDate(log.createdAt) || log.createdAt || "")}</span>
+      </div>
+      <div class="flow-log-meta">
+        <span>${escapeHtml(log.event || "")}</span>
+        ${log.flowName ? `<span>${escapeHtml(log.flowName)}</span>` : ""}
+        ${log.psid ? `<span>PSID ${escapeHtml(log.psid)}</span>` : ""}
+      </div>
+      ${data ? `<pre>${escapeHtml(data)}</pre>` : ""}
+    </article>
   `;
 }
 
@@ -2629,6 +2698,56 @@ async function syncAllFlowsToServer() {
   }
 }
 
+async function loadFlowLogsForPage(pageId = currentFlowPageId(), options = {}) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  flowLogState = {
+    ...flowLogState,
+    pageId: normalizedPageId,
+    loading: true,
+    error: options.keepError ? flowLogState.error : ""
+  };
+  if (activeView === "settings" && !options.silent) render();
+
+  try {
+    const result = await apiGet(`/api/flow-logs?pageId=${encodeURIComponent(normalizedPageId)}&limit=120`);
+    if (flowLogState.pageId !== normalizedPageId) return;
+    flowLogState.logs = Array.isArray(result.logs) ? result.logs : [];
+    flowLogState.error = "";
+  } catch (error) {
+    if (flowLogState.pageId !== normalizedPageId) return;
+    flowLogState.logs = [];
+    flowLogState.error = error.message || "Erro ao carregar logs";
+  } finally {
+    if (flowLogState.pageId === normalizedPageId) {
+      flowLogState.loading = false;
+      if (activeView === "settings") render();
+    }
+  }
+}
+
+function refreshFlowLogs() {
+  return loadFlowLogsForPage(currentFlowPageId());
+}
+
+async function clearFlowLogs() {
+  const pageId = currentFlowPageId();
+  openConfirmModal({
+    title: "Limpar logs",
+    message: "Apagar todos os logs de fluxo desta Página?",
+    submitLabel: "Limpar",
+    danger: true,
+    onConfirm: async () => {
+      try {
+        await apiDelete(`/api/flow-logs?pageId=${encodeURIComponent(pageId)}`);
+        flowLogState = { pageId, loading: false, logs: [], error: "" };
+        render();
+      } catch (error) {
+        toastMessage(error.message || "Não foi possível limpar os logs.");
+      }
+    }
+  });
+}
+
 async function deleteFlowFromServer(flowId, pageId) {
   if (!flowId) return;
 
@@ -2670,6 +2789,14 @@ async function apiPost(path, payload) {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+  return parseApiResponse(response);
+}
+
+async function apiDelete(path) {
+  const response = await fetch(path, {
+    method: "DELETE",
+    credentials: "same-origin"
   });
   return parseApiResponse(response);
 }
@@ -3809,6 +3936,8 @@ function handleWorkspaceClick(event) {
   if (action === "delete-campaign") return deleteCampaign(id);
   if (action === "create-tag-folder") return openCreateTagFolderModal();
   if (action === "delete-tag-folder") return confirmDeleteTagFolder(button.dataset.folderId);
+  if (action === "refresh-flow-logs") return refreshFlowLogs();
+  if (action === "clear-flow-logs") return clearFlowLogs();
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
