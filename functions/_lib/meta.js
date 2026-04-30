@@ -219,6 +219,49 @@ export async function getGrantedPermissions(userAccessToken, config) {
   return result.data || [];
 }
 
+export async function subscribePageToMessengerWebhooks(page, config) {
+  if (!page?.id || !page?.access_token) {
+    return {
+      pageId: page?.id || "",
+      ok: false,
+      error: "Missing Page access token"
+    };
+  }
+
+  const fields = [
+    "messages",
+    "messaging_postbacks",
+    "messaging_optins",
+    "messaging_referrals"
+  ].join(",");
+
+  try {
+    const result = await graphFetch(
+      graphUrl(config, `/${page.id}/subscribed_apps`, {
+        subscribed_fields: fields,
+        access_token: page.access_token
+      }),
+      { method: "POST" }
+    );
+
+    return {
+      pageId: page.id,
+      ok: true,
+      fields,
+      result
+    };
+  } catch (error) {
+    return {
+      pageId: page.id,
+      ok: false,
+      fields,
+      status: error.status || 500,
+      error: error.message,
+      details: error.payload || null
+    };
+  }
+}
+
 export async function getPageAccessToken(request, env, pageId) {
   const session = await getSession(request, env);
   if (!session?.accessToken) return "";

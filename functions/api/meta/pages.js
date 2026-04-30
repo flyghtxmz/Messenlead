@@ -1,4 +1,4 @@
-import { getGrantedPermissions, getManagedPages, getMetaConfig, getSession, json } from "../../_lib/meta.js";
+import { getGrantedPermissions, getManagedPages, getMetaConfig, getSession, json, subscribePageToMessengerWebhooks } from "../../_lib/meta.js";
 import { upsertConnectedPages } from "../../_lib/pages.js";
 
 export async function onRequestGet({ request, env }) {
@@ -12,6 +12,12 @@ export async function onRequestGet({ request, env }) {
     const config = getMetaConfig(request, env);
     const pages = await getManagedPages(session.accessToken, config);
     await upsertConnectedPages(env, session.user?.id, pages);
+    const webhookSubscriptions = [];
+    if (env.MESSENLEAD_AUTO_SUBSCRIBE_PAGES !== "false") {
+      for (const page of pages) {
+        webhookSubscriptions.push(await subscribePageToMessengerWebhooks(page, config));
+      }
+    }
     const permissions = pages.length ? [] : await getGrantedPermissions(session.accessToken, config);
     return json({
       debug: {
@@ -21,7 +27,8 @@ export async function onRequestGet({ request, env }) {
           .map((permission) => permission.permission),
         declinedPermissions: permissions
           .filter((permission) => permission.status !== "granted")
-          .map((permission) => permission.permission)
+          .map((permission) => permission.permission),
+        webhookSubscriptions
       },
       pages: pages.map((page) => ({
         id: page.id,

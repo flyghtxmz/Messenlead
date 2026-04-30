@@ -2408,6 +2408,7 @@ async function syncContactToServer(contact, payload = {}) {
   } catch (error) {
     contactStore.serverAvailable = false;
     contactStore.status = contactStoreStatusFromError(error);
+    toastMessage(`Contato ficou local: ${contactStore.status}`);
   }
 }
 
@@ -5917,9 +5918,9 @@ function conditionMatchesNode(node, context = {}) {
 
 function conditionRuleMatches(condition, context = {}) {
   const normalizedInput = normalize(context.inputText || context.normalizedText || "");
-  const expected = normalize(condition.value || "");
+  const expected = normalize(String(condition.value || "").trim());
   if (condition.type === "tag") {
-    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map((tag) => normalize(String(tag || "").trim()));
     if (!expected) return false;
     const hasTag = tags.includes(expected);
     return condition.operator === "not_contains" ? !hasTag : hasTag;

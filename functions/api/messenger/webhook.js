@@ -1,6 +1,6 @@
 import { listFlows } from "../../_lib/flows.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
-import { applyContactActions, upsertContact } from "../../_lib/contacts.js";
+import { applyContactActions, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -98,6 +98,7 @@ async function buildReplies(context, env, pageId, contact = null) {
 
   const replies = [];
   const actions = [];
+  const runtimeContact = runtimeContactFrom(contact);
   let current = start;
   let guard = 0;
 
@@ -109,13 +110,51 @@ async function buildReplies(context, env, pageId, contact = null) {
     }
 
     if (current.type === "action") {
-      actions.push(...actionStepsForNode(current));
+      const nodeActions = actionStepsForNode(current);
+      actions.push(...nodeActions);
+      applyRuntimeContactActions(runtimeContact, nodeActions);
     }
 
-    current = nextExecutableNode(flow, current, { ...context, contact });
+    current = nextExecutableNode(flow, current, { ...context, contact: runtimeContact });
   }
 
   return { replies, actions };
+}
+
+function runtimeContactFrom(contact = {}) {
+  const customFields = contact?.customFields && typeof contact.customFields === "object" ? { ...contact.customFields } : {};
+  return {
+    ...(contact || {}),
+    tags: normalizeTags(contact?.tags || contact?.tag),
+    customFields
+  };
+}
+
+function applyRuntimeContactActions(contact, actions = []) {
+  if (!contact) return;
+
+  normalizeActionSteps(actions).forEach((action) => {
+    if (action.type === "add_tag" && action.tag) {
+      contact.tags = normalizeTags([...(contact.tags || []), action.tag]);
+    }
+    if (action.type === "remove_tag" && action.tag) {
+      const tagKey = normalizeTagKey(action.tag);
+      contact.tags = normalizeTags(contact.tags).filter((tag) => normalizeTagKey(tag) !== tagKey);
+    }
+    if (action.type === "set_user_field" && action.fieldName) {
+      contact.customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
+      contact.customFields[action.fieldName] = action.fieldValue || "";
+    }
+    if (action.type === "clear_custom_field" && action.fieldName && contact.customFields) {
+      delete contact.customFields[action.fieldName];
+    }
+    if (action.type === "delete_contact") {
+      contact.status = "deleted";
+    }
+    if (action.type === "open_inbox") {
+      contact.status = "open";
+    }
+  });
 }
 
 function actionStepsForNode(node) {
@@ -243,9 +282,9 @@ function conditionMatchesNode(node, context = {}) {
 
 function conditionRuleMatches(condition, context = {}) {
   const input = normalize(context.normalizedInput || context.text || "");
-  const expected = normalize(condition.value || "");
+  const expected = normalize(String(condition.value || "").trim());
   if (condition.type === "tag") {
-    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalizeTagKey);
     if (!expected) return false;
     const hasTag = tags.includes(expected);
     return condition.operator === "not_contains" ? !hasTag : hasTag;
@@ -433,12 +472,15 @@ function repliesForMessageNode(node) {
 
 async function sendMessengerReply(psid, reply, env, pageId) {
   const pageAccessToken = (pageId ? await getStoredPageAccessToken(env, pageId) : "") || env.MESSENGER_PAGE_ACCESS_TOKEN;
-  if (!pageAccessToken) return;
+  if (!pageAccessToken) {
+    console.warn("Messenlead Messenger send skipped: missing page access token", { pageId });
+    return;
+  }
 
   const graphUrl = env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages";
   const message = messengerMessagePayload(reply);
 
-  await fetch(`${graphUrl}?access_token=${encodeURIComponent(pageAccessToken)}`, {
+  const response = await fetch(`${graphUrl}?access_token=${encodeURIComponent(pageAccessToken)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -447,6 +489,15 @@ async function sendMessengerReply(psid, reply, env, pageId) {
       message
     })
   });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    console.warn("Messenlead Messenger send failed", {
+      pageId,
+      status: response.status,
+      body: body.slice(0, 500)
+    });
+  }
 }
 
 function messengerMessagePayload(reply) {
@@ -562,6 +613,10 @@ function normalize(value) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+function normalizeTagKey(value) {
+  return normalize(String(value || "").trim());
 }
 
 function resolveTemplate(text) {
