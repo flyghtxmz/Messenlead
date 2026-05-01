@@ -2514,6 +2514,93 @@ svg {
   font-size: 18px;
 }
 
+.video-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.video-dropzone {
+  min-height: 260px;
+}
+
+.video-preview-frame video {
+  width: 100%;
+  max-height: 460px;
+  border-radius: 8px;
+  background: #0f172a;
+}
+
+.audio-preview-frame {
+  display: grid;
+  min-height: 300px;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  padding: 20px;
+  background: #f8fafc;
+}
+
+.audio-preview-frame svg {
+  width: 44px;
+  height: 44px;
+  color: var(--green);
+}
+
+.audio-preview-frame audio {
+  width: min(100%, 520px);
+}
+
+.video-control-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.video-control-panel .toggle-row {
+  min-height: 40px;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+.video-progress {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid #b7ebd0;
+  border-radius: 8px;
+  background: #f0fdf4;
+}
+
+.video-progress span {
+  color: var(--green-dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.video-progress div {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: #d6f4e2;
+}
+
+.video-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+
+.video-output-card {
+  max-width: 920px;
+}
+
 .empty-state {
   display: grid;
   justify-items: center;
@@ -2832,7 +2919,9 @@ svg {
   }
 
   .image-preview-grid,
-  .image-result-bar {
+  .image-result-bar,
+  .video-tool-grid,
+  .video-control-panel {
     grid-template-columns: 1fr;
   }
 

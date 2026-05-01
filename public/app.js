@@ -13,6 +13,7 @@ const navItems = [
   { id: "subscribers", label: "Assinantes", icon: "users" },
   { id: "broadcasts", label: "Disparos", icon: "send" },
   { id: "image", label: "Imagem", icon: "image" },
+  { id: "video", label: "Vídeo", icon: "video" },
   { id: "setup", label: "Messenger", icon: "plug" },
   { id: "settings", label: "Ajustes", icon: "settings" }
 ];
@@ -207,6 +208,7 @@ const icons = {
   users: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   send: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>`,
   image: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4V5Z"/><path d="m8 15 3-3 2 2 3-4 4 5"/><circle cx="8.5" cy="9.5" r="1.5"/></svg>`,
+  video: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4V6Z"/><path d="m17 10 4-3v10l-4-3"/></svg>`,
   plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2m6 6V2M6 8h12v5a6 6 0 0 1-12 0V8Z"/></svg>`,
   settings: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.1.36.66 1 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></svg>`,
   play: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7V5Z"/></svg>`,
@@ -249,6 +251,18 @@ let imageToolState = {
   original: null,
   cleaned: null,
   processing: false,
+  error: ""
+};
+let videoToolState = {
+  video: null,
+  audio: null,
+  output: null,
+  mode: "replace",
+  originalVolume: 0.45,
+  audioVolume: 1,
+  loopAudio: true,
+  processing: false,
+  progress: 0,
   error: ""
 };
 const storedCanvasZoom = localStorage.getItem("messenlead.canvas.zoom");
@@ -1069,6 +1083,7 @@ function render() {
     subscribers: renderSubscribers,
     broadcasts: renderBroadcasts,
     image: renderImageTool,
+    video: renderVideoTool,
     setup: renderSetup,
     settings: renderSettings
   };
@@ -1086,6 +1101,7 @@ function renderNav() {
     subscribers: pageContacts.length,
     broadcasts: state.campaigns.filter((campaign) => campaign.status !== "sent").length,
     image: "",
+    video: "",
     setup: "",
     settings: ""
   };
@@ -1987,6 +2003,131 @@ function renderImageProcessingCard() {
       <div class="image-preview-meta">
         <strong>Sem metadados</strong>
         <span>Novo arquivo sera gerado aqui.</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderVideoTool() {
+  const { video, audio, output, processing, progress, mode } = videoToolState;
+  const canProcess = video && audio && !processing;
+
+  workspace.innerHTML = `
+    <section class="panel image-tool-panel video-tool-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Trocar áudio de vídeo</h2>
+          <span>Processamento local no navegador, com saída em WebM</span>
+        </div>
+        <div class="button-row">
+          <button class="secondary-button" type="button" data-action="choose-video">${icons.video}<span>Vídeo</span></button>
+          <button class="secondary-button" type="button" data-action="choose-audio">${icons.send}<span>Áudio</span></button>
+          <button class="primary-button" type="button" data-action="process-video-audio" ${canProcess ? "" : "disabled"}>${icons.play}<span>${processing ? "Processando" : "Gerar"}</span></button>
+          ${output ? `<button class="primary-button" type="button" data-action="download-video-output">${icons.send}<span>Baixar</span></button>` : ""}
+          ${video || audio || output ? `<button class="secondary-button" type="button" data-action="clear-video-tool">${icons.trash}<span>Limpar</span></button>` : ""}
+        </div>
+      </div>
+
+      <input id="videoUpload" type="file" accept="video/*" hidden />
+      <input id="audioUpload" type="file" accept="audio/*" hidden />
+
+      <div class="panel-body image-tool-body">
+        <div class="video-tool-grid">
+          ${video ? renderVideoSourceCard(video) : renderVideoDropzone("videoUpload", "Vídeo", "Selecione ou solte o vídeo base.", icons.video)}
+          ${audio ? renderAudioSourceCard(audio) : renderVideoDropzone("audioUpload", "Áudio", "Selecione o áudio que será usado.", icons.send)}
+        </div>
+
+        <div class="video-control-panel">
+          <label class="settings-field">
+            <span>Modo</span>
+            <select data-video-field="mode">
+              <option value="replace" ${mode === "replace" ? "selected" : ""}>Substituir áudio original</option>
+              <option value="overlay" ${mode === "overlay" ? "selected" : ""}>Sobrepor ao áudio original</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>Volume do áudio original</span>
+            <input type="range" min="0" max="1" step="0.05" data-video-field="originalVolume" value="${attr(videoToolState.originalVolume)}" ${mode === "replace" ? "disabled" : ""} />
+          </label>
+          <label class="settings-field">
+            <span>Volume do novo áudio</span>
+            <input type="range" min="0" max="2" step="0.05" data-video-field="audioVolume" value="${attr(videoToolState.audioVolume)}" />
+          </label>
+          <label class="toggle-row">
+            <input type="checkbox" data-video-field="loopAudio" ${videoToolState.loopAudio ? "checked" : ""} />
+            <span>Repetir áudio se terminar antes do vídeo</span>
+          </label>
+        </div>
+
+        ${processing ? renderVideoProgress(progress) : ""}
+        ${output ? renderVideoOutputCard(output) : ""}
+        ${videoToolState.error ? `<div class="modal-error">${escapeHtml(videoToolState.error)}</div>` : ""}
+        <p class="muted">A exportação usa MediaRecorder do navegador. O arquivo final sai em WebM com áudio Opus; para MP4 seria necessário FFmpeg no backend ou ffmpeg.wasm.</p>
+      </div>
+    </section>
+  `;
+}
+
+function renderVideoDropzone(inputId, title, text, icon) {
+  return `
+    <label class="image-dropzone video-dropzone" for="${attr(inputId)}">
+      ${icon}
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(text)}</span>
+    </label>
+  `;
+}
+
+function renderVideoSourceCard(video) {
+  return `
+    <article class="image-preview-card video-source-card">
+      <div class="image-preview-frame video-preview-frame">
+        <video src="${attr(video.url)}" controls playsinline preload="metadata"></video>
+      </div>
+      <div class="image-preview-meta">
+        <strong>Vídeo base</strong>
+        <span>${escapeHtml(video.name)}</span>
+        <span>${formatBytes(video.size)} - ${escapeHtml(video.type || "video")} - ${formatDuration(video.duration)}</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderAudioSourceCard(audio) {
+  return `
+    <article class="image-preview-card video-source-card">
+      <div class="audio-preview-frame">
+        ${icons.send}
+        <audio src="${attr(audio.url)}" controls preload="metadata"></audio>
+      </div>
+      <div class="image-preview-meta">
+        <strong>Áudio selecionado</strong>
+        <span>${escapeHtml(audio.name)}</span>
+        <span>${formatBytes(audio.size)} - ${escapeHtml(audio.type || "audio")} - ${formatDuration(audio.duration)}</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderVideoProgress(progress) {
+  return `
+    <div class="video-progress" id="videoProgress">
+      <span>Processando ${Math.round(progress || 0)}%</span>
+      <div><i style="width:${Math.max(2, Math.min(100, Number(progress) || 0))}%"></i></div>
+    </div>
+  `;
+}
+
+function renderVideoOutputCard(output) {
+  return `
+    <article class="image-preview-card video-output-card">
+      <div class="image-preview-frame video-preview-frame">
+        <video src="${attr(output.url)}" controls playsinline preload="metadata"></video>
+      </div>
+      <div class="image-preview-meta">
+        <strong>Resultado</strong>
+        <span>${escapeHtml(output.name)}</span>
+        <span>${formatBytes(output.size)} - WEBM - ${formatDuration(output.duration)}</span>
       </div>
     </article>
   `;
@@ -4059,6 +4200,11 @@ function handleWorkspaceClick(event) {
   if (action === "choose-image") return document.querySelector("#imageUpload")?.click();
   if (action === "download-clean-image") return downloadCleanImage();
   if (action === "clear-image-tool") return clearImageTool();
+  if (action === "choose-video") return document.querySelector("#videoUpload")?.click();
+  if (action === "choose-audio") return document.querySelector("#audioUpload")?.click();
+  if (action === "process-video-audio") return processVideoAudio();
+  if (action === "download-video-output") return downloadVideoOutput();
+  if (action === "clear-video-tool") return clearVideoTool();
   if (action === "copy-verify") return copyText(state.settings.verifyToken, "Verify token copiado.");
   if (action === "copy-send") return copyText(`${location.origin}/api/messenger/send`, "Endpoint copiado.");
   if (action === "copy-env") return copyText(document.querySelector("#envBlock")?.textContent || "", "Variáveis copiadas.");
@@ -4145,6 +4291,10 @@ function handleWorkspaceInput(event) {
     state.settings[target.dataset.settingField] = target.value;
     saveState();
   }
+
+  if (target.dataset.videoField) {
+    updateVideoToolField(target, { renderAfter: false });
+  }
 }
 
 function handleWorkspaceChange(event) {
@@ -4155,6 +4305,20 @@ function handleWorkspaceChange(event) {
   if (target.id === "imageUpload") {
     handleImageUpload(target.files?.[0]);
     target.value = "";
+    return;
+  }
+  if (target.id === "videoUpload") {
+    handleVideoUpload(target.files?.[0]);
+    target.value = "";
+    return;
+  }
+  if (target.id === "audioUpload") {
+    handleAudioUpload(target.files?.[0]);
+    target.value = "";
+    return;
+  }
+  if (target.dataset.videoField) {
+    updateVideoToolField(target);
     return;
   }
   if (target.id === "subscriberPageFilter") {
@@ -4269,17 +4433,26 @@ function isEditableTarget(target) {
 }
 
 function handleWorkspaceDragOver(event) {
-  if (activeView !== "image") return;
+  if (!["image", "video"].includes(activeView)) return;
   if (!event.dataTransfer?.types?.includes("Files")) return;
   event.preventDefault();
 }
 
 function handleWorkspaceDrop(event) {
-  if (activeView !== "image") return;
+  if (!["image", "video"].includes(activeView)) return;
   const file = event.dataTransfer?.files?.[0];
   if (!file) return;
   event.preventDefault();
-  handleImageUpload(file);
+  if (activeView === "image") {
+    handleImageUpload(file);
+    return;
+  }
+  if (file.type.startsWith("video/")) handleVideoUpload(file);
+  else if (file.type.startsWith("audio/")) handleAudioUpload(file);
+  else {
+    videoToolState.error = "Solte um arquivo de vídeo ou áudio.";
+    render();
+  }
 }
 
 function createFlow() {
@@ -5483,6 +5656,281 @@ function clearImageTool() {
 function clearImageUrls() {
   if (imageToolState.original?.url) URL.revokeObjectURL(imageToolState.original.url);
   if (imageToolState.cleaned?.url) URL.revokeObjectURL(imageToolState.cleaned.url);
+}
+
+async function handleVideoUpload(file) {
+  if (!file) return;
+  if (!file.type.startsWith("video/")) {
+    videoToolState.error = "Selecione um arquivo de vídeo.";
+    render();
+    return;
+  }
+
+  clearVideoUrl("video");
+  clearVideoUrl("output");
+  const url = URL.createObjectURL(file);
+  videoToolState = {
+    ...videoToolState,
+    video: {
+      name: file.name,
+      size: file.size,
+      type: file.type || "video",
+      url,
+      duration: 0
+    },
+    output: null,
+    processing: false,
+    progress: 0,
+    error: ""
+  };
+  render();
+
+  try {
+    const metadata = await readMediaMetadata(url, "video");
+    videoToolState.video.duration = metadata.duration;
+  } catch {
+    videoToolState.video.duration = 0;
+  }
+  render();
+}
+
+async function handleAudioUpload(file) {
+  if (!file) return;
+  if (!file.type.startsWith("audio/")) {
+    videoToolState.error = "Selecione um arquivo de áudio.";
+    render();
+    return;
+  }
+
+  clearVideoUrl("audio");
+  clearVideoUrl("output");
+  const url = URL.createObjectURL(file);
+  videoToolState = {
+    ...videoToolState,
+    audio: {
+      name: file.name,
+      size: file.size,
+      type: file.type || "audio",
+      url,
+      duration: 0
+    },
+    output: null,
+    processing: false,
+    progress: 0,
+    error: ""
+  };
+  render();
+
+  try {
+    const metadata = await readMediaMetadata(url, "audio");
+    videoToolState.audio.duration = metadata.duration;
+  } catch {
+    videoToolState.audio.duration = 0;
+  }
+  render();
+}
+
+function updateVideoToolField(target, options = {}) {
+  const field = target.dataset.videoField;
+  if (!field) return;
+
+  if (target.type === "checkbox") {
+    videoToolState[field] = target.checked;
+  } else if (target.type === "range" || target.type === "number") {
+    videoToolState[field] = Number(target.value);
+  } else {
+    videoToolState[field] = target.value;
+  }
+
+  clearVideoUrl("output");
+  videoToolState.output = null;
+  videoToolState.error = "";
+  if (options.renderAfter !== false) render();
+}
+
+async function processVideoAudio() {
+  if (videoToolState.processing) return;
+  if (!videoToolState.video?.url || !videoToolState.audio?.url) {
+    videoToolState.error = "Selecione um vídeo e um áudio.";
+    render();
+    return;
+  }
+
+  const captureStreamSupported = Boolean(HTMLMediaElement.prototype.captureStream || HTMLMediaElement.prototype.mozCaptureStream);
+  if (!window.MediaRecorder || !window.AudioContext || !captureStreamSupported) {
+    videoToolState.error = "Seu navegador não suporta processamento de vídeo local com áudio.";
+    render();
+    return;
+  }
+
+  clearVideoUrl("output");
+  videoToolState = { ...videoToolState, output: null, processing: true, progress: 0, error: "" };
+  render();
+
+  let audioContext;
+  let progressTimer;
+  let combinedStream;
+  let workbench;
+  const chunks = [];
+
+  try {
+    const video = document.createElement("video");
+    const audio = document.createElement("audio");
+    video.src = videoToolState.video.url;
+    audio.src = videoToolState.audio.url;
+    video.muted = false;
+    video.playsInline = true;
+    video.preload = "auto";
+    audio.preload = "auto";
+    audio.loop = Boolean(videoToolState.loopAudio);
+    workbench = document.createElement("div");
+    workbench.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;";
+    workbench.append(video, audio);
+    document.body.append(workbench);
+
+    await Promise.all([waitForMediaReady(video), waitForMediaReady(audio)]);
+
+    audioContext = new AudioContext();
+    await audioContext.resume();
+    const destination = audioContext.createMediaStreamDestination();
+    const videoSource = audioContext.createMediaElementSource(video);
+    const audioSource = audioContext.createMediaElementSource(audio);
+    const originalGain = audioContext.createGain();
+    const audioGain = audioContext.createGain();
+
+    originalGain.gain.value = videoToolState.mode === "overlay" ? Number(videoToolState.originalVolume) || 0 : 0;
+    audioGain.gain.value = Number(videoToolState.audioVolume) || 0;
+    videoSource.connect(originalGain).connect(destination);
+    audioSource.connect(audioGain).connect(destination);
+
+    const sourceStream = video.captureStream ? video.captureStream() : video.mozCaptureStream();
+    const videoTracks = sourceStream.getVideoTracks();
+    if (!videoTracks.length) throw new Error("Não consegui capturar o vídeo.");
+
+    combinedStream = new MediaStream([...videoTracks, ...destination.stream.getAudioTracks()]);
+    const mimeType = preferredVideoMimeType();
+    const recorder = new MediaRecorder(combinedStream, mimeType ? { mimeType } : undefined);
+    const finished = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) chunks.push(event.data);
+      };
+      recorder.onerror = () => reject(recorder.error || new Error("Falha ao gravar o vídeo."));
+      recorder.onstop = resolve;
+    });
+
+    video.currentTime = 0;
+    audio.currentTime = 0;
+    recorder.start(1000);
+    progressTimer = window.setInterval(() => updateVideoProcessingProgress(video), 350);
+    video.onended = () => {
+      if (recorder.state !== "inactive") recorder.stop();
+      audio.pause();
+    };
+
+    await Promise.all([video.play(), audio.play()]);
+    await finished;
+
+    const type = recorder.mimeType || mimeType || "video/webm";
+    const blob = new Blob(chunks, { type });
+    const outputUrl = URL.createObjectURL(blob);
+    videoToolState.output = {
+      name: randomVideoOutputName(),
+      size: blob.size,
+      type,
+      url: outputUrl,
+      blob,
+      duration: videoToolState.video.duration || video.duration || 0
+    };
+    videoToolState.progress = 100;
+    toastMessage("Vídeo gerado.");
+  } catch (error) {
+    videoToolState.error = error.message || "Não foi possível processar o vídeo.";
+  } finally {
+    if (progressTimer) window.clearInterval(progressTimer);
+    combinedStream?.getTracks().forEach((track) => track.stop());
+    workbench?.remove();
+    if (audioContext) await audioContext.close().catch(() => {});
+    videoToolState.processing = false;
+    render();
+  }
+}
+
+function updateVideoProcessingProgress(video) {
+  const duration = videoToolState.video?.duration || video.duration || 0;
+  if (!duration) return;
+  videoToolState.progress = Math.max(0, Math.min(99, (video.currentTime / duration) * 100));
+  const progress = document.querySelector("#videoProgress");
+  if (!progress) return;
+  progress.querySelector("span").textContent = `Processando ${Math.round(videoToolState.progress)}%`;
+  progress.querySelector("i").style.width = `${Math.max(2, videoToolState.progress)}%`;
+}
+
+function preferredVideoMimeType() {
+  return [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm"
+  ].find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function waitForMediaReady(element) {
+  return new Promise((resolve, reject) => {
+    if (element.readyState >= 2) {
+      resolve(element);
+      return;
+    }
+    element.onloadeddata = () => resolve(element);
+    element.onerror = () => reject(new Error("Não consegui ler o arquivo de mídia."));
+  });
+}
+
+function readMediaMetadata(url, kind) {
+  return new Promise((resolve, reject) => {
+    const element = document.createElement(kind === "audio" ? "audio" : "video");
+    element.preload = "metadata";
+    element.src = url;
+    element.onloadedmetadata = () => resolve({ duration: Number.isFinite(element.duration) ? element.duration : 0 });
+    element.onerror = () => reject(new Error("Não consegui ler os metadados da mídia."));
+  });
+}
+
+function downloadVideoOutput() {
+  const output = videoToolState.output;
+  if (!output?.blob) return;
+  downloadBlob(output.name, output.blob);
+}
+
+function clearVideoTool() {
+  clearVideoUrls();
+  videoToolState = {
+    video: null,
+    audio: null,
+    output: null,
+    mode: "replace",
+    originalVolume: 0.45,
+    audioVolume: 1,
+    loopAudio: true,
+    processing: false,
+    progress: 0,
+    error: ""
+  };
+  render();
+}
+
+function clearVideoUrl(key) {
+  if (videoToolState[key]?.url) URL.revokeObjectURL(videoToolState[key].url);
+}
+
+function clearVideoUrls() {
+  clearVideoUrl("video");
+  clearVideoUrl("audio");
+  clearVideoUrl("output");
+}
+
+function randomVideoOutputName() {
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  return `video-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}.webm`;
 }
 
 function startSimulation() {
@@ -6846,6 +7294,7 @@ function placeholderForView(view) {
     subscribers: "Buscar assinante ou PSID",
     broadcasts: "Buscar disparo",
     image: "Limpar metadados de imagem",
+    video: "Trocar áudio de vídeo",
     setup: "Buscar configuração",
     settings: "Buscar ajuste"
   };
@@ -7268,6 +7717,18 @@ function formatDate(value) {
   } catch {
     return value;
   }
+}
+
+function formatDuration(value) {
+  const seconds = Math.max(0, Math.round(Number(value) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${String(mins).padStart(2, "0")}m`;
+  }
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
 function formatBytes(value) {
