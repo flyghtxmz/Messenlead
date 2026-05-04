@@ -2069,6 +2069,8 @@ function renderPixelEvents(events) {
 }
 
 function renderPixelEventRow(event) {
+  if (event.eventType === "page_view") return renderPixelSiteEntryBubble(event);
+
   const title = event.targetText || event.eventName || event.title || event.path || event.eventType;
   const detail = event.targetUrl || event.url || event.path || "";
   return `
@@ -2085,6 +2087,19 @@ function renderPixelEventRow(event) {
         <span>${escapeHtml(event.country || "")}</span>
         <span>${escapeHtml(formatDate(event.createdAt) || event.createdAt || "")}</span>
       </div>
+    </article>
+  `;
+}
+
+function renderPixelSiteEntryBubble(event) {
+  const visitor = shortVisitorId(event.visitorId);
+  const page = event.path || event.url || "site";
+  const time = formatDate(event.createdAt) || event.createdAt || "";
+  return `
+    <article class="pixel-site-entry-bubble">
+      <span>${icons.pixel}</span>
+      <strong>${escapeHtml(visitor)} entrou no site</strong>
+      <small>${escapeHtml(page)}${time ? ` - ${escapeHtml(time)}` : ""}</small>
     </article>
   `;
 }
