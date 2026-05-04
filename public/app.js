@@ -4722,7 +4722,7 @@ function exportSelectedFlowJson() {
     exportedAt: new Date().toISOString(),
     flow
   };
-  downloadFile(`messenlead-flow-${safeFileName(flow.name || flow.id || "fluxo")}.json`, JSON.stringify(payload, null, 2), "application/json");
+  downloadFile(`${safeFileName(flow.name || flow.id || "fluxo")}.json`, JSON.stringify(payload, null, 2), "application/json");
   toastMessage("Fluxo exportado.");
 }
 
