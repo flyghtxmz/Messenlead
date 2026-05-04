@@ -949,7 +949,7 @@ function normalizeNodeStructure(node) {
       endpoint: block.endpoint || "",
       items: Array.isArray(block.items) ? block.items : []
     }));
-    node.quickReplies = normalizeMessageOptions(node.quickReplies, "qr");
+    node.quickReplies = stripDefaultQuickReplies(normalizeMessageOptions(node.quickReplies, "qr"));
     node.buttons = normalizeMessageOptions(node.buttons, "btn").slice(0, 3);
   }
 
@@ -1037,6 +1037,16 @@ function normalizeMessageOptions(options, prefix) {
       };
     })
     .filter((option) => option.title);
+}
+
+function stripDefaultQuickReplies(options) {
+  if (!Array.isArray(options) || options.length !== 2) return options;
+
+  const titles = options.map((option) => normalize(option.title)).sort();
+  const isDefaultPair = titles[0] === "nao" && titles[1] === "sim";
+  const hasConfiguredTarget = options.some((option) => option.next || option.url || option.phone);
+
+  return isDefaultPair && !hasConfiguredTarget ? [] : options;
 }
 
 function conditionLabelForType(type) {
