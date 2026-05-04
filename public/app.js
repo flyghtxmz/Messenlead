@@ -607,7 +607,7 @@ function seedWorkspace() {
             type: "message",
             title: "Saudação",
             message: "Oi {{first_name}}! Sou o assistente da página. Você quer uma proposta, tirar uma dúvida ou falar com uma pessoa?",
-            quickReplies: ["Quero uma proposta", "Tenho uma dúvida", "Falar com humano"],
+            quickReplies: [],
             next: "qualify_intent",
             x: 370,
             y: 105
@@ -669,7 +669,7 @@ function seedWorkspace() {
             type: "message",
             title: "Perguntar necessidade",
             message: "Claro. Para eu te direcionar melhor, qual é o serviço ou produto que você procura?",
-            quickReplies: ["Serviço", "Produto", "Ainda estou pesquisando"],
+            quickReplies: [],
             next: "short_delay",
             x: 380,
             y: 145
@@ -689,7 +689,7 @@ function seedWorkspace() {
             type: "message",
             title: "Lembrete",
             message: "Ainda estou por aqui. Quer que eu chame alguém para te ajudar?",
-            quickReplies: ["Sim", "Depois"],
+            quickReplies: [],
             next: null,
             x: 980,
             y: 145
@@ -720,7 +720,7 @@ function seedWorkspace() {
             type: "message",
             title: "Retomada",
             message: "Passando para saber se você ainda quer ajuda. Posso te enviar as opções por aqui?",
-            quickReplies: ["Pode enviar", "Agora não"],
+            quickReplies: [],
             next: null,
             x: 395,
             y: 180
@@ -4834,7 +4834,7 @@ function createFlowFromName(name) {
         type: "message",
         title: "Resposta",
         message: "Oi {{first_name}}, como posso ajudar?",
-        quickReplies: ["Tenho interesse", "Suporte", "Falar com humano"],
+        quickReplies: [],
         next: null,
         x: 390,
         y: 140
@@ -4871,7 +4871,7 @@ function addNode(type) {
     buttons: type === "message" ? [] : undefined,
     actions: type === "action" ? [] : undefined,
     keyword: "",
-    quickReplies: type === "message" ? ["Sim", "Não"] : [],
+    quickReplies: [],
     conditionType: type === "condition" ? "message_contains" : undefined,
     conditionOperator: type === "condition" ? "contains_any" : undefined,
     yesNext: type === "condition" ? null : undefined,
@@ -4933,7 +4933,7 @@ function buildNode(type, x, y) {
     message: defaultNodeMessage(type),
     actions: type === "action" ? [] : undefined,
     keyword: "",
-    quickReplies: type === "message" ? ["Sim", "Não"] : [],
+    quickReplies: [],
     contentBlocks: type === "message" ? [{ id: makeId("block"), type: "text", text: defaultNodeMessage(type) }] : undefined,
     buttons: type === "message" ? [] : undefined,
     conditionType: type === "condition" ? "message_contains" : undefined,
@@ -5780,7 +5780,7 @@ function addNextStep(type) {
     message: defaultNodeMessage(normalizedType),
     actions: normalizedType === "action" ? [] : undefined,
     keyword: "",
-    quickReplies: normalizedType === "message" ? ["Sim", "Não"] : [],
+    quickReplies: [],
     next: canAcceptIncomingConnection(previousTarget) ? previousNext : null,
     x: clampNodeX(Math.round(current.x + 340)),
     y: clampNodeY(Math.round(current.y))
