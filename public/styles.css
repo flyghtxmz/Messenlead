@@ -1052,6 +1052,11 @@ svg {
   padding: 0 10px;
 }
 
+.canvas-actions .icon-button {
+  width: 34px;
+  height: 34px;
+}
+
 .canvas-panel-controls svg,
 .canvas-actions svg {
   width: 17px;
@@ -3159,6 +3164,11 @@ svg {
 .app-shell.canvas-mode .canvas-actions .secondary-button {
   min-height: 30px;
   padding: 0 9px;
+}
+
+.app-shell.canvas-mode .canvas-actions .icon-button {
+  width: 30px;
+  height: 30px;
 }
 
 .app-shell.canvas-mode .canvas-zoom {

@@ -215,6 +215,8 @@ const icons = {
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-1 5v6M9 11v6M5 6l1 15h12l1-15"/></svg>`,
   copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h12v12H8V8Z"/><path d="M4 16V4h12"/></svg>`,
+  upload: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0-4 4m4-4 4 4"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg>`,
+  download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>`,
   refresh: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v6h-6"/><path d="M4 18v-6h6"/><path d="M19 12a7 7 0 0 0-12-5l-3 3"/><path d="M5 12a7 7 0 0 0 12 5l3-3"/></svg>`,
   message: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/></svg>`,
   condition: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9 9-9Z"/><path d="M12 8v4l3 3"/></svg>`,
@@ -1498,7 +1500,10 @@ function renderFlows() {
             <button class="secondary-button" type="button" data-action="back-to-flows">${icons.workflow}<span>Fluxos</span></button>
           </div>
           <div class="canvas-actions">
+            <button class="icon-button canvas-file-button" type="button" data-action="export-flow-json" title="Exportar fluxo JSON" aria-label="Exportar fluxo JSON">${icons.upload}</button>
+            <button class="icon-button canvas-file-button" type="button" data-action="import-flow-json" title="Importar fluxo JSON" aria-label="Importar fluxo JSON">${icons.download}</button>
             <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
+            <input id="flowImportFile" type="file" accept="application/json,.json" hidden />
           </div>
           <div class="canvas-zoom" aria-label="Zoom do canvas">
             <button class="icon-button" type="button" data-action="canvas-zoom-out" title="Diminuir zoom">-</button>
@@ -4160,6 +4165,8 @@ function handleWorkspaceClick(event) {
   if (action === "toggle-flow-active") return toggleFlowActive(id);
   if (action === "duplicate-flow") return duplicateFlow();
   if (action === "duplicate-flow-card") return duplicateFlow(id, { openCanvas: false });
+  if (action === "export-flow-json") return exportSelectedFlowJson();
+  if (action === "import-flow-json") return document.querySelector("#flowImportFile")?.click();
   if (action === "delete-flow") return deleteFlow();
   if (action === "delete-flow-card") return deleteFlow(id, { openCanvasAfterDelete: false });
   if (action === "delete-node") return deleteNode();
@@ -4314,6 +4321,11 @@ function handleWorkspaceChange(event) {
   }
   if (target.id === "audioUpload") {
     handleAudioUpload(target.files?.[0]);
+    target.value = "";
+    return;
+  }
+  if (target.id === "flowImportFile") {
+    importFlowJson(target.files?.[0]);
     target.value = "";
     return;
   }
@@ -4698,6 +4710,133 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
   saveState();
   toastMessage("Fluxo duplicado.");
   render();
+}
+
+function exportSelectedFlowJson() {
+  const flow = selectedFlow();
+  if (!flow) return;
+
+  const payload = {
+    type: "messenlead.flow",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    flow
+  };
+  downloadFile(`messenlead-flow-${safeFileName(flow.name || flow.id || "fluxo")}.json`, JSON.stringify(payload, null, 2), "application/json");
+  toastMessage("Fluxo exportado.");
+}
+
+async function importFlowJson(file) {
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const pageId = currentFlowPageId();
+    const flows = importedFlowsFromJson(data);
+    if (!flows.length) throw new Error("Arquivo de fluxo invalido.");
+
+    const imported = flows.map((flow) => prepareImportedFlow(flow, pageId));
+    state.flows.unshift(...imported);
+    selectedFlowId = imported[0].id;
+    selectedNodeId = imported[0].nodes[0]?.id;
+    flowCanvasOpen = true;
+    showInspector = false;
+    triggerPickerNodeId = "";
+    nextStepPickerNodeId = "";
+    actionPickerNodeId = "";
+    actionTagPickerStepId = "";
+    canvasAddMenu = null;
+    shouldAutoFitCanvas = true;
+    persistLocalState();
+    flowStore.status = "Importando";
+    render();
+    if (!flowStore.loading) await syncAllFlowsToServer();
+    toastMessage(`${imported.length} fluxo${imported.length === 1 ? "" : "s"} importado${imported.length === 1 ? "" : "s"}.`);
+    render();
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel importar o fluxo.");
+  }
+}
+
+function importedFlowsFromJson(data) {
+  if (Array.isArray(data)) return data.filter(isImportableFlow);
+  if (Array.isArray(data?.flows)) return data.flows.filter(isImportableFlow);
+  if (isImportableFlow(data?.flow)) return [data.flow];
+  if (isImportableFlow(data)) return [data];
+  return [];
+}
+
+function isImportableFlow(flow) {
+  return Boolean(flow && typeof flow === "object" && Array.isArray(flow.nodes));
+}
+
+function prepareImportedFlow(flow, pageId) {
+  if (!isImportableFlow(flow)) throw new Error("Arquivo de fluxo invalido.");
+
+  const copy = JSON.parse(JSON.stringify(flow));
+  const now = new Date().toISOString();
+  const idMap = new Map();
+  copy.id = makeId("flow");
+  copy.pageId = normalizeFlowPageId(pageId);
+  copy.name = copy.name ? `${copy.name} importado` : "Fluxo importado";
+  copy.status = "draft";
+  copy.createdAt = now;
+  copy.updatedAt = now;
+  copy.nodes = copy.nodes.filter((node) => node && typeof node === "object");
+
+  copy.nodes.forEach((node) => {
+    const previousId = String(node.id || "");
+    const newId = makeId("node");
+    if (previousId) idMap.set(previousId, newId);
+    node.id = newId;
+    node.x = clampNodeX(Number(node.x) || 0);
+    node.y = clampNodeY(Number(node.y) || 0);
+    normalizeNodeStructure(node);
+  });
+
+  copy.nodes.forEach((node) => remapImportedNodeReferences(node, idMap));
+  normalizeFlowStructure(copy);
+  pruneInvalidFlowConnections(copy);
+  return copy;
+}
+
+function remapImportedNodeReferences(node, idMap) {
+  node.next = remapImportedTarget(node.next, idMap);
+  node.yesNext = remapImportedTarget(node.yesNext, idMap);
+  node.noNext = remapImportedTarget(node.noNext, idMap);
+  if (Array.isArray(node.buttons)) node.buttons.forEach((option) => {
+    option.id = makeId("btn");
+    option.next = remapImportedTarget(option.next, idMap);
+  });
+  if (Array.isArray(node.quickReplies)) node.quickReplies.forEach((option) => {
+    option.id = makeId("qr");
+    option.next = remapImportedTarget(option.next, idMap);
+  });
+  if (Array.isArray(node.variations)) node.variations.forEach((variation) => {
+    variation.id = makeId("var");
+    variation.next = remapImportedTarget(variation.next, idMap);
+  });
+  if (Array.isArray(node.contentBlocks)) node.contentBlocks.forEach((block) => {
+    block.id = makeId("block");
+  });
+  if (Array.isArray(node.actions)) node.actions.forEach((step) => {
+    step.id = makeId("act");
+  });
+  if (Array.isArray(node.conditions)) node.conditions.forEach((condition) => {
+    condition.id = makeId("cond");
+  });
+}
+
+function remapImportedTarget(target, idMap) {
+  if (!target) return null;
+  return idMap.get(String(target)) || null;
+}
+
+function safeFileName(value) {
+  return normalize(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "fluxo";
 }
 
 function deleteFlow(flowId = selectedFlowId, options = {}) {
