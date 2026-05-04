@@ -341,6 +341,10 @@ mainNav.addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
   if (!button) return;
   activeView = button.dataset.view;
+  if (activeView === "pages") {
+    metaState.selectedConversationId = "";
+    metaState.messages = null;
+  }
   if (activeView === "flows") {
     flowCanvasOpen = false;
     showInspector = false;
@@ -1361,13 +1365,13 @@ function renderPages() {
 
   const conversations = sortMetaConversations(metaState.conversations || [], selectedPage?.id);
   const unreadSummary = selectedPage ? metaUnreadSummary(conversations, selectedPage.id) : null;
-  const selectedConversation =
-    conversations.find((conversation) => conversation.id === metaState.selectedConversationId) ||
-    conversations[0] ||
-    null;
+  const selectedConversation = metaState.selectedConversationId
+    ? conversations.find((conversation) => conversation.id === metaState.selectedConversationId) || null
+    : null;
 
-  if (selectedConversation && selectedConversation.id !== metaState.selectedConversationId) {
-    metaState.selectedConversationId = selectedConversation.id;
+  if (metaState.selectedConversationId && metaState.conversations && !selectedConversation) {
+    metaState.selectedConversationId = "";
+    metaState.messages = null;
   }
 
   if (selectedPage && selectedConversation && !metaState.messages) {
@@ -2677,10 +2681,7 @@ async function loadMetaConversations(pageId) {
     const previousConversationId = metaState.selectedConversationId;
     metaState.conversations = conversations;
     mergeConversationsAsContacts(pageId, selectedPageName(pageId), conversations);
-    metaState.selectedConversationId =
-      conversations.find((conversation) => conversation.id === previousConversationId)?.id ||
-      sortMetaConversations(conversations, pageId)[0]?.id ||
-      "";
+    metaState.selectedConversationId = conversations.find((conversation) => conversation.id === previousConversationId)?.id || "";
     metaState.messages = null;
   } catch (error) {
     metaState.conversations = [];
