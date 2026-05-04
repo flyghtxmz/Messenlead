@@ -12,6 +12,7 @@ const navItems = [
   { id: "inbox", label: "Inbox", icon: "inbox" },
   { id: "subscribers", label: "Assinantes", icon: "users" },
   { id: "broadcasts", label: "Disparos", icon: "send" },
+  { id: "pixel", label: "Pixel", icon: "pixel" },
   { id: "image", label: "Imagem", icon: "image" },
   { id: "video", label: "Vídeo", icon: "video" },
   { id: "setup", label: "Messenger", icon: "plug" },
@@ -211,6 +212,7 @@ const icons = {
   video: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4V6Z"/><path d="m17 10 4-3v10l-4-3"/></svg>`,
   plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2m6 6V2M6 8h12v5a6 6 0 0 1-12 0V8Z"/></svg>`,
   settings: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.1.36.66 1 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></svg>`,
+  pixel: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg>`,
   play: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7V5Z"/></svg>`,
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-1 5v6M9 11v6M5 6l1 15h12l1-15"/></svg>`,
@@ -310,6 +312,14 @@ let webhookDiagState = {
   pageId: "",
   loading: false,
   data: null,
+  error: ""
+};
+let pixelState = {
+  pageId: "",
+  loading: false,
+  rangeDays: 7,
+  summary: null,
+  events: [],
   error: ""
 };
 let metaState = {
@@ -558,7 +568,8 @@ function seedWorkspace() {
       verifyToken: "messenlead-verify-token",
       operatorToken: "troque-por-um-token-forte",
       businessHours: "Segunda a sexta, 09:00-18:00",
-      timezone: "America/Sao_Paulo"
+      timezone: "America/Sao_Paulo",
+      pixelSiteId: ""
     },
     flows: [
       {
@@ -1084,6 +1095,7 @@ function render() {
     inbox: renderInbox,
     subscribers: renderSubscribers,
     broadcasts: renderBroadcasts,
+    pixel: renderPixel,
     image: renderImageTool,
     video: renderVideoTool,
     setup: renderSetup,
@@ -1102,6 +1114,7 @@ function renderNav() {
     inbox: pageContacts.filter((contact) => contact.status === "open").length,
     subscribers: pageContacts.length,
     broadcasts: state.campaigns.filter((campaign) => campaign.status !== "sent").length,
+    pixel: pixelState.summary?.linkClicks || "",
     image: "",
     video: "",
     setup: "",
@@ -1933,6 +1946,187 @@ function renderBroadcasts() {
   `;
 }
 
+function renderPixel() {
+  const pageId = currentFlowPageId();
+  const pageName = selectedPageName(pageId);
+  if (pixelState.pageId !== pageId && !pixelState.loading) {
+    loadPixelEventsForPage(pageId, { silent: true });
+  }
+
+  const summary = pixelState.summary || {};
+  const events = filterBySearch(pixelState.events || [], (event) =>
+    `${event.eventType} ${event.eventName} ${event.visitorId} ${event.path} ${event.url} ${event.targetUrl} ${event.targetText}`
+  );
+  const snippet = pixelInstallSnippet(pageId);
+
+  workspace.innerHTML = `
+    <div class="pixel-grid">
+      <section class="panel pixel-install-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Pixel do site</h2>
+            <span>Rastreia visualizacoes, cliques em links, botoes e formularios para ${escapeHtml(pageName)}.</span>
+          </div>
+          <div class="panel-actions">
+            <button class="secondary-button" type="button" data-action="refresh-pixel-events">${icons.refresh}<span>Atualizar</span></button>
+            <button class="primary-button" type="button" data-action="copy-pixel-snippet">${icons.copy}<span>Copiar pixel</span></button>
+          </div>
+        </div>
+        <div class="panel-body pixel-install-body">
+          <label class="settings-field">
+            <span>Identificador do site</span>
+            <input data-setting-field="pixelSiteId" value="${attr(state.settings.pixelSiteId || "")}" placeholder="${attr(defaultPixelSiteId(pageId))}" />
+          </label>
+          <pre class="code-block pixel-snippet">${escapeHtml(snippet)}</pre>
+          <div class="pixel-hint-grid">
+            <span>Instale antes de fechar a tag &lt;/head&gt; do seu site.</span>
+            <span>O visitante e anonimo: o pixel identifica navegador/sessao, nao uma pessoa real sem login ou parametro externo.</span>
+            <span>Links, botoes e elementos com <code>data-ml-track</code> entram nos eventos automaticamente.</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel pixel-summary-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Resumo</h2>
+            <span>Ultimos ${pixelState.rangeDays} dias</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          <div class="pixel-range-row">
+            ${[1, 7, 30].map((days) => `<button class="secondary-button ${pixelState.rangeDays === days ? "active" : ""}" type="button" data-action="set-pixel-range" data-days="${days}">${days}d</button>`).join("")}
+          </div>
+          ${renderPixelMetric("Eventos", summary.totalEvents || 0)}
+          ${renderPixelMetric("Visitantes", summary.visitors || 0)}
+          ${renderPixelMetric("Paginas vistas", summary.pageViews || 0)}
+          ${renderPixelMetric("Cliques em links", summary.linkClicks || 0)}
+          ${renderPixelMetric("Cliques em botoes", summary.elementClicks || 0)}
+        </div>
+      </aside>
+
+      <section class="panel pixel-wide-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Links mais clicados</h2>
+            <span>Os links que mais receberam clique no site.</span>
+          </div>
+        </div>
+        <div class="panel-body pixel-top-list">
+          ${(summary.topLinks || []).length ? summary.topLinks.map(renderPixelTopLink).join("") : emptyInline("Nenhum clique em link registrado ainda.")}
+        </div>
+      </section>
+
+      <section class="panel pixel-wide-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Eventos recentes</h2>
+            <span>${pixelState.loading ? "Carregando..." : `${events.length} evento${events.length === 1 ? "" : "s"}`}</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          ${pixelState.error ? `<div class="modal-error">${escapeHtml(pixelState.error)}</div>` : ""}
+          ${renderPixelEvents(events)}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderPixelMetric(label, value) {
+  return `
+    <div class="setting-metric-inline">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function renderPixelTopLink(item) {
+  return `
+    <article class="pixel-top-row">
+      <div>
+        <strong>${escapeHtml(item.text || item.url || "Link")}</strong>
+        <span>${escapeHtml(item.url || "")}</span>
+      </div>
+      <div>
+        <strong>${escapeHtml(item.clicks || 0)}</strong>
+        <span>${escapeHtml(item.visitors || 0)} visitante${Number(item.visitors || 0) === 1 ? "" : "s"}</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderPixelEvents(events) {
+  if (pixelState.loading && !events.length) return `<div class="empty-state">Carregando eventos do pixel...</div>`;
+  if (!events.length) return emptyInline("Nenhum evento encontrado neste periodo.");
+
+  return `
+    <div class="pixel-event-list">
+      ${events.map(renderPixelEventRow).join("")}
+    </div>
+  `;
+}
+
+function renderPixelEventRow(event) {
+  const title = event.targetText || event.eventName || event.title || event.path || event.eventType;
+  const detail = event.targetUrl || event.url || event.path || "";
+  return `
+    <article class="pixel-event-row">
+      <div class="pixel-event-type">
+        <span class="badge ${event.eventType === "link_click" ? "active" : ""}">${escapeHtml(pixelEventLabel(event.eventType))}</span>
+      </div>
+      <div class="pixel-event-main">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(detail)}</span>
+      </div>
+      <div class="pixel-event-meta">
+        <span>${escapeHtml(shortVisitorId(event.visitorId))}</span>
+        <span>${escapeHtml(event.country || "")}</span>
+        <span>${escapeHtml(formatDate(event.createdAt) || event.createdAt || "")}</span>
+      </div>
+    </article>
+  `;
+}
+
+function pixelEventLabel(type) {
+  return {
+    page_view: "Pagina",
+    link_click: "Link",
+    element_click: "Clique",
+    form_submit: "Formulario",
+    identify: "Identificacao",
+    custom: "Evento"
+  }[type] || type || "Evento";
+}
+
+function shortVisitorId(value) {
+  const id = String(value || "");
+  return id.length > 18 ? `${id.slice(0, 10)}...${id.slice(-4)}` : id || "visitante";
+}
+
+function pixelInstallSnippet(pageId = currentFlowPageId()) {
+  const origin = location.origin === "null" ? "https://messenlead.pages.dev" : location.origin;
+  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&siteId=${encodeURIComponent(currentPixelSiteId(pageId))}`;
+  return `<script async src="${scriptUrl}"></script>`;
+}
+
+function currentPixelSiteId(pageId = currentFlowPageId()) {
+  return safeTrackingToken(state.settings.pixelSiteId || defaultPixelSiteId(pageId));
+}
+
+function defaultPixelSiteId(pageId = currentFlowPageId()) {
+  return `site-${normalizeFlowPageId(pageId)}`;
+}
+
+function safeTrackingToken(value) {
+  return String(value || "default")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100) || "default";
+}
+
 function renderImageTool() {
   const original = imageToolState.original;
   const cleaned = imageToolState.cleaned;
@@ -2717,6 +2911,7 @@ function selectMetaPage(pageId) {
     persistLocalState();
     flowStore.pageId = "";
     contactStore.pageId = "";
+    pixelState.pageId = "";
     loadFlowsForPage(page.id);
     loadContactsForPage(page.id);
   }
@@ -2745,6 +2940,7 @@ function selectSidebarPage(pageId) {
   nextStepPickerNodeId = "";
   flowStore.pageId = "";
   contactStore.pageId = "";
+  pixelState.pageId = "";
   persistLocalState();
   loadContactsForPage(page.id);
   render();
@@ -2799,6 +2995,7 @@ function openPageFlow() {
     persistLocalState();
     flowStore.pageId = "";
     contactStore.pageId = "";
+    pixelState.pageId = "";
     loadContactsForPage(page.id);
   }
   navigate("flows");
@@ -2925,6 +3122,35 @@ async function loadFlowLogsForPage(pageId = currentFlowPageId(), options = {}) {
 
 function refreshFlowLogs() {
   return loadFlowLogsForPage(currentFlowLogPageId());
+}
+
+async function loadPixelEventsForPage(pageId = currentFlowPageId(), options = {}) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  pixelState = {
+    ...pixelState,
+    pageId: normalizedPageId,
+    loading: true,
+    error: ""
+  };
+  if (activeView === "pixel" && !options.silent) render();
+
+  try {
+    const result = await apiGet(`/api/pixel/events?pageId=${encodeURIComponent(normalizedPageId)}&days=${encodeURIComponent(pixelState.rangeDays)}&limit=120`);
+    if (pixelState.pageId !== normalizedPageId) return;
+    pixelState.summary = result.summary || null;
+    pixelState.events = Array.isArray(result.events) ? result.events : [];
+    pixelState.error = "";
+  } catch (error) {
+    if (pixelState.pageId !== normalizedPageId) return;
+    pixelState.summary = null;
+    pixelState.events = [];
+    pixelState.error = error.message || "Erro ao carregar eventos do pixel";
+  } finally {
+    if (pixelState.pageId === normalizedPageId) {
+      pixelState.loading = false;
+      if (activeView === "pixel") render();
+    }
+  }
 }
 
 async function testFlowLog() {
@@ -4199,6 +4425,12 @@ function handleWorkspaceClick(event) {
   if (action === "check-webhook-subscription") return checkWebhookSubscription();
   if (action === "subscribe-page-webhook") return subscribePageWebhook();
   if (action === "clear-flow-logs") return clearFlowLogs();
+  if (action === "refresh-pixel-events") return loadPixelEventsForPage(currentFlowPageId());
+  if (action === "copy-pixel-snippet") return copyText(pixelInstallSnippet(currentFlowPageId()), "Pixel copiado.");
+  if (action === "set-pixel-range") {
+    pixelState.rangeDays = Number(button.dataset.days || 7);
+    return loadPixelEventsForPage(currentFlowPageId());
+  }
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
@@ -7432,6 +7664,7 @@ function placeholderForView(view) {
     inbox: "Buscar conversa Messenger",
     subscribers: "Buscar assinante ou PSID",
     broadcasts: "Buscar disparo",
+    pixel: "Buscar evento, link ou visitante",
     image: "Limpar metadados de imagem",
     video: "Trocar áudio de vídeo",
     setup: "Buscar configuração",
