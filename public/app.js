@@ -200,6 +200,7 @@ const MINIMAP_HEIGHT = 110;
 const ZOOM_MIN = 0.45;
 const ZOOM_MAX = 1.15;
 const MESSENGER_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const FLOW_UNDO_LIMIT = 80;
 
 const icons = {
   dashboard: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h7V4H4v9Zm9 7h7V4h-7v16ZM4 20h7v-5H4v5Z"/></svg>`,
@@ -294,6 +295,12 @@ let flowStore = {
   serverAvailable: null,
   status: "Local",
   saveTimer: null
+};
+let flowUndoState = {
+  key: "",
+  lastSnapshot: "",
+  undoStack: [],
+  applying: false
 };
 let contactStore = {
   pageId: "",
@@ -1052,8 +1059,62 @@ function saveState() {
 }
 
 function persistLocalState() {
+  recordFlowUndoSnapshot();
   cacheCurrentPageFlows();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function ensureFlowUndoBaseline() {
+  const flow = selectedFlow();
+  const key = currentFlowUndoKey(flow);
+  if (!key || !flow) return;
+
+  const snapshot = flowSnapshot(flow);
+  if (flowUndoState.key !== key) {
+    flowUndoState = {
+      ...flowUndoState,
+      key,
+      lastSnapshot: snapshot,
+      undoStack: []
+    };
+    return;
+  }
+
+  if (!flowUndoState.lastSnapshot) flowUndoState.lastSnapshot = snapshot;
+}
+
+function recordFlowUndoSnapshot() {
+  if (flowUndoState.applying) return;
+  if (activeView !== "flows" || !flowCanvasOpen) return;
+
+  const flow = selectedFlow();
+  const key = currentFlowUndoKey(flow);
+  if (!key || !flow) return;
+
+  const snapshot = flowSnapshot(flow);
+  if (flowUndoState.key !== key) {
+    flowUndoState = {
+      ...flowUndoState,
+      key,
+      lastSnapshot: snapshot,
+      undoStack: []
+    };
+    return;
+  }
+  if (!flowUndoState.lastSnapshot || snapshot === flowUndoState.lastSnapshot) return;
+
+  flowUndoState.undoStack.push(flowUndoState.lastSnapshot);
+  if (flowUndoState.undoStack.length > FLOW_UNDO_LIMIT) flowUndoState.undoStack.shift();
+  flowUndoState.lastSnapshot = snapshot;
+}
+
+function currentFlowUndoKey(flow = selectedFlow()) {
+  if (!flow?.id) return "";
+  return `${currentFlowPageId()}:${flow.id}`;
+}
+
+function flowSnapshot(flow = selectedFlow()) {
+  return flow ? JSON.stringify(flow) : "";
 }
 
 function loadConversationReadState() {
@@ -1498,6 +1559,7 @@ function renderFlows() {
     return;
   }
 
+  ensureFlowUndoBaseline();
   pruneInvalidFlowConnections(flow);
 
   const node = showInspector ? selectedNode(flow) : null;
@@ -4668,6 +4730,12 @@ function handleGlobalKeydown(event) {
     return;
   }
 
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && shouldHandleFlowUndoShortcut(event)) {
+    event.preventDefault();
+    undoLastFlowChange();
+    return;
+  }
+
   if (!shouldHandleFlowShortcut(event)) return;
 
   if (event.key === "Delete") {
@@ -4685,6 +4753,12 @@ function handleGlobalKeydown(event) {
 function shouldHandleFlowShortcut(event) {
   if (modalState) return false;
   if (activeView !== "flows" || !flowCanvasOpen || !selectedNodeId) return false;
+  return !isEditableTarget(event.target);
+}
+
+function shouldHandleFlowUndoShortcut(event) {
+  if (modalState) return false;
+  if (activeView !== "flows" || !flowCanvasOpen) return false;
   return !isEditableTarget(event.target);
 }
 
@@ -5140,6 +5214,10 @@ function deleteNode() {
   const flow = selectedFlow();
   const node = flow ? selectedNode(flow) : null;
   if (!flow || !node) return;
+  if (isLockedTriggerNode(node)) {
+    toastMessage("O bloco Quando e padrao do fluxo e nao pode ser excluido.");
+    return;
+  }
   if (flow.nodes.length === 1) {
     toastMessage("O fluxo precisa ter pelo menos um bloco.");
     return;
@@ -5187,6 +5265,10 @@ function duplicateSelectedNode() {
   const flow = selectedFlow();
   const node = flow?.nodes.find((item) => item.id === selectedNodeId);
   if (!flow || !node) return;
+  if (isLockedTriggerNode(node)) {
+    toastMessage("O bloco Quando e padrao do fluxo e nao pode ser duplicado.");
+    return;
+  }
 
   const copy = JSON.parse(JSON.stringify(node));
   copy.id = makeId("node");
@@ -5220,6 +5302,54 @@ function duplicateNodeById(nodeId) {
   if (!flow?.nodes.some((node) => node.id === nodeId)) return;
   selectedNodeId = nodeId;
   duplicateSelectedNode();
+}
+
+function isLockedTriggerNode(node) {
+  return node?.type === "trigger";
+}
+
+function undoLastFlowChange() {
+  const current = selectedFlow();
+  if (!current) return;
+
+  ensureFlowUndoBaseline();
+  const previousSnapshot = flowUndoState.undoStack.pop();
+  if (!previousSnapshot) {
+    toastMessage("Nada para desfazer neste fluxo.");
+    return;
+  }
+
+  let restored;
+  try {
+    restored = JSON.parse(previousSnapshot);
+  } catch {
+    toastMessage("Nao foi possivel desfazer esta alteracao.");
+    return;
+  }
+
+  normalizeFlowStructure(restored);
+  pruneInvalidFlowConnections(restored);
+  const index = state.flows.findIndex((flow) => flow.id === current.id);
+  if (index === -1) return;
+
+  flowUndoState.applying = true;
+  state.flows[index] = restored;
+  selectedFlowId = restored.id;
+  if (!restored.nodes.some((node) => node.id === selectedNodeId)) {
+    selectedNodeId = restored.nodes[0]?.id;
+  }
+  triggerPickerNodeId = "";
+  nextStepPickerNodeId = "";
+  actionPickerNodeId = "";
+  actionTagPickerStepId = "";
+  canvasAddMenu = null;
+  window.clearTimeout(flowStore.saveTimer);
+  flowUndoState.lastSnapshot = flowSnapshot(restored);
+  persistLocalState();
+  flowUndoState.applying = false;
+  syncFlowToServer(restored);
+  toastMessage("Alteracao desfeita.");
+  render();
 }
 
 function setCanvasZoom(value) {
@@ -7323,6 +7453,7 @@ function renderConditionOutputPorts(node) {
 }
 
 function renderNodeHoverActions(node) {
+  if (isLockedTriggerNode(node)) return "";
   return `
     <div class="node-hover-actions" aria-label="Ações do bloco">
       <button type="button" data-action="duplicate-node" data-id="${attr(node.id)}" title="Duplicar bloco">${icons.copy}</button>
