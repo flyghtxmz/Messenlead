@@ -3650,6 +3650,7 @@ function renderMessageContentBlock(flow, node, block) {
         ${
           block.type === "image"
             ? `
+              ${renderMessageImagePreview(block)}
               <input data-message-block-field="title" data-block-id="${attr(block.id)}" value="${attr(block.title || "")}" placeholder="Titulo opcional da imagem" />
               <input data-message-block-field="subtitle" data-block-id="${attr(block.id)}" value="${attr(block.subtitle || "")}" placeholder="Subtitulo opcional" />
               ${renderMessageBlockButtons(flow, node, block)}
@@ -3688,6 +3689,23 @@ function renderMessageContentBlock(flow, node, block) {
       <input data-message-block-field="endpoint" data-block-id="${attr(block.id)}" value="${attr(block.endpoint || "")}" placeholder="Endpoint que retornará a mensagem" />
       <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Fallback se o endpoint falhar">${escapeHtml(block.text || "")}</textarea>
     </article>
+  `;
+}
+
+function renderMessageImagePreview(block) {
+  if (!block.url) {
+    return `
+      <div class="message-image-block-preview empty">
+        ${icons.image}
+        <span>Adicione a URL da imagem para visualizar sem corte.</span>
+      </div>
+    `;
+  }
+
+  return `
+    <a class="message-image-block-preview" href="${attr(block.url)}" target="_blank" rel="noopener">
+      <img src="${attr(block.url)}" alt="${attr(block.title || "Preview da imagem")}" loading="lazy" />
+    </a>
   `;
 }
 
