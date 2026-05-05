@@ -191,6 +191,8 @@ const CANVAS_ORIGIN_Y = 2600;
 const NODE_WIDTH = 260;
 const NODE_CENTER_Y = 70;
 const NODE_CONNECT_Y = 112;
+const MESSAGE_OUTPUT_START_Y = 106;
+const MESSAGE_OUTPUT_GAP_Y = 31;
 const CANVAS_MIN_X = -CANVAS_ORIGIN_X + 80;
 const CANVAS_MAX_X = CANVAS_WIDTH - CANVAS_ORIGIN_X - NODE_WIDTH - 80;
 const CANVAS_MIN_Y = -CANVAS_ORIGIN_Y + 80;
@@ -848,7 +850,7 @@ function uniqueFolders(folders) {
 function uniqueTagRecords(tags) {
   const seen = new Set();
   return tags.filter((tag) => {
-    const key = normalize(tag.name);
+    const key = normalizeTagKey(tag.name);
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -947,7 +949,8 @@ function normalizeNodeStructure(node) {
       fileName: block.fileName || "",
       fieldName: block.fieldName || "",
       endpoint: block.endpoint || "",
-      items: Array.isArray(block.items) ? block.items : []
+      items: Array.isArray(block.items) ? block.items : [],
+      buttons: normalizeMessageOptions(block.buttons, "btn").slice(0, 3)
     }));
     node.quickReplies = stripDefaultQuickReplies(normalizeMessageOptions(node.quickReplies, "qr"));
     node.buttons = normalizeMessageOptions(node.buttons, "btn").slice(0, 3);
@@ -3589,7 +3592,7 @@ function renderMessageSettings(flow, node) {
           </div>
         </div>
         <div class="content-block-list">
-          ${node.contentBlocks.map((block) => renderMessageContentBlock(block)).join("")}
+          ${node.contentBlocks.map((block) => renderMessageContentBlock(flow, node, block)).join("")}
           <div class="content-add-row">
             ${messageContentBlockTypes
               .map((blockType) => `<button type="button" data-action="add-message-block" data-type="${attr(blockType.type)}">${icons[blockType.icon] || icons.message}<span>${escapeHtml(blockType.label)}</span></button>`)
@@ -3626,7 +3629,7 @@ function renderMessageSettings(flow, node) {
   `;
 }
 
-function renderMessageContentBlock(block) {
+function renderMessageContentBlock(flow, node, block) {
   const type = messageContentBlockTypes.find((item) => item.type === block.type) || messageContentBlockTypes[0];
   const removeButton = `<button class="mini-menu-button" type="button" data-action="remove-message-block" data-block-id="${attr(block.id)}" title="Remover bloco">&times;</button>`;
 
@@ -3644,6 +3647,15 @@ function renderMessageContentBlock(block) {
       <article class="message-content-block">
         <div class="message-content-head">${icons[type.icon] || icons.message}<strong>${escapeHtml(type.label)}</strong>${removeButton}</div>
         <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="URL do arquivo" />
+        ${
+          block.type === "image"
+            ? `
+              <input data-message-block-field="title" data-block-id="${attr(block.id)}" value="${attr(block.title || "")}" placeholder="Titulo opcional da imagem" />
+              <input data-message-block-field="subtitle" data-block-id="${attr(block.id)}" value="${attr(block.subtitle || "")}" placeholder="Subtitulo opcional" />
+              ${renderMessageBlockButtons(flow, node, block)}
+            `
+            : ""
+        }
         ${block.type === "file" ? `<input data-message-block-field="fileName" data-block-id="${attr(block.id)}" value="${attr(block.fileName || "")}" placeholder="Nome do arquivo" />` : ""}
       </article>
     `;
@@ -3675,6 +3687,49 @@ function renderMessageContentBlock(block) {
       <div class="message-content-head">${icons[type.icon] || icons.message}<strong>Dinâmico</strong>${removeButton}</div>
       <input data-message-block-field="endpoint" data-block-id="${attr(block.id)}" value="${attr(block.endpoint || "")}" placeholder="Endpoint que retornará a mensagem" />
       <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Fallback se o endpoint falhar">${escapeHtml(block.text || "")}</textarea>
+    </article>
+  `;
+}
+
+function renderMessageBlockButtons(flow, node, block) {
+  const buttons = Array.isArray(block.buttons) ? block.buttons : [];
+  return `
+    <div class="message-block-button-list">
+      <div class="settings-card-title compact">
+        <strong>Botões da imagem</strong>
+        <span>Até 3 botões vinculados a esta imagem.</span>
+      </div>
+      ${buttons.map((button) => renderMessageBlockButton(flow, node, block, button)).join("")}
+      <button class="dashed-add-button" type="button" data-action="add-message-block-button" data-block-id="${attr(block.id)}" ${buttons.length >= 3 ? "disabled" : ""}>+ Botão da imagem</button>
+    </div>
+  `;
+}
+
+function renderMessageBlockButton(flow, node, block, button) {
+  return `
+    <article class="message-option-card block-button-card">
+      <div class="message-option-grid">
+        <label class="settings-field">
+          <span>Botão</span>
+          <input data-message-block-button-field="title" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" value="${attr(button.title || "")}" placeholder="Texto" />
+        </label>
+        <label class="settings-field">
+          <span>Tipo</span>
+          <select data-message-block-button-field="type" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}">
+            ${optionSelect("url", "Abrir site", button.type || "url")}
+            ${optionSelect("next", "Próximo passo", button.type || "url")}
+            ${optionSelect("phone", "Ligar", button.type || "url")}
+          </select>
+        </label>
+        ${
+          button.type === "next"
+            ? targetSelectField(flow, node, button.next, "Próximo passo", { blockId: block.id, blockButtonId: button.id })
+            : button.type === "phone"
+              ? `<label class="settings-field"><span>Telefone</span><input data-message-block-button-field="phone" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" value="${attr(button.phone || "")}" placeholder="+5511999999999" /></label>`
+              : `<label class="settings-field"><span>URL</span><input data-message-block-button-field="url" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" value="${attr(button.url || "")}" placeholder="https://..." /></label>`
+        }
+      </div>
+      <button class="mini-menu-button" type="button" data-action="remove-message-block-button" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" title="Remover">&times;</button>
     </article>
   `;
 }
@@ -3971,10 +4026,10 @@ function removeTagFolder(folderId, pageId = currentFlowPageId()) {
 }
 
 function addTagToLibrary(tagName, pageId = currentFlowPageId(), folderIdOrName = null) {
-  const value = String(tagName || "").trim();
+  const value = normalizeTagName(tagName);
   if (!value) return null;
   const store = tagStoreForPage(pageId);
-  const existing = store.tags.find((tag) => normalize(tag.name) === normalize(value));
+  const existing = store.tags.find((tag) => normalizeTagKey(tag.name) === normalizeTagKey(value));
   const folder =
     store.folders.find((item) => item.id === folderIdOrName) ||
     store.folders.find((item) => normalize(item.name) === normalize(folderIdOrName)) ||
@@ -4464,6 +4519,8 @@ function handleWorkspaceClick(event) {
   if (action === "add-node-at-menu") return addNodeFromCanvasMenu(button.dataset.type);
   if (action === "add-message-block") return addMessageBlock(button.dataset.type);
   if (action === "remove-message-block") return removeMessageBlock(button.dataset.blockId);
+  if (action === "add-message-block-button") return addMessageBlockButton(button.dataset.blockId);
+  if (action === "remove-message-block-button") return removeMessageBlockButton(button.dataset.blockId, button.dataset.buttonId);
   if (action === "add-message-button") return addMessageButton();
   if (action === "add-quick-reply") return addQuickReply();
   if (action === "remove-message-option") return removeMessageOption(button.dataset.optionKind, button.dataset.optionId);
@@ -4560,6 +4617,14 @@ function handleWorkspaceInput(event) {
     if (!block) return;
     block[target.dataset.messageBlockField] = target.value;
     syncLegacyMessageFromBlocks(node);
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
+  if (target.dataset.messageBlockButtonField && node?.type === "message") {
+    const option = findMessageBlockButton(node, target.dataset.blockId, target.dataset.buttonId);
+    if (!option) return;
+    option[target.dataset.messageBlockButtonField] = target.value;
     flow.updatedAt = new Date().toISOString();
     saveState();
   }
@@ -4696,6 +4761,18 @@ function handleWorkspaceChange(event) {
     }
   }
 
+  if (target.dataset.messageBlockButtonField && node?.type === "message") {
+    const option = findMessageBlockButton(node, target.dataset.blockId, target.dataset.buttonId);
+    if (option) {
+      option[target.dataset.messageBlockButtonField] = target.value;
+      if (target.dataset.messageBlockButtonField === "type" && option.type !== "url" && option.type !== "phone") {
+        option.type = "next";
+      }
+      flow.updatedAt = new Date().toISOString();
+      saveState();
+    }
+  }
+
   if (target.dataset.conditionRuleField && node?.type === "condition") {
     const condition = node.conditions?.find((item) => item.id === target.dataset.conditionId);
     if (condition) {
@@ -4713,6 +4790,7 @@ function handleWorkspaceChange(event) {
     target.dataset.settingField ||
     target.dataset.actionStepField ||
     target.dataset.messageBlockField ||
+    target.dataset.messageBlockButtonField ||
     target.dataset.messageOptionField ||
     target.dataset.randomVariationField ||
     target.dataset.conditionRuleField ||
@@ -5031,6 +5109,10 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
     });
     node.contentBlocks?.forEach((block) => {
       block.id = makeId("block");
+      block.buttons?.forEach((option) => {
+        option.id = makeId("btn");
+        if (option.next) option.next = idMap.get(option.next) || null;
+      });
     });
   });
   state.flows.unshift(copy);
@@ -5151,6 +5233,10 @@ function remapImportedNodeReferences(node, idMap) {
   });
   if (Array.isArray(node.contentBlocks)) node.contentBlocks.forEach((block) => {
     block.id = makeId("block");
+    if (Array.isArray(block.buttons)) block.buttons.forEach((option) => {
+      option.id = makeId("btn");
+      option.next = remapImportedTarget(option.next, idMap);
+    });
   });
   if (Array.isArray(node.actions)) node.actions.forEach((step) => {
     step.id = makeId("act");
@@ -5266,6 +5352,11 @@ function replaceNodeReference(node, oldId, newId = null) {
   node.quickReplies?.forEach((option) => {
     if (option.next === oldId) option.next = newId;
   });
+  node.contentBlocks?.forEach((block) => {
+    block.buttons?.forEach((option) => {
+      if (option.next === oldId) option.next = newId;
+    });
+  });
   node.variations?.forEach((variation) => {
     if (variation.next === oldId) variation.next = newId;
   });
@@ -5289,7 +5380,15 @@ function duplicateSelectedNode() {
   if (Array.isArray(copy.buttons)) copy.buttons = copy.buttons.map((option) => ({ ...option, id: makeId("btn"), next: null }));
   if (Array.isArray(copy.quickReplies)) copy.quickReplies = copy.quickReplies.map((option) => ({ ...option, id: makeId("qr"), next: null }));
   if (Array.isArray(copy.variations)) copy.variations = copy.variations.map((variation) => ({ ...variation, id: makeId("var"), next: null }));
-  if (Array.isArray(copy.contentBlocks)) copy.contentBlocks = copy.contentBlocks.map((block) => ({ ...block, id: makeId("block") }));
+  if (Array.isArray(copy.contentBlocks)) {
+    copy.contentBlocks = copy.contentBlocks.map((block) => ({
+      ...block,
+      id: makeId("block"),
+      buttons: Array.isArray(block.buttons)
+        ? block.buttons.map((option) => ({ ...option, id: makeId("btn"), next: null }))
+        : []
+    }));
+  }
   copy.x = clampNodeX((node.x || 0) + 32);
   copy.y = clampNodeY((node.y || 0) + 32);
   if (Array.isArray(copy.actions)) {
@@ -5608,8 +5707,44 @@ function defaultMessageBlock(type) {
     fileName: "",
     fieldName: "",
     endpoint: "",
-    items: []
+    items: [],
+    buttons: []
   };
+}
+
+function findMessageBlockButton(node, blockId, buttonId) {
+  const block = node?.contentBlocks?.find((item) => item.id === blockId);
+  return block?.buttons?.find((option) => option.id === buttonId) || null;
+}
+
+function addMessageBlockButton(blockId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "message") return;
+  normalizeNodeStructure(node);
+  const block = node.contentBlocks.find((item) => item.id === blockId && item.type === "image");
+  if (!block) return;
+  if (block.buttons.length >= 3) {
+    toastMessage("O Messenger permite ate 3 botoes por imagem.");
+    return;
+  }
+  block.buttons.push({ id: makeId("btn"), title: "Abrir site", type: "url", url: "", phone: "", next: null });
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function removeMessageBlockButton(blockId, buttonId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "message") return;
+  normalizeNodeStructure(node);
+  const block = node.contentBlocks.find((item) => item.id === blockId);
+  if (!block) return;
+  block.buttons = block.buttons.filter((option) => option.id !== buttonId);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
 }
 
 function addMessageButton() {
@@ -5965,16 +6100,18 @@ function removeContactTag(contactId, value) {
 }
 
 function addTagToContact(contact, value) {
-  const tags = normalizeTags([...contactTags(contact), value]);
+  const tagName = normalizeTagName(value);
+  if (!tagName) return;
+  const tags = normalizeTags([...contactTags(contact), tagName]);
   contact.tags = tags;
   contact.tag = tags[0] || "";
   contact.lastSeen = contact.lastSeen || new Date().toISOString();
-  addTagToLibrary(value, contact.pageId || currentFlowPageId());
+  addTagToLibrary(tagName, contact.pageId || currentFlowPageId());
 }
 
 function removeTagFromContact(contact, value) {
-  const target = normalize(value);
-  const tags = contactTags(contact).filter((tagName) => normalize(tagName) !== target);
+  const target = normalizeTagKey(value);
+  const tags = contactTags(contact).filter((tagName) => normalizeTagKey(tagName) !== target);
   contact.tags = tags;
   contact.tag = tags[0] || "";
 }
@@ -6535,7 +6672,11 @@ function buildSimulationMessagesForNode(node, displayName) {
   const messages = [];
   node.contentBlocks.forEach((block) => {
     if (block.type === "text") messages.push({ from: "bot", text: resolveTemplate(block.text || node.message, displayName) });
-    else if (["image", "audio", "video", "file"].includes(block.type)) messages.push({ from: "bot", text: `${messageBlockTypeLabel(block.type)}: ${block.url || "sem URL"}` });
+    else if (["image", "audio", "video", "file"].includes(block.type)) {
+      messages.push({ from: "bot", text: `${messageBlockTypeLabel(block.type)}: ${block.url || "sem URL"}` });
+      const blockButtons = (block.buttons || []).map((option) => option.title).filter(Boolean);
+      if (block.type === "image" && blockButtons.length) messages.push({ from: "system", text: `Botoes da imagem: ${blockButtons.join(", ")}` });
+    }
     else if (block.type === "card") messages.push({ from: "bot", text: `Card: ${block.title || "sem título"}` });
     else if (block.type === "gallery") messages.push({ from: "bot", text: `Galeria: ${block.title || "sem título"}` });
     else if (block.type === "data_collection") messages.push({ from: "bot", text: resolveTemplate(block.text || "Informe o dado solicitado.", displayName) });
@@ -6675,8 +6816,8 @@ function enableConnectionDragging(flow) {
       canvas.querySelectorAll(".node.selected").forEach((nodeElement) => nodeElement.classList.remove("selected"));
       port.closest(".node")?.classList.add("selected");
 
-      const sourceField = port.dataset.portField || "";
-      const start = nodeOutputPoint(source, { field: sourceField });
+      const sourceOutput = portOutputRef(port);
+      const start = nodeOutputPoint(source, sourceOutput);
       const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
       tempPath.setAttribute("class", "connection-temp");
       layer.appendChild(tempPath);
@@ -6701,7 +6842,7 @@ function enableConnectionDragging(flow) {
         const target = targetId ? flow.nodes.find((node) => node.id === targetId) : null;
 
         if (target && target.id !== source.id && canAcceptIncomingConnection(target)) {
-          assignOutputTarget(source, target.id, sourceField);
+          assignOutputTarget(source, target.id, sourceOutput);
           selectedNodeId = source.id;
           flow.updatedAt = new Date().toISOString();
           rememberCanvasScroll();
@@ -6720,6 +6861,15 @@ function enableConnectionDragging(flow) {
   });
 }
 
+function portOutputRef(port) {
+  return {
+    field: port.dataset.portField || "",
+    kind: port.dataset.portKind || "",
+    optionId: port.dataset.portOptionId || "",
+    blockId: port.dataset.portBlockId || ""
+  };
+}
+
 function assignPrimaryTarget(node, targetId) {
   normalizeNodeStructure(node);
   if (node.type === "condition") {
@@ -6735,11 +6885,30 @@ function assignPrimaryTarget(node, targetId) {
   node.next = targetId;
 }
 
-function assignOutputTarget(node, targetId, field = "") {
+function assignOutputTarget(node, targetId, output = "") {
   normalizeNodeStructure(node);
+  const ref = typeof output === "string" ? { field: output } : output || {};
+  const field = ref.field || "";
   if (node.type === "condition" && (field === "yesNext" || field === "noNext")) {
     node[field] = targetId;
     return;
+  }
+  if (node.type === "message") {
+    if (field === "next") {
+      node.next = targetId;
+      return;
+    }
+    if ((ref.kind === "button" || ref.kind === "quick_reply") && ref.optionId) {
+      const list = ref.kind === "button" ? node.buttons : node.quickReplies;
+      const option = list.find((item) => item.id === ref.optionId);
+      if (option) option.next = targetId;
+      return;
+    }
+    if (ref.kind === "image_button" && ref.blockId && ref.optionId) {
+      const option = findMessageBlockButton(node, ref.blockId, ref.optionId);
+      if (option) option.next = targetId;
+      return;
+    }
   }
   assignPrimaryTarget(node, targetId);
 }
@@ -7024,7 +7193,7 @@ function renderConnections(flow) {
       const { target, label } = connection;
       const start = nodeOutputPoint(node, connection);
       const end = nodeInputPoint(target);
-      const offset = node.type === "condition" ? 0 : index * 8;
+      const offset = node.type === "condition" || node.type === "message" ? 0 : index * 8;
       return `<path d="${connectionPath(start.x, start.y + offset, end.x, end.y)}" /><text class="connection-label" x="${miniNumber((start.x + end.x) / 2)}" y="${miniNumber((start.y + end.y) / 2 + offset - 6)}">${escapeHtml(label || "")}</text>`;
       })
     )
@@ -7055,14 +7224,7 @@ function outputRefs(node) {
       .map((variation) => ({ targetId: variation.next, label: `${variation.label || "Variação"} ${variation.weight || 0}%`, variationId: variation.id }));
   }
   if (node.type === "message") {
-    if (node.next) refs.push({ targetId: node.next, label: "Depois", field: "next" });
-    node.buttons.forEach((option) => {
-      if (option.next) refs.push({ targetId: option.next, label: option.title, optionId: option.id, kind: "button" });
-    });
-    node.quickReplies.forEach((option) => {
-      if (option.next) refs.push({ targetId: option.next, label: option.title, optionId: option.id, kind: "quick_reply" });
-    });
-    return refs;
+    return messageOutputItems(node).filter((item) => item.targetId);
   }
   if (node.next) refs.push({ targetId: node.next, label: "", field: "next" });
   return refs;
@@ -7093,7 +7255,8 @@ function nextExecutableTargetId(node, context = {}) {
 function matchingMessageOption(node, context = {}) {
   const input = normalize(context.inputText || context.normalizedText || "");
   if (!input) return null;
-  return [...(node.buttons || []), ...(node.quickReplies || [])].find((option) => {
+  const blockButtons = (node.contentBlocks || []).flatMap((block) => block.buttons || []);
+  return [...(node.buttons || []), ...(node.quickReplies || []), ...blockButtons].find((option) => {
     return normalize(option.id) === input || normalize(option.title) === input;
   });
 }
@@ -7108,12 +7271,12 @@ function conditionMatchesNode(node, context = {}) {
   const normalizedInput = normalize(context.inputText || context.normalizedText || "");
   const rawTerms = String(node.keyword || "")
     .split(",")
-    .map((item) => normalize(item.trim()))
+    .map((item) => normalizeTagKey(item))
     .filter(Boolean);
   const operator = node.conditionOperator || "contains_any";
 
   if (node.conditionType === "tag") {
-    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalizeTagKey);
     if (operator === "not_contains") return rawTerms.length ? rawTerms.every((term) => !tags.includes(term)) : false;
     return rawTerms.length ? rawTerms.some((term) => tags.includes(term)) : false;
   }
@@ -7135,9 +7298,9 @@ function conditionMatchesNode(node, context = {}) {
 
 function conditionRuleMatches(condition, context = {}) {
   const normalizedInput = normalize(context.inputText || context.normalizedText || "");
-  const expected = normalize(String(condition.value || "").trim());
+  const expected = condition.type === "tag" ? normalizeTagKey(condition.value) : normalize(String(condition.value || "").trim());
   if (condition.type === "tag") {
-    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map((tag) => normalize(String(tag || "").trim()));
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalizeTagKey);
     if (!expected) return false;
     const hasTag = tags.includes(expected);
     return condition.operator === "not_contains" ? !hasTag : hasTag;
@@ -7205,8 +7368,74 @@ function connectionPath(x1, y1, x2, y2) {
   return `M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}`;
 }
 
+function messageOutputItems(node) {
+  normalizeNodeStructure(node);
+  const items = [
+    {
+      targetId: node.next || null,
+      label: "Depois da mensagem",
+      field: "next",
+      kind: "default"
+    }
+  ];
+
+  node.buttons.forEach((option) => {
+    items.push({
+      targetId: option.next || null,
+      label: `Botao: ${option.title || "sem titulo"}`,
+      kind: "button",
+      optionId: option.id
+    });
+  });
+
+  node.quickReplies.forEach((option) => {
+    items.push({
+      targetId: option.next || null,
+      label: `Resposta: ${option.title || "sem titulo"}`,
+      kind: "quick_reply",
+      optionId: option.id
+    });
+  });
+
+  node.contentBlocks.forEach((block) => {
+    block.buttons?.forEach((option) => {
+      items.push({
+        targetId: option.next || null,
+        label: `Imagem: ${option.title || "sem titulo"}`,
+        kind: "image_button",
+        optionId: option.id,
+        blockId: block.id
+      });
+    });
+  });
+
+  return items;
+}
+
+function messageOutputIndex(node, output = {}) {
+  const ref = output || {};
+  return Math.max(
+    0,
+    messageOutputItems(node).findIndex((item) => {
+      if (ref.field === "next" || ref.kind === "default") return item.field === "next";
+      if (ref.kind === "image_button") return item.kind === ref.kind && item.optionId === ref.optionId && item.blockId === ref.blockId;
+      if (ref.kind === "button" || ref.kind === "quick_reply") return item.kind === ref.kind && item.optionId === ref.optionId;
+      return false;
+    })
+  );
+}
+
+function messageOutputY(node, output = {}) {
+  return MESSAGE_OUTPUT_START_Y + messageOutputIndex(node, output) * MESSAGE_OUTPUT_GAP_Y;
+}
+
 function nodeOutputPoint(node, output = {}) {
-  const outputY = node.type === "condition" ? conditionOutputY(output.field) : NODE_CONNECT_Y;
+  const outputY =
+    node.type === "condition"
+      ? conditionOutputY(output.field)
+      : node.type === "message"
+        ? messageOutputY(node, output)
+        : NODE_CONNECT_Y;
   return {
     x: canvasNodeLeft(node) + NODE_WIDTH,
     y: canvasNodeTop(node) + outputY
@@ -7243,6 +7472,7 @@ function renderNode(node, selected) {
   const icon = icons[node.type] || icons.message;
   normalizeNodeStructure(node);
   const summary = nodeCardSummary(node);
+  const outputRows = node.type === "message" ? renderMessageOutputPorts(node) : "";
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
   return `
     <article class="node ${node.type} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
@@ -7258,11 +7488,12 @@ function renderNode(node, selected) {
         <button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>
       </div>
       <p>${escapeHtml(summary.body)}</p>
+      ${outputRows}
       <div class="node-footer">
         <span>${escapeHtml(summary.footer)}</span>
         <span>${escapeHtml(summary.status)}</span>
       </div>
-      ${renderOutputPort(node)}
+      ${node.type === "message" ? "" : renderOutputPort(node)}
     </article>
   `;
 }
@@ -7291,7 +7522,8 @@ function nodeCardSummary(node) {
   const flow = selectedFlow() || { nodes: [] };
   if (node.type === "message") {
     const blockCount = node.contentBlocks?.length || 0;
-    const choices = (node.buttons?.length || 0) + (node.quickReplies?.length || 0);
+    const blockChoices = (node.contentBlocks || []).reduce((sum, block) => sum + (block.buttons?.length || 0), 0);
+    const choices = (node.buttons?.length || 0) + (node.quickReplies?.length || 0) + blockChoices;
     return {
       body: node.contentBlocks?.find((block) => block.type === "text")?.text || node.message || "Mensagem do Messenger",
       footer: `${blockCount} bloco${blockCount === 1 ? "" : "s"} · ${choices} opção${choices === 1 ? "" : "ões"}`,
@@ -7448,6 +7680,34 @@ function renderTriggerNodeItem(item) {
 
 function nodeAddButton(type, label) {
   return `<button class="chip-button" type="button" data-action="add-node" data-type="${type}" title="${attr(label)}">${icons[type]}<span>${label}</span></button>`;
+}
+
+function renderMessageOutputPorts(node) {
+  const items = messageOutputItems(node);
+  return `
+    <div class="message-node-outputs" aria-label="Saidas da mensagem">
+      ${items
+        .map(
+          (item) => `
+            <div class="message-node-output-row ${item.targetId ? "connected" : ""}">
+              <span>${escapeHtml(item.label)}</span>
+              <button
+                class="node-port message-node-port"
+                style="top:${messageOutputY(node, item) - 7}px"
+                type="button"
+                data-port-source="${attr(node.id)}"
+                data-port-field="${attr(item.field || "")}"
+                data-port-kind="${attr(item.kind || "")}"
+                data-port-option-id="${attr(item.optionId || "")}"
+                data-port-block-id="${attr(item.blockId || "")}"
+                aria-label="${attr(`Conectar ${item.label}`)}"
+              ></button>
+            </div>
+          `
+        )
+        .join("")}
+    </div>
+  `;
 }
 
 function renderOutputPort(node) {
@@ -7779,6 +8039,11 @@ function applyTargetSelection(node, target) {
     if (option) option.next = value;
     return;
   }
+  if (target.dataset.targetBlockId && target.dataset.targetBlockButtonId && node.type === "message") {
+    const option = findMessageBlockButton(node, target.dataset.targetBlockId, target.dataset.targetBlockButtonId);
+    if (option) option.next = value;
+    return;
+  }
   if (target.dataset.targetVariationId && node.type === "randomizer") {
     const variation = node.variations?.find((item) => item.id === target.dataset.targetVariationId);
     if (variation) variation.next = value;
@@ -7919,12 +8184,29 @@ function contactTags(contact) {
 
 function normalizeTags(value) {
   const raw = Array.isArray(value) ? value : String(value || "").split(",");
-  return unique(raw.map((item) => String(item || "").trim()).filter(Boolean));
+  const seen = new Set();
+  const tags = [];
+  raw.forEach((item) => {
+    const tagName = normalizeTagName(item);
+    const key = normalizeTagKey(tagName);
+    if (!tagName || seen.has(key)) return;
+    seen.add(key);
+    tags.push(tagName);
+  });
+  return tags;
 }
 
 function contactHasTag(contact, value) {
-  const target = normalize(value);
-  return contactTags(contact).some((tagName) => normalize(tagName) === target);
+  const target = normalizeTagKey(value);
+  return contactTags(contact).some((tagName) => normalizeTagKey(tagName) === target);
+}
+
+function normalizeTagName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeTagKey(value) {
+  return normalize(normalizeTagName(value));
 }
 
 function allContactTags(contacts = state.contacts) {

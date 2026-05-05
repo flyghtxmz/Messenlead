@@ -187,11 +187,27 @@ export function normalizeActionSteps(actions = []) {
 
 export function normalizeTags(value) {
   const raw = Array.isArray(value) ? value : String(value || "").split(",");
-  return [...new Set(raw.map((item) => String(item || "").trim()).filter(Boolean))];
+  const seen = new Set();
+  const tags = [];
+
+  raw.forEach((item) => {
+    const tag = String(item || "").replace(/\s+/g, " ").trim();
+    const key = normalizeTag(tag);
+    if (!tag || seen.has(key)) return;
+    seen.add(key);
+    tags.push(tag);
+  });
+
+  return tags;
 }
 
 function normalizeTag(value) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function rowToContact(row) {

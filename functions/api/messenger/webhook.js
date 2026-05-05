@@ -400,7 +400,8 @@ function interactiveStartNode(flow, context) {
 function matchingMessageOption(node, context = {}) {
   const input = normalize(context.text || context.normalizedInput || "");
   if (!input) return null;
-  return [...(node.buttons || []), ...(node.quickReplies || [])].find((option) => {
+  const blockButtons = (node.contentBlocks || []).flatMap((block) => block.buttons || []);
+  return [...(node.buttons || []), ...(node.quickReplies || []), ...blockButtons].find((option) => {
     return normalize(option.id) === input || normalize(option.title) === input;
   });
 }
@@ -410,6 +411,19 @@ function normalizeNodeShape(node) {
     if (!Array.isArray(node.contentBlocks) || !node.contentBlocks.length) {
       node.contentBlocks = [{ id: "legacy", type: "text", text: node.message || "" }];
     }
+    node.contentBlocks = node.contentBlocks.map((block, index) => ({
+      id: String(block.id || `block_${index}`),
+      type: String(block.type || "text"),
+      text: block.text || "",
+      url: block.url || "",
+      title: block.title || "",
+      subtitle: block.subtitle || "",
+      fileName: block.fileName || "",
+      fieldName: block.fieldName || "",
+      endpoint: block.endpoint || "",
+      items: Array.isArray(block.items) ? block.items : [],
+      buttons: normalizeMessageOptions(block.buttons, "btn").slice(0, 3)
+    }));
     node.quickReplies = normalizeMessageOptions(node.quickReplies, "qr");
     node.buttons = normalizeMessageOptions(node.buttons, "btn").slice(0, 3);
   }
@@ -463,7 +477,7 @@ function conditionMatchesNode(node, context = {}) {
   const operator = node.conditionOperator || "contains_any";
 
   if (node.conditionType === "tag") {
-    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalize);
+    const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalizeTagKey);
     if (operator === "not_contains") return terms.length ? terms.every((term) => !tags.includes(term)) : false;
     return terms.some((term) => tags.includes(term));
   }
@@ -483,7 +497,7 @@ function conditionMatchesNode(node, context = {}) {
 
 function conditionRuleMatches(condition, context = {}) {
   const input = normalize(context.normalizedInput || context.text || "");
-  const expected = normalize(String(condition.value || "").trim());
+  const expected = condition.type === "tag" ? normalizeTagKey(condition.value) : normalize(String(condition.value || "").trim());
   if (condition.type === "tag") {
     const tags = normalizeTags(context.contact?.tags || context.contact?.tag).map(normalizeTagKey);
     if (!expected) return false;
@@ -617,7 +631,18 @@ function keywordMatches(keywords, normalizedInput) {
 
 function normalizeTags(value) {
   const raw = Array.isArray(value) ? value : String(value || "").split(",");
-  return [...new Set(raw.map((item) => String(item || "").trim()).filter(Boolean))];
+  const seen = new Set();
+  const tags = [];
+
+  raw.forEach((item) => {
+    const tag = String(item || "").replace(/\s+/g, " ").trim();
+    const key = normalizeTagKey(tag);
+    if (!tag || seen.has(key)) return;
+    seen.add(key);
+    tags.push(tag);
+  });
+
+  return tags;
 }
 
 function repliesForMessageNode(node) {
@@ -642,6 +667,25 @@ function repliesForMessageNode(node) {
           text: resolveTemplate(block.text || node.message || ""),
           quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : [],
           buttons: index === node.contentBlocks.length - 1 ? buttons : []
+        };
+      }
+      if (block.type === "image" && block.url && block.buttons?.length) {
+        return {
+          type: "generic",
+          elements: [
+            {
+              title: block.title || "Imagem",
+              subtitle: block.subtitle || "",
+              image_url: block.url,
+              buttons: block.buttons.map((option) => ({
+                title: option.title,
+                type: option.type || "url",
+                url: option.url || "",
+                phone: option.phone || "",
+                payload: option.id || option.title
+              }))
+            }
+          ]
         };
       }
       if (["image", "audio", "video", "file"].includes(block.type) && block.url) {
@@ -837,7 +881,7 @@ function normalize(value) {
 }
 
 function normalizeTagKey(value) {
-  return normalize(String(value || "").trim());
+  return normalize(String(value || "").replace(/\s+/g, " ").trim());
 }
 
 function resolveTemplate(text) {

@@ -1629,6 +1629,44 @@ svg {
   -webkit-line-clamp: 2;
 }
 
+.message-node-outputs {
+  display: grid;
+  gap: 5px;
+  padding: 2px 0 0;
+}
+
+.message-node-output-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+  padding: 5px 14px 5px 8px;
+  border: 1px solid #edf1f5;
+  border-radius: 7px;
+  background: #fbfdff;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.message-node-output-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-node-output-row.connected {
+  border-color: #b9e5cf;
+  background: #f4fbf7;
+  color: var(--green-dark);
+}
+
+.message-node-port {
+  top: auto;
+  border-color: #9fb2c3;
+}
+
 .node-footer {
   display: flex;
   align-items: center;
@@ -4434,6 +4472,7 @@ svg {
 
 .content-block-list,
 .message-option-list,
+.message-block-button-list,
 .variation-list {
   display: grid;
   gap: 8px;
@@ -4501,6 +4540,19 @@ svg {
 .condition-branches {
   display: grid;
   gap: 7px;
+}
+
+.message-block-button-list {
+  padding-top: 4px;
+}
+
+.block-button-card {
+  background: #fbfdff;
+}
+
+.settings-card-title.compact {
+  display: grid;
+  gap: 2px;
 }
 
 .manychat-condition-settings {

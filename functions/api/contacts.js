@@ -40,8 +40,8 @@ export async function onRequestPost({ request, env }) {
 
     if (body.action === "remove_tag") {
       const current = await upsertContact(env, pageId, body.contact || { psid });
-      const target = String(body.tag || "").trim().toLowerCase();
-      const tags = (current?.tags || []).filter((tag) => String(tag).trim().toLowerCase() !== target);
+      const target = normalizeTagKey(body.tag);
+      const tags = (current?.tags || []).filter((tag) => normalizeTagKey(tag) !== target);
       return json({ contact: await setContactTags(env, pageId, current.psid, tags) });
     }
 
@@ -63,6 +63,15 @@ export async function onRequestPost({ request, env }) {
   }
 
   return json({ error: "Unsupported contact action" }, 400);
+}
+
+function normalizeTagKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 async function requirePageAccess(request, env, pageId) {
