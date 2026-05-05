@@ -4455,6 +4455,7 @@ function handleWorkspaceClick(event) {
   if (action === "close-next-step-picker") return closeNextStepPicker();
   if (action === "add-next-step") return addNextStep(button.dataset.type);
   if (action === "set-existing-next-step") return setExistingNextStep(id, button.dataset.targetId);
+  if (action === "disconnect-connection") return disconnectConnection(button);
   if (action === "open-action-picker") return openActionPicker(id);
   if (action === "close-action-picker") return closeActionPicker();
   if (action === "select-action-category") return selectActionCategory(button.dataset.category);
@@ -5360,6 +5361,62 @@ function replaceNodeReference(node, oldId, newId = null) {
   node.variations?.forEach((variation) => {
     if (variation.next === oldId) variation.next = newId;
   });
+}
+
+function disconnectConnection(sourceIdOrDataset, output = null) {
+  const flow = selectedFlow();
+  const sourceId = typeof sourceIdOrDataset === "string" ? sourceIdOrDataset : sourceIdOrDataset?.dataset?.sourceId;
+  const node = flow?.nodes.find((item) => item.id === sourceId);
+  if (!flow || !node) return;
+
+  const ref =
+    output || {
+      field: sourceIdOrDataset.dataset.outputField || "",
+      kind: sourceIdOrDataset.dataset.outputKind || "",
+      optionId: sourceIdOrDataset.dataset.outputOptionId || "",
+      blockId: sourceIdOrDataset.dataset.outputBlockId || "",
+      variationId: sourceIdOrDataset.dataset.outputVariationId || ""
+    };
+
+  clearOutputTarget(node, ref);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function clearOutputTarget(node, ref = {}) {
+  normalizeNodeStructure(node);
+  if (node.type === "condition" && (ref.field === "yesNext" || ref.field === "noNext")) {
+    node[ref.field] = null;
+    return;
+  }
+  if (node.type === "randomizer" && ref.variationId) {
+    const variation = node.variations?.find((item) => item.id === ref.variationId);
+    if (variation) variation.next = null;
+    return;
+  }
+  if (node.type === "message") {
+    if (ref.field === "next" || ref.kind === "default") {
+      node.next = null;
+      return;
+    }
+    if ((ref.kind === "button" || ref.kind === "quick_reply") && ref.optionId) {
+      const list = ref.kind === "button" ? node.buttons : node.quickReplies;
+      const option = list.find((item) => item.id === ref.optionId);
+      if (option) option.next = null;
+      return;
+    }
+    if (ref.kind === "image_button" && ref.blockId && ref.optionId) {
+      const option = findMessageBlockButton(node, ref.blockId, ref.optionId);
+      if (option) option.next = null;
+      return;
+    }
+  }
+  if (ref.field && Object.prototype.hasOwnProperty.call(node, ref.field)) {
+    node[ref.field] = null;
+    return;
+  }
+  node.next = null;
 }
 
 function duplicateSelectedNode() {
@@ -7194,10 +7251,38 @@ function renderConnections(flow) {
       const start = nodeOutputPoint(node, connection);
       const end = nodeInputPoint(target);
       const offset = node.type === "condition" || node.type === "message" ? 0 : index * 8;
-      return `<path d="${connectionPath(start.x, start.y + offset, end.x, end.y)}" /><text class="connection-label" x="${miniNumber((start.x + end.x) / 2)}" y="${miniNumber((start.y + end.y) / 2 + offset - 6)}">${escapeHtml(label || "")}</text>`;
+      const startY = start.y + offset;
+      const endY = end.y;
+      const path = connectionPath(start.x, startY, end.x, endY);
+      const middleX = (start.x + end.x) / 2;
+      const middleY = (startY + endY) / 2;
+      const dataAttrs = connectionDataAttributes(node, connection);
+      return `
+        <g class="connection-link" ${dataAttrs}>
+          <path class="connection-hit" d="${attr(path)}" />
+          <path class="connection-line" d="${attr(path)}" />
+          <text class="connection-label" x="${miniNumber(middleX)}" y="${miniNumber(middleY - 6)}">${escapeHtml(label || "")}</text>
+          <foreignObject class="connection-delete-object" x="${miniNumber(middleX - 14)}" y="${miniNumber(middleY - 14)}" width="28" height="28">
+            <button class="connection-delete-button" type="button" data-action="disconnect-connection" ${dataAttrs} title="Desconectar linha" aria-label="Desconectar linha">${icons.trash}</button>
+          </foreignObject>
+        </g>
+      `;
       })
     )
     .join("");
+}
+
+function connectionDataAttributes(source, connection) {
+  return [
+    ["data-source-id", source.id],
+    ["data-output-field", connection.field || ""],
+    ["data-output-kind", connection.kind || ""],
+    ["data-output-option-id", connection.optionId || ""],
+    ["data-output-block-id", connection.blockId || ""],
+    ["data-output-variation-id", connection.variationId || ""]
+  ]
+    .map(([key, value]) => `${key}="${attr(value)}"`)
+    .join(" ");
 }
 
 function connectionTargets(flow, node) {

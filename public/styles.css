@@ -1158,10 +1158,71 @@ svg {
   pointer-events: none;
 }
 
-.connection-layer path {
+.connection-layer .connection-line {
   stroke: #8aa2b4;
   stroke-width: 2.2;
   fill: none;
+  pointer-events: none;
+}
+
+.connection-link {
+  pointer-events: auto;
+}
+
+.connection-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+}
+
+.connection-link:hover .connection-line,
+.connection-link:focus-within .connection-line {
+  stroke: var(--green);
+}
+
+.connection-delete-object {
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.connection-link:hover .connection-delete-object,
+.connection-link:focus-within .connection-delete-object {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.connection-delete-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #d7dee8;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #d3382f;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16);
+}
+
+.connection-delete-button:hover,
+.connection-delete-button:focus-visible {
+  outline: 0;
+  background: #fff5f5;
+  border-color: #f0b8b8;
+}
+
+.connection-delete-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.connection-delete-button svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
 }
 
 .connection-layer .connection-temp {
@@ -3521,9 +3582,14 @@ svg {
   height: 28px;
 }
 
-.app-shell.canvas-mode .connection-layer path {
+.app-shell.canvas-mode .connection-layer .connection-line {
   stroke: #8096aa;
   stroke-width: 2;
+}
+
+.app-shell.canvas-mode .connection-link:hover .connection-line,
+.app-shell.canvas-mode .connection-link:focus-within .connection-line {
+  stroke: var(--green);
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .flow-sidebar {
