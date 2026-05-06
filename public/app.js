@@ -8231,12 +8231,12 @@ function renderConversationBubble({ direction, content, sender = "", time = "", 
   `;
 }
 
-function renderPixelConversationBubble(event, showTime = false) {
+function renderPixelConversationBubble(event) {
   return renderConversationBubble({
     direction: "system pixel-event",
     content: renderPixelConversationContent(event),
     time: event.createdAt || "",
-    showTime
+    showTime: true
   });
 }
 
