@@ -2066,13 +2066,10 @@ function renderPixel() {
           </div>
         </div>
         <div class="panel-body pixel-install-body">
-          <label class="settings-field">
-            <span>Identificador do site</span>
-            <input data-setting-field="pixelSiteId" value="${attr(state.settings.pixelSiteId || "")}" placeholder="${attr(defaultPixelSiteId(pageId))}" />
-          </label>
           <pre class="code-block pixel-snippet">${escapeHtml(snippet)}</pre>
           <div class="pixel-hint-grid">
             <span>Instale antes de fechar a tag &lt;/head&gt; do seu site.</span>
+            <span>O identificador do site e definido automaticamente pelo dominio onde o pixel foi instalado.</span>
             <span>O visitante e anonimo: o pixel identifica navegador/sessao, nao uma pessoa real sem login ou parametro externo.</span>
             <span>Links, botoes e elementos com <code>data-ml-track</code> entram nos eventos automaticamente.</span>
           </div>
@@ -2215,16 +2212,8 @@ function shortVisitorId(value) {
 
 function pixelInstallSnippet(pageId = currentFlowPageId()) {
   const origin = location.origin === "null" ? "https://messenlead.pages.dev" : location.origin;
-  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&siteId=${encodeURIComponent(currentPixelSiteId(pageId))}`;
+  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}`;
   return `<script async src="${scriptUrl}"></script>`;
-}
-
-function currentPixelSiteId(pageId = currentFlowPageId()) {
-  return safeTrackingToken(state.settings.pixelSiteId || defaultPixelSiteId(pageId));
-}
-
-function defaultPixelSiteId(pageId = currentFlowPageId()) {
-  return `site-${normalizeFlowPageId(pageId)}`;
 }
 
 function safeTrackingToken(value) {

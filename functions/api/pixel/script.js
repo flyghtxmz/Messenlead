@@ -8,7 +8,7 @@ export function onRequestGet() {
   var endpoint = scriptUrl.origin + "/api/pixel/collect";
   var config = {
     pageId: (script && script.getAttribute("data-page-id")) || scriptUrl.searchParams.get("pageId") || "__global__",
-    siteId: (script && script.getAttribute("data-site-id")) || scriptUrl.searchParams.get("siteId") || "default"
+    siteId: safeSiteId((script && script.getAttribute("data-site-id")) || scriptUrl.searchParams.get("siteId") || window.location.hostname || "default")
   };
   var visitorKey = "messenlead.pixel.visitor:" + config.siteId;
   var sessionKey = "messenlead.pixel.session:" + config.siteId;
@@ -17,6 +17,16 @@ export function onRequestGet() {
   function randomId(prefix) {
     if (window.crypto && crypto.randomUUID) return prefix + "_" + crypto.randomUUID();
     return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+
+  function safeSiteId(value) {
+    return String(value || "default")
+      .trim()
+      .toLowerCase()
+      .replace(/^www\\./, "")
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 100) || "default";
   }
 
   function storageGet(store, key) {
