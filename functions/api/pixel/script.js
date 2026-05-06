@@ -151,24 +151,41 @@ export function onRequestGet() {
   function send(eventType, eventName, data) {
     var eventPayload = payload(eventType, eventName, data);
     var body = JSON.stringify(eventPayload);
-    fetch(endpoint, {
+    return fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: body,
       keepalive: true,
       mode: "cors"
     }).then(function (response) {
-      if (!response || !response.ok) sendFallback(eventPayload);
+      if (!response || !response.ok) return sendFallback(eventPayload, response);
+      return {
+        ok: true,
+        status: response.status,
+        eventType: eventPayload.eventType,
+        eventName: eventPayload.eventName,
+        pageId: eventPayload.pageId,
+        siteId: eventPayload.siteId
+      };
     }).catch(function () {
       if (navigator.sendBeacon) {
         var blob = new Blob([body], { type: "application/json" });
-        if (navigator.sendBeacon(endpoint, blob)) return;
+        if (navigator.sendBeacon(endpoint, blob)) {
+          return {
+            ok: true,
+            transport: "beacon",
+            eventType: eventPayload.eventType,
+            eventName: eventPayload.eventName,
+            pageId: eventPayload.pageId,
+            siteId: eventPayload.siteId
+          };
+        }
       }
-      sendFallback(eventPayload);
+      return sendFallback(eventPayload);
     });
   }
 
-  function sendFallback(eventPayload) {
+  function sendFallback(eventPayload, response) {
     var params = new URLSearchParams();
     [
       "pageId",
@@ -198,15 +215,24 @@ export function onRequestGet() {
     });
     var image = new Image();
     image.src = endpoint + "?" + params.toString();
+    return {
+      ok: false,
+      transport: "image",
+      status: response && response.status,
+      eventType: eventPayload.eventType,
+      eventName: eventPayload.eventName,
+      pageId: eventPayload.pageId,
+      siteId: eventPayload.siteId
+    };
   }
 
   window.MessenleadPixel = {
     loaded: true,
     track: function (eventName, data) {
-      send("custom", eventName || "custom", data || {});
+      return send("custom", eventName || "custom", data || {});
     },
     identify: function (id, data) {
-      send("identify", "identify", Object.assign({ externalId: trim(id, 180) }, data || {}));
+      return send("identify", "identify", Object.assign({ externalId: trim(id, 180) }, data || {}));
     }
   };
 
