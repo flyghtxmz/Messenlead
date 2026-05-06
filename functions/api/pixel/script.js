@@ -149,18 +149,55 @@ export function onRequestGet() {
   }
 
   function send(eventType, eventName, data) {
-    var body = JSON.stringify(payload(eventType, eventName, data));
-    if (navigator.sendBeacon) {
-      var blob = new Blob([body], { type: "application/json" });
-      if (navigator.sendBeacon(endpoint, blob)) return;
-    }
+    var eventPayload = payload(eventType, eventName, data);
+    var body = JSON.stringify(eventPayload);
     fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: body,
       keepalive: true,
       mode: "cors"
-    }).catch(function () {});
+    }).then(function (response) {
+      if (!response || !response.ok) sendFallback(eventPayload);
+    }).catch(function () {
+      if (navigator.sendBeacon) {
+        var blob = new Blob([body], { type: "application/json" });
+        if (navigator.sendBeacon(endpoint, blob)) return;
+      }
+      sendFallback(eventPayload);
+    });
+  }
+
+  function sendFallback(eventPayload) {
+    var params = new URLSearchParams();
+    [
+      "pageId",
+      "siteId",
+      "visitorId",
+      "sessionId",
+      "contactToken",
+      "contactPsid",
+      "contactPageId",
+      "eventType",
+      "eventName",
+      "url",
+      "path",
+      "title",
+      "referrer",
+      "targetUrl",
+      "targetText",
+      "targetId",
+      "targetClasses",
+      "utmSource",
+      "utmMedium",
+      "utmCampaign",
+      "utmTerm",
+      "utmContent"
+    ].forEach(function (key) {
+      if (eventPayload[key]) params.set(key, eventPayload[key]);
+    });
+    var image = new Image();
+    image.src = endpoint + "?" + params.toString();
   }
 
   window.MessenleadPixel = {
