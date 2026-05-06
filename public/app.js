@@ -2171,6 +2171,7 @@ function renderPixelEventRow(event) {
       <div class="pixel-event-main">
         <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(detail)}</span>
+        ${renderPixelContactLinkBadge(event)}
       </div>
       <div class="pixel-event-meta">
         <span>${escapeHtml(shortVisitorId(event.visitorId))}</span>
@@ -2188,10 +2189,16 @@ function renderPixelSiteEntryBubble(event) {
   return `
     <article class="pixel-site-entry-bubble">
       <span>${icons.pixel}</span>
-      <strong>${escapeHtml(visitor)} entrou no site</strong>
+      <strong>${escapeHtml(event.contactPsid ? "Contato Messenger" : visitor)} entrou no site</strong>
       <small>${escapeHtml(page)}${time ? ` - ${escapeHtml(time)}` : ""}</small>
+      ${renderPixelContactLinkBadge(event)}
     </article>
   `;
+}
+
+function renderPixelContactLinkBadge(event) {
+  if (!event.contactPsid) return `<small class="pixel-link-status anonymous">Anonimo</small>`;
+  return `<small class="pixel-link-status linked">Vinculado ao Messenger</small>`;
 }
 
 function pixelEventLabel(type) {
@@ -2212,7 +2219,7 @@ function shortVisitorId(value) {
 
 function pixelInstallSnippet(pageId = currentFlowPageId()) {
   const origin = location.origin === "null" ? "https://messenlead.pages.dev" : location.origin;
-  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}`;
+  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&v=2`;
   return `<script async src="${scriptUrl}"></script>`;
 }
 

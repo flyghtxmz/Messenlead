@@ -228,6 +228,9 @@ export function onRequestGet() {
 
   window.MessenleadPixel = {
     loaded: true,
+    version: "2",
+    endpoint: endpoint,
+    config: config,
     track: function (eventName, data) {
       return send("custom", eventName || "custom", data || {});
     },
@@ -277,7 +280,7 @@ export function onRequestGet() {
   return new Response(source.trim(), {
     headers: {
       "Content-Type": "application/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=300"
+      "Cache-Control": "public, max-age=60"
     }
   });
 }
