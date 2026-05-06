@@ -2526,6 +2526,7 @@ function renderSettings() {
   const tags = tagRecordsForPage(pageId);
   const pageContacts = contactsForPage(pageId);
   const taggedContacts = pageContacts.filter((contact) => contactTags(contact).length).length;
+  const connectedPageCount = connectedPagesForTagCleanup().length;
   const logPageId = flowLogState.scope === "all" ? "__all__" : pageId;
   if (shouldLoadContactsForCurrentPage()) loadContactsForPage(pageId);
   if (flowLogState.pageId !== logPageId && !flowLogState.loading) {
@@ -2558,7 +2559,8 @@ function renderSettings() {
           ${metricInline("Pastas", folders.length)}
           ${metricInline("Tags salvas", tags.length)}
           ${metricInline("Usuarios com tags", taggedContacts)}
-          <button class="secondary-button danger" type="button" data-action="clear-all-contact-tags">${icons.trash}<span>Limpar tags dos usuarios</span></button>
+          ${metricInline("Paginas conectadas", connectedPageCount)}
+          <button class="compact-danger-action" type="button" data-action="clear-all-contact-tags" title="Limpar tags de todas as paginas">${icons.trash}<span>Limpar tags de todas as paginas</span></button>
           <p class="muted">As tags criadas nos nodes de ação aparecem no dropdown e podem ser agrupadas por pasta aqui.</p>
         </div>
       </aside>
@@ -2730,59 +2732,108 @@ function confirmDeleteTagFolder(folderId) {
   });
 }
 
-function confirmClearAllContactTags() {
-  const pageId = currentFlowPageId();
-  const pageName = selectedPageName(pageId) || state.settings.pageName || pageId;
-  const taggedContacts = contactsForPage(pageId).filter((contact) => contactTags(contact).length).length;
+async function confirmClearAllContactTags() {
+  const pages = await ensureConnectedPagesForTagCleanup();
+  if (!pages.length) {
+    toastMessage("Nenhuma pagina conectada encontrada. Entre com Facebook novamente.");
+    return;
+  }
+
+  const pageIds = pages.map((page) => normalizeFlowPageId(page.id));
+  const taggedContacts = state.contacts.filter((contact) => {
+    return pageIds.includes(normalizeFlowPageId(contact.pageId)) && contactTags(contact).length;
+  }).length;
 
   openConfirmModal({
-    title: "Limpar tags dos usuarios",
-    message: `Remover todas as tags de ${taggedContacts} usuario${taggedContacts === 1 ? "" : "s"} da pagina "${pageName}"? Os contatos continuam salvos.`,
+    title: "Limpar tags de todas as paginas",
+    message: `Remover todas as tags dos usuarios em ${pages.length} pagina${pages.length === 1 ? "" : "s"} conectada${pages.length === 1 ? "" : "s"}? Contatos e fluxos continuam salvos. Usuarios com tags carregados agora: ${taggedContacts}.`,
     submitLabel: "Limpar tags",
     danger: true,
-    onConfirm: () => clearAllContactTagsForCurrentPage(pageId)
+    onConfirm: () => clearAllContactTagsForConnectedPages(pages)
   });
 }
 
-async function clearAllContactTagsForCurrentPage(pageId = currentFlowPageId()) {
-  const normalizedPageId = normalizeFlowPageId(pageId);
+async function ensureConnectedPagesForTagCleanup() {
+  if (Array.isArray(metaState.pages) && metaState.pages.length) return metaState.pages.filter((page) => page?.id);
+
+  try {
+    const profile = await apiGet("/api/meta/me");
+    metaState.profile = profile.user || null;
+    metaState.authChecked = true;
+
+    const result = await apiGet("/api/meta/pages");
+    metaState.pages = result.pages || [];
+    metaState.pageDebug = result.debug || null;
+    metaState.error = "";
+    renderPageSwitcher();
+    return metaState.pages.filter((page) => page?.id);
+  } catch (error) {
+    metaState.error = error.message || "Nao foi possivel carregar as paginas.";
+    return [];
+  }
+}
+
+function connectedPagesForTagCleanup() {
+  const pages = Array.isArray(metaState.pages) ? metaState.pages : [];
+  if (pages.length) return pages.filter((page) => page?.id);
+
+  const pageId = currentFlowPageId();
+  return pageId ? [{ id: pageId, name: selectedPageName(pageId) || state.settings.pageName || pageId }] : [];
+}
+
+async function clearAllContactTagsForConnectedPages(pages = connectedPagesForTagCleanup()) {
+  const normalizedPages = pages
+    .map((page) => ({ id: normalizeFlowPageId(page.id), name: page.name || selectedPageName(page.id) || page.id }))
+    .filter((page) => page.id);
+  const currentPageId = currentFlowPageId();
+
+  if (!normalizedPages.length) {
+    toastMessage("Nenhuma pagina conectada para limpar.");
+    return;
+  }
+
   contactStore = {
-    pageId: normalizedPageId,
+    pageId: "__all__",
     loading: true,
     serverAvailable: contactStore.serverAvailable,
     status: "Limpando tags"
   };
   render();
 
-  try {
-    const result = await apiPost("/api/contacts", {
-      pageId: normalizedPageId,
-      action: "clear_all_tags"
-    });
+  let total = 0;
+  let failed = 0;
 
-    if (Array.isArray(result.contacts)) {
-      mergeContactsForPage(normalizedPageId, result.contacts);
-      persistLocalState();
-    } else {
-      state.contacts = state.contacts.map((contact) =>
-        normalizeFlowPageId(contact.pageId) === normalizedPageId
-          ? { ...contact, tags: [], tag: "", updatedAt: new Date().toISOString() }
-          : contact
-      );
-      persistLocalState();
+  try {
+    for (const page of normalizedPages) {
+      try {
+        const result = await apiPost("/api/contacts", {
+          pageId: page.id,
+          action: "clear_all_tags"
+        });
+
+        total += Number(result.count) || 0;
+        if (Array.isArray(result.contacts)) {
+          mergeContactsForPage(page.id, result.contacts);
+        } else {
+          clearLocalContactTagsForPage(page.id);
+        }
+      } catch {
+        failed += 1;
+      }
     }
 
     subscriberTagFilter = "";
+    persistLocalState();
     contactStore = {
-      pageId: normalizedPageId,
+      pageId: currentPageId,
       loading: false,
-      serverAvailable: true,
-      status: "Tags limpas"
+      serverAvailable: failed === 0,
+      status: failed ? "Tags limpas parcialmente" : "Tags limpas"
     };
-    toastMessage(`Tags removidas de ${result.count ?? 0} contato${Number(result.count) === 1 ? "" : "s"}.`);
+    toastMessage(`Tags removidas de ${total} contato${total === 1 ? "" : "s"} em ${normalizedPages.length - failed} pagina${normalizedPages.length - failed === 1 ? "" : "s"}.`);
   } catch (error) {
     contactStore = {
-      pageId: normalizedPageId,
+      pageId: currentPageId,
       loading: false,
       serverAvailable: false,
       status: "Erro ao limpar tags"
@@ -2791,6 +2842,15 @@ async function clearAllContactTagsForCurrentPage(pageId = currentFlowPageId()) {
   }
 
   render();
+}
+
+function clearLocalContactTagsForPage(pageId) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  state.contacts = state.contacts.map((contact) =>
+    normalizeFlowPageId(contact.pageId) === normalizedPageId
+      ? { ...contact, tags: [], tag: "", updatedAt: new Date().toISOString() }
+      : contact
+  );
 }
 
 async function loadMetaProfile() {

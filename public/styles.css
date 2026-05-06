@@ -500,6 +500,42 @@ svg {
   color: var(--red);
 }
 
+.compact-danger-action {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid #f0c8c1;
+  border-radius: 7px;
+  background: #fff8f7;
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.compact-danger-action:hover,
+.compact-danger-action:focus-visible {
+  outline: 0;
+  border-color: #e6aaa0;
+  background: #fff1ef;
+}
+
+.compact-danger-action svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+
+.compact-danger-action span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .text-button {
   min-height: 34px;
   padding: 0 10px;
