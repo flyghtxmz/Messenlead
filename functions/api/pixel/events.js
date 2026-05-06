@@ -8,6 +8,7 @@ export async function onRequestGet({ request, env }) {
   const pageId = normalizePixelPageId(url.searchParams.get("pageId"));
   const days = Number(url.searchParams.get("days") || 7);
   const limit = Number(url.searchParams.get("limit") || 80);
+  const psid = url.searchParams.get("psid") || "";
 
   const authError = await requirePageAccess(request, env, pageId);
   if (authError) return authError;
@@ -15,7 +16,7 @@ export async function onRequestGet({ request, env }) {
   return json({
     pageId,
     summary: await pixelSummary(env, pageId, { days }),
-    events: await listPixelEvents(env, pageId, { days, limit })
+    events: await listPixelEvents(env, pageId, { days, limit, psid })
   });
 }
 

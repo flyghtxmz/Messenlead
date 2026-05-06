@@ -340,6 +340,7 @@ let metaState = {
   conversations: null,
   selectedConversationId: "",
   messages: null,
+  pixelEvents: null,
   error: oauthErrorFromHash()
 };
 let broadcastState = {
@@ -353,6 +354,7 @@ mainNav.addEventListener("click", (event) => {
   if (activeView === "pages") {
     metaState.selectedConversationId = "";
     metaState.messages = null;
+    metaState.pixelEvents = null;
   }
   if (activeView === "flows") {
     flowCanvasOpen = false;
@@ -1460,6 +1462,7 @@ function renderPages() {
   if (metaState.selectedConversationId && metaState.conversations && !selectedConversation) {
     metaState.selectedConversationId = "";
     metaState.messages = null;
+    metaState.pixelEvents = null;
   }
 
   if (selectedPage && selectedConversation && !metaState.messages) {
@@ -1546,7 +1549,7 @@ function renderPages() {
                         <div class="conversation">
                           ${
                             metaState.messages
-                              ? renderMetaConversationMessages(metaState.messages, selectedPage.id)
+                              ? renderMetaConversationMessages(metaState.messages, selectedPage.id, metaState.pixelEvents || [])
                               : `<div class="empty-state">${icons.inbox}<span>Carregando mensagens...</span></div>`
                           }
                         </div>
@@ -2897,6 +2900,7 @@ async function loadMetaConversations(pageId) {
     mergeConversationsAsContacts(pageId, selectedPageName(pageId), conversations);
     metaState.selectedConversationId = conversations.find((conversation) => conversation.id === previousConversationId)?.id || "";
     metaState.messages = null;
+    metaState.pixelEvents = null;
   } catch (error) {
     metaState.conversations = [];
     metaState.error = error.message;
@@ -2962,14 +2966,21 @@ function refreshBroadcastEligibility() {
 
 async function loadMetaMessages(pageId, conversationId) {
   try {
-    const result = await apiGet(
-      `/api/meta/messages?pageId=${encodeURIComponent(pageId)}&conversationId=${encodeURIComponent(conversationId)}`
-    );
+    const conversation = metaState.conversations?.find((item) => item.id === conversationId);
+    const psid = conversation ? recipientIdFromConversation(conversation, pageId) : "";
+    const [result, pixelResult] = await Promise.all([
+      apiGet(`/api/meta/messages?pageId=${encodeURIComponent(pageId)}&conversationId=${encodeURIComponent(conversationId)}`),
+      psid
+        ? apiGet(`/api/pixel/events?pageId=${encodeURIComponent(pageId)}&psid=${encodeURIComponent(psid)}&days=90&limit=80`).catch(() => ({ events: [] }))
+        : Promise.resolve({ events: [] })
+    ]);
     metaState.messages = result.messages || [];
+    metaState.pixelEvents = pixelResult.events || [];
     metaState.error = "";
     markMetaConversationRead(pageId, conversationId);
   } catch (error) {
     metaState.messages = [];
+    metaState.pixelEvents = [];
     metaState.error = error.message;
     toastMessage(error.message);
   } finally {
@@ -3120,6 +3131,7 @@ async function logoutFacebook() {
     conversations: null,
     selectedConversationId: "",
     messages: null,
+    pixelEvents: null,
     error: ""
   };
   render();
@@ -3132,6 +3144,7 @@ function selectMetaPage(pageId) {
   metaState.conversations = null;
   metaState.selectedConversationId = "";
   metaState.messages = null;
+  metaState.pixelEvents = null;
 
   if (page) {
     state.settings.pageId = page.id;
@@ -3158,6 +3171,7 @@ function selectSidebarPage(pageId) {
   metaState.conversations = null;
   metaState.selectedConversationId = "";
   metaState.messages = null;
+  metaState.pixelEvents = null;
   state.settings.pageId = page.id;
   state.settings.pageName = page.name;
   subscriberTagFilter = "";
@@ -3179,6 +3193,7 @@ function refreshMetaConversations() {
   if (!metaState.selectedPageId) return;
   metaState.conversations = null;
   metaState.messages = null;
+  metaState.pixelEvents = null;
   render();
 }
 
@@ -3186,6 +3201,7 @@ function selectMetaConversation(conversationId) {
   const pageId = metaState.selectedPageId || state.settings.pageId;
   metaState.selectedConversationId = conversationId;
   metaState.messages = null;
+  metaState.pixelEvents = null;
   markMetaConversationRead(pageId, conversationId);
   render();
 }
@@ -3207,6 +3223,7 @@ async function sendMetaMessage() {
     await apiPost("/api/meta/send", { pageId: page.id, psid, text });
     textarea.value = "";
     metaState.messages = null;
+    metaState.pixelEvents = null;
     toastMessage("Mensagem enviada pelo Messenger.");
     render();
   } catch (error) {
@@ -8101,17 +8118,26 @@ function selectedContact() {
   return pageContacts.find((contact) => contact.id === selectedContactId) || pageContacts[0];
 }
 
-function renderMetaConversationMessages(messages, pageId) {
-  const ordered = messages.slice().reverse();
-  return ordered
-    .map((message, index) => {
+function renderMetaConversationMessages(messages, pageId, pixelEvents = []) {
+  const timeline = [
+    ...messages.map((message) => ({ kind: "message", at: messageTimeValue(message), message })),
+    ...pixelEvents.map((event) => ({ kind: "pixel", at: event.createdAt || "", event }))
+  ].sort((left, right) => Date.parse(left.at || "") - Date.parse(right.at || ""));
+
+  return timeline
+    .map((item, index) => {
+      if (item.kind === "pixel") {
+        return renderPixelConversationBubble(item.event, shouldShowBubbleTime(item, timeline[index - 1]));
+      }
+
+      const message = item.message;
       const direction = message.from?.id === pageId ? "outbound" : "inbound";
       return renderConversationBubble({
         direction,
         content: renderMessageContent(message),
         sender: message.from?.name || "",
         time: messageTimeValue(message),
-        showTime: shouldShowBubbleTime(message, ordered[index - 1])
+        showTime: shouldShowBubbleTime(item, timeline[index - 1])
       });
     })
     .join("");
@@ -8141,6 +8167,38 @@ function renderConversationBubble({ direction, content, sender = "", time = "", 
       ${footerParts.length ? `<span class="bubble-meta">${footerParts.join("")}</span>` : ""}
     </div>
   `;
+}
+
+function renderPixelConversationBubble(event, showTime = false) {
+  return renderConversationBubble({
+    direction: "system pixel-event",
+    content: renderPixelConversationContent(event),
+    time: event.createdAt || "",
+    showTime
+  });
+}
+
+function renderPixelConversationContent(event) {
+  const title = pixelConversationTitle(event);
+  const detail = event.targetUrl || event.url || event.path || "";
+  return `
+    <div class="pixel-chat-event">
+      ${icons.pixel}
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function pixelConversationTitle(event) {
+  if (event.eventType === "link_click") return `Clicou no link: ${event.targetText || event.eventName || "link"}`;
+  if (event.eventType === "element_click") return `Clicou em: ${event.targetText || event.eventName || "elemento"}`;
+  if (event.eventType === "form_submit") return "Enviou um formulario no site";
+  if (event.eventType === "page_view") return "Entrou no site";
+  if (event.eventType === "identify") return "Foi identificado no site";
+  return `Evento no site: ${event.eventName || pixelEventLabel(event.eventType)}`;
 }
 
 function shouldShowBubbleTime(message, previousMessage) {

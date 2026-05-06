@@ -12,6 +12,7 @@ export function onRequestGet() {
   };
   var visitorKey = "messenlead.pixel.visitor:" + config.siteId;
   var sessionKey = "messenlead.pixel.session:" + config.siteId;
+  var contactKey = "messenlead.pixel.contact:" + config.siteId;
 
   function randomId(prefix) {
     if (window.crypto && crypto.randomUUID) return prefix + "_" + crypto.randomUUID();
@@ -29,6 +30,20 @@ export function onRequestGet() {
   function storageSet(store, key, value) {
     try {
       store.setItem(key, value);
+    } catch (_) {}
+  }
+
+  function jsonGet(store, key) {
+    try {
+      return JSON.parse(store.getItem(key) || "{}") || {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function jsonSet(store, key, value) {
+    try {
+      store.setItem(key, JSON.stringify(value || {}));
     } catch (_) {}
   }
 
@@ -65,14 +80,38 @@ export function onRequestGet() {
     };
   }
 
+  function contactAttribution() {
+    var params = new URLSearchParams(window.location.search);
+    var stored = jsonGet(window.localStorage, contactKey);
+    var incoming = {
+      contactToken: params.get("ml_contact") || "",
+      contactPsid: params.get("ml_psid") || params.get("psid") || "",
+      contactPageId: params.get("ml_page_id") || "",
+      source: params.get("ml_source") || "",
+      button: params.get("ml_button") || ""
+    };
+
+    if (incoming.contactToken || incoming.contactPsid) {
+      incoming.updatedAt = new Date().toISOString();
+      jsonSet(window.localStorage, contactKey, incoming);
+      return incoming;
+    }
+
+    return stored && (stored.contactToken || stored.contactPsid) ? stored : {};
+  }
+
   function payload(eventType, eventName, data) {
     data = data || {};
     var currentUtm = utm();
+    var contact = contactAttribution();
     return {
       pageId: config.pageId,
       siteId: config.siteId,
       visitorId: visitorId(),
       sessionId: sessionId(),
+      contactToken: contact.contactToken || "",
+      contactPsid: contact.contactPsid || "",
+      contactPageId: contact.contactPageId || "",
       eventType: eventType || "custom",
       eventName: eventName || eventType || "custom",
       url: window.location.href,
@@ -92,7 +131,9 @@ export function onRequestGet() {
         language: navigator.language || "",
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
         screen: window.screen ? window.screen.width + "x" + window.screen.height : "",
-        viewport: window.innerWidth + "x" + window.innerHeight
+        viewport: window.innerWidth + "x" + window.innerHeight,
+        contactSource: contact.source || "",
+        contactButton: contact.button || ""
       }, data)
     };
   }

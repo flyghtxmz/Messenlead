@@ -36,12 +36,21 @@ export async function ensurePixelSchema(env) {
     )
   `).run();
 
+  await ensurePixelColumn(env, "contact_psid", "TEXT");
+  await ensurePixelColumn(env, "contact_token", "TEXT");
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_page_created ON pixel_events(page_id, created_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_page_type ON pixel_events(page_id, event_type, created_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_page_visitor ON pixel_events(page_id, visitor_id, created_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_page_contact ON pixel_events(page_id, contact_psid, created_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_site_created ON pixel_events(site_id, created_at)").run();
 
   return true;
+}
+
+async function ensurePixelColumn(env, name, type) {
+  const result = await env.DB.prepare("PRAGMA table_info(pixel_events)").all();
+  const exists = (result.results || []).some((column) => column.name === name);
+  if (!exists) await env.DB.prepare(`ALTER TABLE pixel_events ADD COLUMN ${name} ${type}`).run();
 }
 
 export function normalizePixelPageId(pageId) {
@@ -52,6 +61,42 @@ export function normalizeSiteId(siteId) {
   return String(siteId || DEFAULT_SITE_ID).trim().slice(0, 120) || DEFAULT_SITE_ID;
 }
 
+export async function createMessengerContactToken(env, pageId, psid) {
+  const contactPsid = cleanText(psid, 120);
+  if (!contactPsid) return "";
+
+  const payload = {
+    v: 1,
+    p: normalizePixelPageId(pageId),
+    u: contactPsid,
+    iat: Date.now()
+  };
+  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = await hmacSign(env, body);
+  return `${body}.${signature}`;
+}
+
+export async function readMessengerContactToken(env, token) {
+  const value = cleanText(token, 1600);
+  const [body, signature] = value.split(".");
+  if (!body || !signature) return null;
+
+  const expected = await hmacSign(env, body);
+  if (!timingSafeEqual(signature, expected)) return null;
+
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(body)));
+    if (!payload?.p || !payload?.u) return null;
+    return {
+      pageId: normalizePixelPageId(payload.p),
+      psid: cleanText(payload.u, 120),
+      issuedAt: Number(payload.iat || 0)
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function addPixelEvent(env, event = {}, request = null) {
   const hasDb = await ensurePixelSchema(env);
   if (!hasDb) return null;
@@ -59,6 +104,7 @@ export async function addPixelEvent(env, event = {}, request = null) {
   const now = new Date().toISOString();
   const url = cleanText(event.url, 2000);
   const data = event.data && typeof event.data === "object" && !Array.isArray(event.data) ? event.data : {};
+  const contact = await resolvePixelContact(env, event, url, data);
   const requestHeaders = request?.headers;
   const userAgent = cleanText(event.userAgent || requestHeaders?.get("user-agent") || "", 500);
   const ip = requestHeaders?.get("cf-connecting-ip") || requestHeaders?.get("x-forwarded-for") || "";
@@ -66,10 +112,12 @@ export async function addPixelEvent(env, event = {}, request = null) {
 
   const row = {
     id: cleanText(event.id, 80) || makeEventId(),
-    pageId: normalizePixelPageId(event.pageId),
+    pageId: normalizePixelPageId(contact.pageId || event.pageId),
     siteId: normalizeSiteId(event.siteId),
     visitorId: cleanText(event.visitorId, 120) || "anonymous",
     sessionId: cleanText(event.sessionId, 120),
+    contactPsid: cleanText(contact.psid, 120),
+    contactToken: cleanText(contact.token, 1600),
     eventType: normalizeEventType(event.eventType || event.type),
     eventName: cleanText(event.eventName || event.name, 160),
     url,
@@ -95,12 +143,12 @@ export async function addPixelEvent(env, event = {}, request = null) {
 
   await env.DB.prepare(`
     INSERT INTO pixel_events (
-      id, page_id, site_id, visitor_id, session_id, event_type, event_name,
+      id, page_id, site_id, visitor_id, session_id, contact_psid, contact_token, event_type, event_name,
       url, path, title, referrer, target_url, target_text, target_id, target_classes,
       utm_source, utm_medium, utm_campaign, utm_term, utm_content,
       user_agent, ip_hash, country, city, data_json, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
     .bind(
       row.id,
@@ -108,6 +156,8 @@ export async function addPixelEvent(env, event = {}, request = null) {
       row.siteId,
       row.visitorId,
       row.sessionId,
+      row.contactPsid,
+      row.contactToken,
       row.eventType,
       row.eventName,
       row.url,
@@ -138,6 +188,8 @@ export async function addPixelEvent(env, event = {}, request = null) {
     site_id: row.siteId,
     visitor_id: row.visitorId,
     session_id: row.sessionId,
+    contact_psid: row.contactPsid,
+    contact_token: row.contactToken,
     event_type: row.eventType,
     event_name: row.eventName,
     url: row.url,
@@ -169,6 +221,23 @@ export async function listPixelEvents(env, pageId, options = {}) {
   const normalizedPageId = normalizePixelPageId(pageId);
   const limit = clampNumber(options.limit, 1, 250, 80);
   const since = sinceIso(options.days || 7);
+  const psid = cleanText(options.psid, 120);
+
+  if (psid) {
+    const result = await env.DB.prepare(`
+      SELECT *
+      FROM pixel_events
+      WHERE page_id = ?
+        AND contact_psid = ?
+        AND datetime(created_at) >= datetime(?)
+      ORDER BY datetime(created_at) DESC
+      LIMIT ?
+    `)
+      .bind(normalizedPageId, psid, since, limit)
+      .all();
+
+    return (result.results || []).map(rowToPixelEvent);
+  }
 
   const result = await env.DB.prepare(`
     SELECT *
@@ -278,6 +347,8 @@ function rowToPixelEvent(row) {
     siteId: row.site_id,
     visitorId: row.visitor_id,
     sessionId: row.session_id || "",
+    contactPsid: row.contact_psid || "",
+    hasContactToken: Boolean(row.contact_token),
     eventType: row.event_type,
     eventName: row.event_name || "",
     url: row.url || "",
@@ -330,6 +401,52 @@ function cleanData(value) {
   return clean;
 }
 
+async function resolvePixelContact(env, event = {}, url = "", data = {}) {
+  const token = cleanText(
+    event.contactToken ||
+      event.mlContact ||
+      data.contactToken ||
+      data.mlContact ||
+      queryParamFromUrl(url, "ml_contact"),
+    1600
+  );
+  const decoded = token ? await readMessengerContactToken(env, token) : null;
+  if (decoded?.pageId && decoded?.psid) {
+    return { pageId: decoded.pageId, psid: decoded.psid, token };
+  }
+
+  return {
+    pageId: cleanText(
+      event.contactPageId ||
+        event.mlPageId ||
+        data.contactPageId ||
+        data.mlPageId ||
+        queryParamFromUrl(url, "ml_page_id"),
+      120
+    ),
+    psid: cleanText(
+      event.contactPsid ||
+        event.psid ||
+        event.mlPsid ||
+        data.contactPsid ||
+        data.psid ||
+        data.mlPsid ||
+        queryParamFromUrl(url, "ml_psid") ||
+        queryParamFromUrl(url, "psid"),
+      120
+    ),
+    token
+  };
+}
+
+function queryParamFromUrl(value, key) {
+  try {
+    return new URL(value).searchParams.get(key) || "";
+  } catch {
+    return "";
+  }
+}
+
 function pathFromUrl(value) {
   try {
     return new URL(value).pathname || "/";
@@ -361,6 +478,47 @@ async function hashIp(ip, env) {
   } catch {
     return "";
   }
+}
+
+async function hmacSign(env, value) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(pixelSecret(env)),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  return base64UrlEncode(new Uint8Array(signature));
+}
+
+function pixelSecret(env) {
+  return cleanText(env.PIXEL_HASH_SALT || env.SESSION_SECRET || env.MESSENGER_APP_SECRET || env.META_APP_SECRET, 500) || "messenlead-pixel";
+}
+
+function base64UrlEncode(bytes) {
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function timingSafeEqual(left, right) {
+  if (left.length !== right.length) return false;
+
+  let result = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    result |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return result === 0;
 }
 
 function parseJsonObject(value) {

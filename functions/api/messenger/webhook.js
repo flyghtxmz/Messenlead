@@ -2,6 +2,7 @@ import { listFlows } from "../../_lib/flows.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
+import { createMessengerContactToken } from "../../_lib/pixel.js";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -801,7 +802,7 @@ async function sendMessengerReply(psid, reply, env, pageId, log = null, flow = n
   }
 
   const graphUrl = env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages";
-  const message = messengerMessagePayload(reply);
+  const message = await messengerMessagePayload(reply, env, pageId, psid);
   await log?.("info", "send_attempt", "Tentando enviar resposta pelo Messenger.", {
     replyType: reply.type || "text"
   }, flow);
@@ -837,7 +838,7 @@ async function sendMessengerReply(psid, reply, env, pageId, log = null, flow = n
   }, flow);
 }
 
-function messengerMessagePayload(reply) {
+async function messengerMessagePayload(reply, env, pageId, psid) {
   const message = {};
 
   if (reply.type === "attachment") {
@@ -853,12 +854,14 @@ function messengerMessagePayload(reply) {
       type: "template",
       payload: {
         template_type: "generic",
-        elements: reply.elements.slice(0, 10).map((element) => ({
-          title: String(element.title || "Card").slice(0, 80),
-          subtitle: String(element.subtitle || "").slice(0, 80),
-          image_url: element.image_url || undefined,
-          buttons: messengerButtons(element.buttons || [])
-        }))
+        elements: await Promise.all(
+          reply.elements.slice(0, 10).map(async (element) => ({
+            title: String(element.title || "Card").slice(0, 80),
+            subtitle: String(element.subtitle || "").slice(0, 80),
+            image_url: element.image_url || undefined,
+            buttons: await messengerButtons(element.buttons || [], env, pageId, psid)
+          }))
+        )
       }
     };
   } else if (reply.buttons?.length) {
@@ -867,7 +870,7 @@ function messengerMessagePayload(reply) {
       payload: {
         template_type: "button",
         text: String(reply.text || "Escolha uma opção").slice(0, 640),
-        buttons: messengerButtons(reply.buttons).slice(0, 3)
+        buttons: (await messengerButtons(reply.buttons, env, pageId, psid)).slice(0, 3)
       }
     };
   } else {
@@ -885,13 +888,20 @@ function messengerMessagePayload(reply) {
   return message;
 }
 
-function messengerButtons(buttons = []) {
+async function messengerButtons(buttons = [], env, pageId, psid) {
+  const hasTrackedUrl = buttons.some((button) => button.type === "url" && button.url);
+  const contactToken = hasTrackedUrl ? await createMessengerContactToken(env, pageId, psid) : "";
+
   return buttons.slice(0, 3).map((button) => {
     if (button.type === "url" && button.url) {
       return {
         type: "web_url",
         title: String(button.title || "Abrir").slice(0, 20),
-        url: button.url
+        url: trackedMessengerUrl(button.url, {
+          pageId,
+          contactToken,
+          button: button.title || button.payload || button.id || "link"
+        })
       };
     }
     if (button.type === "phone" && button.phone) {
@@ -907,6 +917,19 @@ function messengerButtons(buttons = []) {
       payload: String(button.payload || button.id || button.title || "NEXT").slice(0, 1000)
     };
   });
+}
+
+function trackedMessengerUrl(value, tracking = {}) {
+  try {
+    const url = new URL(value);
+    if (tracking.contactToken) url.searchParams.set("ml_contact", tracking.contactToken);
+    if (tracking.pageId) url.searchParams.set("ml_page_id", tracking.pageId);
+    url.searchParams.set("ml_source", "messenger");
+    if (tracking.button) url.searchParams.set("ml_button", String(tracking.button).slice(0, 120));
+    return url.toString();
+  } catch {
+    return value;
+  }
 }
 
 async function verifyMetaSignature(request, rawBody, appSecret) {
