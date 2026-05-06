@@ -91,7 +91,7 @@ export async function upsertContact(env, pageId, contact = {}) {
   const next = {
     pageId: normalizedPageId,
     psid,
-    name: String(contact.name || existing?.name || psid),
+    name: contactDisplayName(contact.name, existing?.name, psid),
     status: String(contact.status || existing?.status || "open"),
     source: String(contact.source || existing?.source || "Messenger"),
     tags,
@@ -229,13 +229,38 @@ function normalizeTag(value) {
     .toLowerCase();
 }
 
+function contactDisplayName(incomingName, existingName, psid) {
+  const incoming = cleanName(incomingName);
+  const existing = cleanName(existingName);
+
+  if (incoming && !isTechnicalContactName(incoming, psid)) return incoming;
+  if (existing && !isTechnicalContactName(existing, psid)) return existing;
+  return fallbackContactName(psid);
+}
+
+function cleanName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function isTechnicalContactName(value, psid = "") {
+  const text = cleanName(value);
+  if (!text) return true;
+  if (psid && text === String(psid)) return true;
+  return /^PSID[_:-]?\d+$/i.test(text) || /^\d{12,}$/.test(text);
+}
+
+function fallbackContactName(psid) {
+  const suffix = String(psid || "").slice(-6);
+  return suffix ? `Contato ${suffix}` : "Contato Messenger";
+}
+
 function rowToContact(row) {
   const tags = parseJsonArray(row.tags_json);
   return {
     id: contactId(row.page_id, row.psid),
     pageId: row.page_id,
     psid: row.psid,
-    name: row.name || row.psid,
+    name: contactDisplayName(row.name, "", row.psid),
     status: row.status || "open",
     source: row.source || "Messenger",
     tags,

@@ -141,7 +141,6 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
 
   const contact = await upsertContact(env, pageId, {
     psid,
-    name: psid,
     status: "open",
     source: "Messenger webhook",
     lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
@@ -156,7 +155,6 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
   if (actions.length) {
     await applyContactActions(env, pageId, psid, actions, {
       psid,
-      name: psid,
       status: "open",
       source: "Messenger webhook",
       lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()

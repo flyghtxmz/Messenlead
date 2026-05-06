@@ -869,7 +869,7 @@ function normalizeContactRecord(contact, fallbackPageId = DEFAULT_FLOW_PAGE_ID) 
     id: contact?.id || `${pageId}:${psid}`,
     pageId,
     psid,
-    name: contact?.name || psid,
+    name: contactDisplayName(contact?.name, psid),
     status: contact?.status || "open",
     source: contact?.source || "Messenger",
     tags,
@@ -877,6 +877,20 @@ function normalizeContactRecord(contact, fallbackPageId = DEFAULT_FLOW_PAGE_ID) 
     lastSeen: contact?.lastSeen || lastMessage(contact)?.at || "",
     messages: Array.isArray(contact?.messages) ? contact.messages : []
   };
+}
+
+function contactDisplayName(name, psid = "") {
+  const value = String(name || "").replace(/\s+/g, " ").trim();
+  if (value && !isTechnicalContactName(value, psid)) return value;
+  const suffix = String(psid || "").slice(-6);
+  return suffix ? `Contato ${suffix}` : "Contato Messenger";
+}
+
+function isTechnicalContactName(value, psid = "") {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return true;
+  if (psid && text === String(psid)) return true;
+  return /^PSID[_:-]?\d+$/i.test(text) || /^\d{12,}$/.test(text);
 }
 
 function ensureFlowsByPage() {
@@ -2961,12 +2975,13 @@ function mergeConversationsAsContacts(pageId, pageName, conversations) {
     if (!psid) return;
 
     const existing = state.contacts.find((contact) => normalizeFlowPageId(contact.pageId) === normalizedPageId && contact.psid === psid);
+    const title = conversationTitle(conversation, pageName);
     const next = normalizeContactRecord(
       {
         id: existing?.id || `${normalizedPageId}:${psid}`,
         pageId: normalizedPageId,
         psid,
-        name: conversationTitle(conversation, pageName),
+        name: isTechnicalContactName(title, psid) ? existing?.name || "" : title,
         status: existing?.status || "open",
         source: "Messenger",
         tags: existing ? contactTags(existing) : [],
@@ -8657,8 +8672,11 @@ function markMetaConversationRead(pageId, conversationId) {
 
 function conversationTitle(conversation, pageName) {
   const participants = conversation.participants?.data || conversation.senders?.data || [];
-  const person = participants.find((participant) => participant.name !== pageName) || participants[0];
-  return person?.name || conversation.id;
+  const person =
+    participants.find((participant) => participant.name && participant.name !== pageName && !isTechnicalContactName(participant.name, participant.id)) ||
+    participants.find((participant) => participant.id && participant.name !== pageName) ||
+    participants[0];
+  return contactDisplayName(person?.name || "", person?.id || conversation.id);
 }
 
 function pageDebugText(debug) {
