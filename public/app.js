@@ -289,7 +289,6 @@ let conditionPickerCategory = "recommended";
 let conditionPickerQuery = "";
 let canvasAddMenu = null;
 let suppressedNodeClickId = "";
-let subscriberPageFilter = "";
 let subscriberTagFilter = "";
 let flowStore = {
   pageId: "",
@@ -1818,20 +1817,19 @@ function renderSubscribers() {
   const currentPageId = currentFlowPageId();
   if (shouldLoadContactsForCurrentPage()) loadContactsForPage(currentPageId);
 
-  const selectedPageFilter = subscriberPageFilter || currentPageId;
-  const contacts = selectedPageFilter === "__all__" ? state.contacts : contactsForPage(selectedPageFilter);
+  const contacts = contactsForPage(currentPageId);
   const tags = allContactTags(contacts);
   const filtered = filterBySearch(contacts, contactSearchText).filter((contact) =>
     subscriberTagFilter ? contactHasTag(contact, subscriberTagFilter) : true
   );
-  const pages = metaState.pages || [];
+  const pageName = selectedPageName(currentPageId);
 
   workspace.innerHTML = `
     <section class="panel">
       <div class="panel-header">
         <div>
           <h2>Assinantes Messenger</h2>
-          <span>${filtered.length} contato${filtered.length === 1 ? "" : "s"} neste filtro</span>
+          <span>${filtered.length} contato${filtered.length === 1 ? "" : "s"} em ${escapeHtml(pageName || currentPageId)}</span>
         </div>
         <div class="button-row">
           <span class="sync-pill ${contactStore.serverAvailable ? "synced" : "local"}">${escapeHtml(contactStore.loading ? "Carregando D1" : contactStore.status)}</span>
@@ -1841,15 +1839,13 @@ function renderSubscribers() {
         </div>
       </div>
       <div class="filter-bar">
-        <label class="compact-filter">
-          <span>Pagina</span>
-          <select id="subscriberPageFilter">
-            <option value="__all__" ${selectedPageFilter === "__all__" ? "selected" : ""}>Todas as paginas (${state.contacts.length})</option>
-            ${pages
-              .map((page) => `<option value="${attr(page.id)}" ${selectedPageFilter === page.id ? "selected" : ""}>${escapeHtml(`${page.name} (${pageContactCount(page.id)})`)}</option>`)
-              .join("")}
-          </select>
-        </label>
+        <div class="compact-filter readonly-filter">
+          <span>Pagina selecionada</span>
+          <strong>
+            ${escapeHtml(pageName || currentPageId)}
+            <small>${escapeHtml(currentPageId)}</small>
+          </strong>
+        </div>
         <label class="compact-filter">
           <span>Tag</span>
           <select id="subscriberTagFilter">
@@ -2996,7 +2992,6 @@ function selectMetaPage(pageId) {
   if (page) {
     state.settings.pageId = page.id;
     state.settings.pageName = page.name;
-    subscriberPageFilter = page.id;
     subscriberTagFilter = "";
     setActiveFlowsForPage(page.id);
     persistLocalState();
@@ -3021,7 +3016,6 @@ function selectSidebarPage(pageId) {
   metaState.messages = null;
   state.settings.pageId = page.id;
   state.settings.pageName = page.name;
-  subscriberPageFilter = page.id;
   subscriberTagFilter = "";
   setActiveFlowsForPage(page.id);
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
@@ -4735,12 +4729,6 @@ function handleWorkspaceChange(event) {
   }
   if (target.dataset.videoField) {
     updateVideoToolField(target);
-    return;
-  }
-  if (target.id === "subscriberPageFilter") {
-    subscriberPageFilter = target.value;
-    subscriberTagFilter = "";
-    render();
     return;
   }
   if (target.id === "subscriberTagFilter") {
@@ -8726,12 +8714,13 @@ async function importWorkspace(event) {
 
 function exportSubscribersCsv() {
   const header = ["name", "psid", "tags", "status", "source", "page_id"].join(",");
-  const rows = state.contacts.map((contact) =>
+  const pageId = currentFlowPageId();
+  const rows = contactsForPage(pageId).map((contact) =>
     [contact.name, contact.psid, contactTags(contact).join("|"), contact.status, contact.source, contact.pageId]
       .map((value) => `"${String(value).replaceAll('"', '""')}"`)
       .join(",")
   );
-  downloadFile("messenlead-assinantes.csv", [header, ...rows].join("\n"), "text/csv");
+  downloadFile(`messenlead-assinantes-${safeFileName(selectedPageName(pageId) || pageId)}.csv`, [header, ...rows].join("\n"), "text/csv");
 }
 
 function downloadFile(name, content, type) {
