@@ -46,6 +46,25 @@ export async function listContacts(env, pageId) {
   return (result.results || []).map(rowToContact);
 }
 
+export async function clearContactTags(env, pageId) {
+  const hasDb = await ensureContactSchema(env);
+  if (!hasDb) return { count: 0, contacts: [] };
+
+  const normalizedPageId = normalizePageId(pageId);
+  const result = await env.DB.prepare(`
+    UPDATE contacts
+    SET tags_json = '[]', updated_at = ?
+    WHERE page_id = ? AND tags_json <> '[]'
+  `)
+    .bind(new Date().toISOString(), normalizedPageId)
+    .run();
+
+  return {
+    count: result.meta?.changes || 0,
+    contacts: await listContacts(env, normalizedPageId)
+  };
+}
+
 export async function upsertContact(env, pageId, contact = {}) {
   const hasDb = await ensureContactSchema(env);
   if (!hasDb) return null;

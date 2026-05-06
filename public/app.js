@@ -2510,7 +2510,10 @@ function renderSettings() {
   const pageName = state.settings.pageName || state.settings.pageId || "Página atual";
   const folders = tagFoldersForPage(pageId);
   const tags = tagRecordsForPage(pageId);
+  const pageContacts = contactsForPage(pageId);
+  const taggedContacts = pageContacts.filter((contact) => contactTags(contact).length).length;
   const logPageId = flowLogState.scope === "all" ? "__all__" : pageId;
+  if (shouldLoadContactsForCurrentPage()) loadContactsForPage(pageId);
   if (flowLogState.pageId !== logPageId && !flowLogState.loading) {
     loadFlowLogsForPage(logPageId, { silent: true });
   }
@@ -2540,6 +2543,8 @@ function renderSettings() {
         <div class="panel-body stack">
           ${metricInline("Pastas", folders.length)}
           ${metricInline("Tags salvas", tags.length)}
+          ${metricInline("Usuarios com tags", taggedContacts)}
+          <button class="secondary-button danger" type="button" data-action="clear-all-contact-tags">${icons.trash}<span>Limpar tags dos usuarios</span></button>
           <p class="muted">As tags criadas nos nodes de ação aparecem no dropdown e podem ser agrupadas por pasta aqui.</p>
         </div>
       </aside>
@@ -2709,6 +2714,69 @@ function confirmDeleteTagFolder(folderId) {
       render();
     }
   });
+}
+
+function confirmClearAllContactTags() {
+  const pageId = currentFlowPageId();
+  const pageName = selectedPageName(pageId) || state.settings.pageName || pageId;
+  const taggedContacts = contactsForPage(pageId).filter((contact) => contactTags(contact).length).length;
+
+  openConfirmModal({
+    title: "Limpar tags dos usuarios",
+    message: `Remover todas as tags de ${taggedContacts} usuario${taggedContacts === 1 ? "" : "s"} da pagina "${pageName}"? Os contatos continuam salvos.`,
+    submitLabel: "Limpar tags",
+    danger: true,
+    onConfirm: () => clearAllContactTagsForCurrentPage(pageId)
+  });
+}
+
+async function clearAllContactTagsForCurrentPage(pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  contactStore = {
+    pageId: normalizedPageId,
+    loading: true,
+    serverAvailable: contactStore.serverAvailable,
+    status: "Limpando tags"
+  };
+  render();
+
+  try {
+    const result = await apiPost("/api/contacts", {
+      pageId: normalizedPageId,
+      action: "clear_all_tags"
+    });
+
+    if (Array.isArray(result.contacts)) {
+      mergeContactsForPage(normalizedPageId, result.contacts);
+      persistLocalState();
+    } else {
+      state.contacts = state.contacts.map((contact) =>
+        normalizeFlowPageId(contact.pageId) === normalizedPageId
+          ? { ...contact, tags: [], tag: "", updatedAt: new Date().toISOString() }
+          : contact
+      );
+      persistLocalState();
+    }
+
+    subscriberTagFilter = "";
+    contactStore = {
+      pageId: normalizedPageId,
+      loading: false,
+      serverAvailable: true,
+      status: "Tags limpas"
+    };
+    toastMessage(`Tags removidas de ${result.count ?? 0} contato${Number(result.count) === 1 ? "" : "s"}.`);
+  } catch (error) {
+    contactStore = {
+      pageId: normalizedPageId,
+      loading: false,
+      serverAvailable: false,
+      status: "Erro ao limpar tags"
+    };
+    toastMessage(error.message || "Nao foi possivel limpar as tags.");
+  }
+
+  render();
 }
 
 async function loadMetaProfile() {
@@ -4577,6 +4645,7 @@ function handleWorkspaceClick(event) {
   if (action === "delete-campaign") return deleteCampaign(id);
   if (action === "create-tag-folder") return openCreateTagFolderModal();
   if (action === "delete-tag-folder") return confirmDeleteTagFolder(button.dataset.folderId);
+  if (action === "clear-all-contact-tags") return confirmClearAllContactTags();
   if (action === "set-flow-log-scope") return setFlowLogScope(button.dataset.scope);
   if (action === "refresh-flow-logs") return refreshFlowLogs();
   if (action === "test-flow-log") return testFlowLog();

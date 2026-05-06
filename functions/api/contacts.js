@@ -1,5 +1,5 @@
 import { getPageAccessToken, json } from "../_lib/meta.js";
-import { applyContactActions, listContacts, normalizeTags, setContactTags, upsertContact } from "../_lib/contacts.js";
+import { applyContactActions, clearContactTags, listContacts, normalizeTags, setContactTags, upsertContact } from "../_lib/contacts.js";
 
 export async function onRequestGet({ request, env }) {
   if (!env.DB) return json({ error: "D1 binding DB is not configured", contacts: [] }, 501);
@@ -32,6 +32,11 @@ export async function onRequestPost({ request, env }) {
   if (authError) return authError;
 
   try {
+    if (body.action === "clear_all_tags") {
+      const result = await clearContactTags(env, pageId);
+      return json({ ok: true, pageId, ...result });
+    }
+
     if (body.action === "add_tag") {
       const current = await upsertContact(env, pageId, body.contact || { psid });
       const tags = normalizeTags([...(current?.tags || []), body.tag]);
