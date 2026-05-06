@@ -271,6 +271,7 @@ export async function pixelSummary(env, pageId, options = {}) {
     FROM pixel_events
     WHERE page_id = ?
       AND datetime(created_at) >= datetime(?)
+      AND event_type != 'site_heartbeat'
   `)
     .bind(normalizedPageId, since)
     .first();
@@ -373,7 +374,7 @@ function rowToPixelEvent(row) {
 
 function normalizeEventType(value) {
   const type = String(value || "custom").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_");
-  if (["page_view", "link_click", "element_click", "form_submit", "custom", "identify"].includes(type)) return type;
+  if (["page_view", "link_click", "element_click", "form_submit", "custom", "identify", "site_heartbeat", "site_exit"].includes(type)) return type;
   return type || "custom";
 }
 

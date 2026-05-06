@@ -4,6 +4,8 @@ const DEFAULT_FLOW_PAGE_ID = "__global__";
 const CONVERSATION_READ_KEY = "messenlead.messenger.conversation.read.v1";
 const DEFAULT_TAG_FOLDER_ID = "default";
 const DEFAULT_TAG_FOLDER_NAME = "Tags";
+const PIXEL_HEARTBEAT_STALE_MS = 90000;
+const META_THREAD_REFRESH_MS = 15000;
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
@@ -341,6 +343,7 @@ let metaState = {
   selectedConversationId: "",
   messages: null,
   pixelEvents: null,
+  loadingMessages: false,
   error: oauthErrorFromHash()
 };
 let broadcastState = {
@@ -366,6 +369,14 @@ mainNav.addEventListener("click", (event) => {
   history.replaceState(null, "", `#${activeView}`);
   render();
 });
+
+window.setInterval(() => {
+  if (activeView !== "pages" || document.hidden || metaState.loadingMessages) return;
+  const pageId = metaState.selectedPageId || state.settings.pageId;
+  const conversationId = metaState.selectedConversationId;
+  if (!pageId || !conversationId) return;
+  loadMetaMessages(pageId, conversationId, { silent: true });
+}, META_THREAD_REFRESH_MS);
 
 pageSwitcher?.addEventListener("change", (event) => {
   if (event.target.id === "sidebarPageSelect") selectSidebarPage(event.target.value);
@@ -2047,7 +2058,8 @@ function renderPixel() {
   }
 
   const summary = pixelState.summary || {};
-  const events = filterBySearch(pixelState.events || [], (event) =>
+  const visibleEvents = (pixelState.events || []).filter((event) => event.eventType !== "site_heartbeat");
+  const events = filterBySearch(visibleEvents, (event) =>
     `${event.eventType} ${event.eventName} ${event.visitorId} ${event.path} ${event.url} ${event.targetUrl} ${event.targetText}`
   );
   const snippet = pixelInstallSnippet(pageId);
@@ -2216,6 +2228,10 @@ function pixelEventLabel(type) {
     element_click: "Clique",
     form_submit: "Formulario",
     identify: "Identificacao",
+    site_heartbeat: "Ativo",
+    site_exit: "Saiu",
+    site_active: "Ativo",
+    site_inactive: "Inativo",
     custom: "Evento"
   }[type] || type || "Evento";
 }
@@ -2227,7 +2243,7 @@ function shortVisitorId(value) {
 
 function pixelInstallSnippet(pageId = currentFlowPageId()) {
   const origin = location.origin === "null" ? "https://messenlead.pages.dev" : location.origin;
-  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&v=3`;
+  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&v=4`;
   return `<script async src="${scriptUrl}"></script>`;
 }
 
@@ -2968,7 +2984,9 @@ function refreshBroadcastEligibility() {
   render();
 }
 
-async function loadMetaMessages(pageId, conversationId) {
+async function loadMetaMessages(pageId, conversationId, options = {}) {
+  if (metaState.loadingMessages && options.silent) return;
+  metaState.loadingMessages = true;
   try {
     const conversation = metaState.conversations?.find((item) => item.id === conversationId);
     const psid = conversation ? recipientIdFromConversation(conversation, pageId) : "";
@@ -2988,7 +3006,8 @@ async function loadMetaMessages(pageId, conversationId) {
     metaState.error = error.message;
     toastMessage(error.message);
   } finally {
-    render();
+    metaState.loadingMessages = false;
+    if (!options.silent || activeView === "pages") render();
   }
 }
 
@@ -3136,6 +3155,7 @@ async function logoutFacebook() {
     selectedConversationId: "",
     messages: null,
     pixelEvents: null,
+    loadingMessages: false,
     error: ""
   };
   render();
@@ -8132,9 +8152,10 @@ function selectedContact() {
 }
 
 function renderMetaConversationMessages(messages, pageId, pixelEvents = []) {
+  const normalizedPixelEvents = conversationPixelTimelineEvents(pixelEvents);
   const timeline = [
     ...messages.map((message) => ({ kind: "message", at: messageTimeValue(message), message })),
-    ...pixelEvents.map((event) => ({ kind: "pixel", at: event.createdAt || "", event }))
+    ...normalizedPixelEvents.map((event) => ({ kind: "pixel", at: event.createdAt || "", event }))
   ].sort((left, right) => Date.parse(left.at || "") - Date.parse(right.at || ""));
 
   return timeline
@@ -8154,6 +8175,34 @@ function renderMetaConversationMessages(messages, pageId, pixelEvents = []) {
       });
     })
     .join("");
+}
+
+function conversationPixelTimelineEvents(events = []) {
+  const visibleEvents = events.filter((event) => event.eventType !== "site_heartbeat");
+  const presenceEvents = events
+    .filter((event) => event.contactPsid && ["page_view", "link_click", "element_click", "form_submit", "site_heartbeat", "site_exit"].includes(event.eventType))
+    .sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""));
+
+  const latest = presenceEvents[0];
+  if (!latest || latest.eventType === "site_exit") return visibleEvents;
+
+  const latestTime = Date.parse(latest.createdAt || "");
+  if (!Number.isFinite(latestTime)) return visibleEvents;
+
+  const age = Date.now() - latestTime;
+  const syntheticType = age > PIXEL_HEARTBEAT_STALE_MS ? "site_inactive" : "site_active";
+  const syntheticTime = syntheticType === "site_inactive" ? new Date(latestTime + PIXEL_HEARTBEAT_STALE_MS).toISOString() : latest.createdAt;
+
+  return [
+    ...visibleEvents,
+    {
+      ...latest,
+      id: `${latest.id || latest.sessionId || "pixel"}_${syntheticType}`,
+      eventType: syntheticType,
+      eventName: syntheticType,
+      createdAt: syntheticTime
+    }
+  ];
 }
 
 function renderLocalConversationMessages(messages = []) {
@@ -8222,6 +8271,10 @@ function pixelConversationTitle(event) {
   if (event.eventType === "element_click") return `Clicou em: ${event.targetText || event.eventName || "elemento"}`;
   if (event.eventType === "form_submit") return "Enviou um formulario no site";
   if (event.eventType === "page_view") return "Entrou no site";
+  if (event.eventType === "site_active") return "Ativo no site";
+  if (event.eventType === "site_exit") return "Saiu do site";
+  if (event.eventType === "site_inactive") return "Sessao inativa";
+  if (event.eventType === "site_heartbeat") return "Ativo no site";
   if (event.eventType === "identify") return "Foi identificado no site";
   return `Evento no site: ${event.eventName || pixelEventLabel(event.eventType)}`;
 }

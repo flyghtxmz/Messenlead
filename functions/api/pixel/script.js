@@ -13,6 +13,9 @@ export function onRequestGet() {
   var visitorKey = "messenlead.pixel.visitor:" + config.siteId;
   var sessionKey = "messenlead.pixel.session:" + config.siteId;
   var contactKey = "messenlead.pixel.contact:" + config.siteId;
+  var heartbeatTimer = 0;
+  var exitSent = false;
+  var HEARTBEAT_INTERVAL_MS = 30000;
 
   function randomId(prefix) {
     if (window.crypto && crypto.randomUUID) return prefix + "_" + crypto.randomUUID();
@@ -120,6 +123,11 @@ export function onRequestGet() {
       jsonSet(window.localStorage, contactKey, stored);
     }
     return stored;
+  }
+
+  function hasContactAttribution() {
+    var contact = contactAttribution("site_heartbeat");
+    return Boolean(contact.contactToken || contact.contactPsid);
   }
 
   function payload(eventType, eventName, data) {
@@ -256,9 +264,40 @@ export function onRequestGet() {
     };
   }
 
+  function heartbeat() {
+    if (document.visibilityState && document.visibilityState !== "visible") return;
+    if (!hasContactAttribution()) return;
+    exitSent = false;
+    return send("site_heartbeat", "site_heartbeat", {
+      heartbeatInterval: HEARTBEAT_INTERVAL_MS,
+      visibilityState: document.visibilityState || "visible"
+    });
+  }
+
+  function startHeartbeat() {
+    if (heartbeatTimer) return;
+    window.setTimeout(heartbeat, 5000);
+    heartbeatTimer = window.setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
+  }
+
+  function sendExit(reason) {
+    if (exitSent || !hasContactAttribution()) return;
+    exitSent = true;
+    var eventPayload = payload("site_exit", "site_exit", {
+      exitReason: reason || "pagehide",
+      visibilityState: document.visibilityState || ""
+    });
+    var body = JSON.stringify(eventPayload);
+    if (navigator.sendBeacon) {
+      var blob = new Blob([body], { type: "application/json" });
+      if (navigator.sendBeacon(endpoint, blob)) return;
+    }
+    sendFallback(eventPayload);
+  }
+
   window.MessenleadPixel = {
     loaded: true,
-    version: "3",
+    version: "4",
     endpoint: endpoint,
     config: config,
     track: function (eventName, data) {
@@ -271,6 +310,7 @@ export function onRequestGet() {
 
   function pageView() {
     send("page_view", "page_view", {});
+    startHeartbeat();
   }
 
   if (document.readyState === "loading") {
@@ -294,6 +334,14 @@ export function onRequestGet() {
       targetTag: tag
     });
   }, true);
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") heartbeat();
+  });
+
+  window.addEventListener("pagehide", function () {
+    sendExit("pagehide");
+  });
 
   document.addEventListener("submit", function (event) {
     var form = event.target;
