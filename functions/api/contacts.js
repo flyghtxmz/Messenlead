@@ -1,5 +1,7 @@
-import { getPageAccessToken, json } from "../_lib/meta.js";
+import { getMetaConfig, getPageAccessToken, graphFetch, graphUrl, json } from "../_lib/meta.js";
 import { applyContactActions, clearContactTags, listContacts, normalizeTags, setContactTags, upsertContact } from "../_lib/contacts.js";
+
+const PROFILE_LOOKUP_LIMIT = 30;
 
 export async function onRequestGet({ request, env }) {
   if (!env.DB) return json({ error: "D1 binding DB is not configured", contacts: [] }, 501);
@@ -11,7 +13,8 @@ export async function onRequestGet({ request, env }) {
   const authError = await requirePageAccess(request, env, pageId);
   if (authError) return authError;
 
-  return json({ contacts: await listContacts(env, pageId) });
+  const contacts = await listContacts(env, pageId);
+  return json({ contacts: await enrichContactsWithMessengerProfiles(request, env, pageId, contacts) });
 }
 
 export async function onRequestPost({ request, env }) {
@@ -88,4 +91,67 @@ async function requirePageAccess(request, env, pageId) {
   }
 
   return null;
+}
+
+async function enrichContactsWithMessengerProfiles(request, env, pageId, contacts = []) {
+  const unresolved = contacts.filter(shouldLookupMessengerProfile).slice(0, PROFILE_LOOKUP_LIMIT);
+  if (!unresolved.length) return contacts;
+
+  const pageAccessToken = await getPageAccessToken(request, env, pageId);
+  if (!pageAccessToken) return contacts;
+
+  const config = getMetaConfig(request, env);
+  const updatedByPsid = new Map();
+
+  for (const contact of unresolved) {
+    const profile = await fetchMessengerProfile(config, pageAccessToken, contact.psid);
+    if (!profile?.name) continue;
+
+    const updated = await upsertContact(env, pageId, {
+      psid: contact.psid,
+      name: profile.name,
+      status: contact.status || "open",
+      source: contact.source || "Messenger",
+      lastSeen: contact.lastSeen || new Date().toISOString()
+    });
+    if (updated) updatedByPsid.set(contact.psid, updated);
+  }
+
+  if (!updatedByPsid.size) return contacts;
+  return contacts.map((contact) => updatedByPsid.get(contact.psid) || contact);
+}
+
+async function fetchMessengerProfile(config, pageAccessToken, psid) {
+  if (!pageAccessToken || !psid) return null;
+
+  try {
+    const payload = await graphFetch(
+      graphUrl(config, `/${psid}`, {
+        fields: "first_name,last_name,profile_pic",
+        access_token: pageAccessToken
+      })
+    );
+    const firstName = cleanText(payload.first_name);
+    const lastName = cleanText(payload.last_name);
+    const name = cleanText([firstName, lastName].filter(Boolean).join(" "));
+    return name ? { name, firstName, lastName, profilePic: cleanText(payload.profile_pic) } : null;
+  } catch {
+    return null;
+  }
+}
+
+function shouldLookupMessengerProfile(contact = {}) {
+  return Boolean(contact.psid && isTechnicalContactName(contact.name, contact.psid));
+}
+
+function isTechnicalContactName(value, psid = "") {
+  const text = cleanText(value);
+  if (!text) return true;
+  if (psid && text === String(psid)) return true;
+  if (/^Contato \d{1,12}$/i.test(text)) return true;
+  return /^PSID[_:-]?\d+$/i.test(text) || /^\d{12,}$/.test(text);
+}
+
+function cleanText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }

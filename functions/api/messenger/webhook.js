@@ -139,14 +139,17 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
     referralSource: context.referralSource
   });
 
+  const profile = await fetchMessengerUserProfile(env, pageId, psid, log);
   const contact = await upsertContact(env, pageId, {
     psid,
+    name: profile?.name || "",
     status: "open",
     source: "Messenger webhook",
     lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
   });
 
   await log("info", "contact_loaded", "Contato carregado para avaliar o fluxo.", {
+    name: contact.name || "",
     tags: contact.tags || [],
     status: contact.status || ""
   });
@@ -232,7 +235,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     }, flow);
 
     if (current.type === "message") {
-      const nodeReplies = repliesForMessageNode(current);
+      const nodeReplies = repliesForMessageNode(current, stepContext);
       replies.push(...nodeReplies);
       await log?.("info", "message_prepared", "Mensagem preparada para envio.", {
         nodeId: current.id,
@@ -318,6 +321,77 @@ function parsePayloadForDiagnostics(rawText) {
 
 function pageIdFromPayload(payload) {
   return payload?.entry?.find((entry) => entry?.id)?.id || "__global__";
+}
+
+async function fetchMessengerUserProfile(env, pageId, psid, log = null) {
+  const pageAccessToken = pageId ? await getStoredPageAccessToken(env, pageId) : "";
+  if (!pageAccessToken) {
+    await log?.("warn", "profile_lookup_skipped", "Nome do contato nao foi consultado: token da Pagina nao encontrado.", {});
+    return null;
+  }
+
+  const version = String(env.META_GRAPH_API_VERSION || "v23.0").trim() || "v23.0";
+  const url = new URL(`https://graph.facebook.com/${version}/${encodeURIComponent(psid)}`);
+  url.searchParams.set("fields", "first_name,last_name,profile_pic");
+  url.searchParams.set("access_token", pageAccessToken);
+
+  try {
+    const response = await fetch(url);
+    const text = await response.text().catch(() => "");
+    const payload = parseJsonObject(text);
+
+    if (!response.ok) {
+      await log?.("warn", "profile_lookup_failed", "Meta nao retornou o nome do contato.", {
+        status: response.status,
+        error: payload?.error?.message || text.slice(0, 300)
+      });
+      return null;
+    }
+
+    const profile = normalizeMessengerProfile(payload);
+    if (!profile.name) {
+      await log?.("warn", "profile_name_missing", "Perfil Messenger foi encontrado, mas sem nome retornado pela Meta.", {
+        hasFirstName: Boolean(payload?.first_name),
+        hasLastName: Boolean(payload?.last_name),
+        hasProfilePic: Boolean(payload?.profile_pic)
+      });
+      return null;
+    }
+
+    await log?.("info", "profile_resolved", "Nome do contato resolvido pela Meta.", {
+      hasProfilePic: Boolean(profile.profilePic)
+    });
+    return profile;
+  } catch (error) {
+    await log?.("warn", "profile_lookup_failed", "Falha ao consultar o nome do contato na Meta.", {
+      error: error.message || "unknown_error"
+    });
+    return null;
+  }
+}
+
+function normalizeMessengerProfile(payload = {}) {
+  const firstName = cleanText(payload.first_name);
+  const lastName = cleanText(payload.last_name);
+  return {
+    name: cleanText([firstName, lastName].filter(Boolean).join(" ")),
+    firstName,
+    lastName,
+    profilePic: cleanText(payload.profile_pic)
+  };
+}
+
+function parseJsonObject(text) {
+  try {
+    const parsed = JSON.parse(text || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function cleanText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function runtimeContactFrom(contact = {}) {
@@ -643,7 +717,7 @@ function normalizeTags(value) {
   return tags;
 }
 
-function repliesForMessageNode(node) {
+function repliesForMessageNode(node, context = {}) {
   normalizeNodeShape(node);
   const quickReplies = node.quickReplies.map((option) => ({
     title: option.title,
@@ -662,7 +736,7 @@ function repliesForMessageNode(node) {
       if (block.type === "text") {
         return {
           type: "text",
-          text: resolveTemplate(block.text || node.message || ""),
+          text: resolveTemplate(block.text || node.message || "", context.contact),
           quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : [],
           buttons: index === node.contentBlocks.length - 1 ? buttons : []
         };
@@ -708,9 +782,9 @@ function repliesForMessageNode(node) {
         };
       }
       if (block.type === "data_collection") {
-        return { type: "text", text: resolveTemplate(block.text || "Informe o dado solicitado."), quickReplies };
+        return { type: "text", text: resolveTemplate(block.text || "Informe o dado solicitado.", context.contact), quickReplies };
       }
-      if (block.text) return { type: "text", text: resolveTemplate(block.text), quickReplies };
+      if (block.text) return { type: "text", text: resolveTemplate(block.text, context.contact), quickReplies };
       return null;
     })
     .filter(Boolean);
@@ -882,6 +956,10 @@ function normalizeTagKey(value) {
   return normalize(String(value || "").replace(/\s+/g, " ").trim());
 }
 
-function resolveTemplate(text) {
-  return String(text || "").replaceAll("{{first_name}}", "Contato");
+function resolveTemplate(text, contact = {}) {
+  const name = cleanText(contact?.name);
+  const firstName = cleanText(contact?.firstName || contact?.customFields?.first_name || name.split(" ")[0]) || "Contato";
+  return String(text || "")
+    .replaceAll("{{first_name}}", firstName)
+    .replaceAll("{{name}}", name || firstName);
 }
