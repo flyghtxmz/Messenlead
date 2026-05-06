@@ -90,7 +90,7 @@ export function onRequestGet() {
     };
   }
 
-  function contactAttribution() {
+  function contactAttribution(eventType) {
     var params = new URLSearchParams(window.location.search);
     var stored = jsonGet(window.localStorage, contactKey);
     var incoming = {
@@ -98,22 +98,34 @@ export function onRequestGet() {
       contactPsid: params.get("ml_psid") || params.get("psid") || "",
       contactPageId: params.get("ml_page_id") || "",
       source: params.get("ml_source") || "",
-      button: params.get("ml_button") || ""
+      button: params.get("ml_button") || "",
+      nodeId: params.get("ml_node_id") || "",
+      nodeNumber: params.get("ml_node_number") || "",
+      nodeTitle: params.get("ml_node_title") || "",
+      linkId: params.get("ml_link_id") || ""
     };
 
     if (incoming.contactToken || incoming.contactPsid) {
       incoming.updatedAt = new Date().toISOString();
+      incoming.pageViews = 0;
+      if (eventType === "page_view") incoming.pageViews = 1;
       jsonSet(window.localStorage, contactKey, incoming);
       return incoming;
     }
 
-    return stored && (stored.contactToken || stored.contactPsid) ? stored : {};
+    if (!stored || (!stored.contactToken && !stored.contactPsid)) return {};
+    if (eventType === "page_view") {
+      stored.pageViews = Math.max(0, Number(stored.pageViews || 0)) + 1;
+      stored.updatedAt = new Date().toISOString();
+      jsonSet(window.localStorage, contactKey, stored);
+    }
+    return stored;
   }
 
   function payload(eventType, eventName, data) {
     data = data || {};
     var currentUtm = utm();
-    var contact = contactAttribution();
+    var contact = contactAttribution(eventType || "custom");
     return {
       pageId: config.pageId,
       siteId: config.siteId,
@@ -143,7 +155,12 @@ export function onRequestGet() {
         screen: window.screen ? window.screen.width + "x" + window.screen.height : "",
         viewport: window.innerWidth + "x" + window.innerHeight,
         contactSource: contact.source || "",
-        contactButton: contact.button || ""
+        contactButton: contact.button || "",
+        contactNodeId: contact.nodeId || "",
+        contactNodeNumber: contact.nodeNumber || "",
+        contactNodeTitle: contact.nodeTitle || "",
+        contactLinkId: contact.linkId || "",
+        contactPageViews: contact.pageViews || ""
       }, data)
     };
   }
@@ -213,6 +230,19 @@ export function onRequestGet() {
     ].forEach(function (key) {
       if (eventPayload[key]) params.set(key, eventPayload[key]);
     });
+    if (eventPayload.data) {
+      [
+        "contactSource",
+        "contactButton",
+        "contactNodeId",
+        "contactNodeNumber",
+        "contactNodeTitle",
+        "contactLinkId",
+        "contactPageViews"
+      ].forEach(function (key) {
+        if (eventPayload.data[key]) params.set(key, eventPayload.data[key]);
+      });
+    }
     var image = new Image();
     image.src = endpoint + "?" + params.toString();
     return {
@@ -228,7 +258,7 @@ export function onRequestGet() {
 
   window.MessenleadPixel = {
     loaded: true,
-    version: "2",
+    version: "3",
     endpoint: endpoint,
     config: config,
     track: function (eventName, data) {

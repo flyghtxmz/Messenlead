@@ -226,7 +226,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
 
   while (current && guard < 12) {
     guard += 1;
-    const stepContext = { ...context, contact: runtimeContact };
+    const stepContext = { ...context, contact: runtimeContact, flow };
     await log?.("info", "node_enter", `Executando bloco: ${nodeLogName(current)}.`, {
       step: guard,
       nodeId: current.id,
@@ -720,6 +720,7 @@ function normalizeTags(value) {
 
 function repliesForMessageNode(node, context = {}) {
   normalizeNodeShape(node);
+  const tracking = messageNodeTracking(context.flow, node);
   const quickReplies = node.quickReplies.map((option) => ({
     title: option.title,
     payload: option.id || option.title
@@ -729,7 +730,8 @@ function repliesForMessageNode(node, context = {}) {
     type: option.type || "next",
     url: option.url || "",
     phone: option.phone || "",
-    payload: option.id || option.title
+    payload: option.id || option.title,
+    tracking
   }));
 
   return node.contentBlocks
@@ -755,7 +757,8 @@ function repliesForMessageNode(node, context = {}) {
                 type: option.type || "url",
                 url: option.url || "",
                 phone: option.phone || "",
-                payload: option.id || option.title
+                payload: option.id || option.title,
+                tracking
               }))
             }
           ]
@@ -789,6 +792,17 @@ function repliesForMessageNode(node, context = {}) {
       return null;
     })
     .filter(Boolean);
+}
+
+function messageNodeTracking(flow, node) {
+  if (!node || node.type !== "message") return {};
+  const messageNodes = Array.isArray(flow?.nodes) ? flow.nodes.filter((item) => item.type === "message") : [];
+  const index = messageNodes.findIndex((item) => item.id === node.id);
+  return {
+    nodeId: node.id || "",
+    nodeNumber: index >= 0 ? index + 1 : "",
+    nodeTitle: node.title || node.name || ""
+  };
 }
 
 async function sendMessengerReply(psid, reply, env, pageId, log = null, flow = null) {
@@ -900,7 +914,10 @@ async function messengerButtons(buttons = [], env, pageId, psid) {
         url: trackedMessengerUrl(button.url, {
           pageId,
           contactToken,
-          button: button.title || button.payload || button.id || "link"
+          button: button.title || button.payload || button.id || "link",
+          nodeId: button.tracking?.nodeId || "",
+          nodeNumber: button.tracking?.nodeNumber || "",
+          nodeTitle: button.tracking?.nodeTitle || ""
         })
       };
     }
@@ -926,10 +943,18 @@ function trackedMessengerUrl(value, tracking = {}) {
     if (tracking.pageId) url.searchParams.set("ml_page_id", tracking.pageId);
     url.searchParams.set("ml_source", "messenger");
     if (tracking.button) url.searchParams.set("ml_button", String(tracking.button).slice(0, 120));
+    if (tracking.nodeId) url.searchParams.set("ml_node_id", String(tracking.nodeId).slice(0, 120));
+    if (tracking.nodeNumber) url.searchParams.set("ml_node_number", String(tracking.nodeNumber).slice(0, 12));
+    if (tracking.nodeTitle) url.searchParams.set("ml_node_title", String(tracking.nodeTitle).slice(0, 120));
+    url.searchParams.set("ml_link_id", makePixelLinkId());
     return url.toString();
   } catch {
     return value;
   }
+}
+
+function makePixelLinkId() {
+  return `lnk_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
 }
 
 async function verifyMetaSignature(request, rawBody, appSecret) {

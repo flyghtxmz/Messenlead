@@ -56,7 +56,15 @@ export async function onRequestGet({ request, env }) {
     utmCampaign: url.searchParams.get("utm_campaign"),
     utmTerm: url.searchParams.get("utm_term"),
     utmContent: url.searchParams.get("utm_content"),
-    data: {}
+    data: {
+      contactSource: url.searchParams.get("contactSource"),
+      contactButton: url.searchParams.get("contactButton"),
+      contactNodeId: url.searchParams.get("contactNodeId"),
+      contactNodeNumber: url.searchParams.get("contactNodeNumber"),
+      contactNodeTitle: url.searchParams.get("contactNodeTitle"),
+      contactLinkId: url.searchParams.get("contactLinkId"),
+      contactPageViews: url.searchParams.get("contactPageViews")
+    }
   };
 
   await addPixelEvent(env, event, request).catch(() => null);

@@ -2171,6 +2171,7 @@ function renderPixelEventRow(event) {
       <div class="pixel-event-main">
         <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(detail)}</span>
+        ${renderPixelEventTrackingMeta(event)}
         ${renderPixelContactLinkBadge(event)}
       </div>
       <div class="pixel-event-meta">
@@ -2191,9 +2192,16 @@ function renderPixelSiteEntryBubble(event) {
       <span>${icons.pixel}</span>
       <strong>${escapeHtml(event.contactPsid ? "Contato Messenger" : visitor)} entrou no site</strong>
       <small>${escapeHtml(page)}${time ? ` - ${escapeHtml(time)}` : ""}</small>
+      ${renderPixelEventTrackingMeta(event)}
       ${renderPixelContactLinkBadge(event)}
     </article>
   `;
+}
+
+function renderPixelEventTrackingMeta(event) {
+  const meta = pixelConversationMeta(event);
+  if (!meta.length) return "";
+  return `<small class="pixel-event-tracking-meta">${meta.map(escapeHtml).join(" · ")}</small>`;
 }
 
 function renderPixelContactLinkBadge(event) {
@@ -2219,7 +2227,7 @@ function shortVisitorId(value) {
 
 function pixelInstallSnippet(pageId = currentFlowPageId()) {
   const origin = location.origin === "null" ? "https://messenlead.pages.dev" : location.origin;
-  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&v=2`;
+  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&v=3`;
   return `<script async src="${scriptUrl}"></script>`;
 }
 
@@ -7757,6 +7765,8 @@ function renderNode(node, selected) {
   if (node.type === "condition") return renderConditionNode(node, selected);
   if (node.type === "comment") return renderCommentNode(node, selected);
 
+  const flow = selectedFlow();
+  const messageNumber = node.type === "message" ? messageNodeNumber(flow, node) : 0;
   const icon = icons[node.type] || icons.message;
   normalizeNodeStructure(node);
   const summary = nodeCardSummary(node);
@@ -7764,6 +7774,7 @@ function renderNode(node, selected) {
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
   return `
     <article class="node ${node.type} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      ${messageNumber ? `<span class="node-sequence-badge">${messageNumber}</span>` : ""}
       ${renderNodeHoverActions(node)}
       <div class="node-head">
         <div class="node-title">
@@ -7784,6 +7795,12 @@ function renderNode(node, selected) {
       ${node.type === "message" ? "" : renderOutputPort(node)}
     </article>
   `;
+}
+
+function messageNodeNumber(flow, node) {
+  if (!flow || !node || node.type !== "message") return 0;
+  const index = (flow.nodes || []).filter((item) => item.type === "message").findIndex((item) => item.id === node.id);
+  return index >= 0 ? index + 1 : 0;
 }
 
 function conditionNodeLines(node) {
@@ -8177,15 +8194,27 @@ function renderPixelConversationBubble(event, showTime = false) {
 function renderPixelConversationContent(event) {
   const title = pixelConversationTitle(event);
   const detail = event.targetUrl || event.url || event.path || "";
+  const meta = pixelConversationMeta(event);
   return `
     <div class="pixel-chat-event">
       ${icons.pixel}
       <div>
         <strong>${escapeHtml(title)}</strong>
         ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
+        ${meta.length ? `<span class="pixel-chat-event-meta">${meta.map((item) => `<small>${escapeHtml(item)}</small>`).join("")}</span>` : ""}
       </div>
     </div>
   `;
+}
+
+function pixelConversationMeta(event) {
+  const data = event?.data || {};
+  const meta = [];
+  const nodeNumber = String(data.contactNodeNumber || "").trim();
+  const pageViews = Number(data.contactPageViews || 0);
+  if (nodeNumber) meta.push(`Node ${nodeNumber}`);
+  if (pageViews > 0) meta.push(`${pageViews} pagina${pageViews === 1 ? "" : "s"} vista${pageViews === 1 ? "" : "s"}`);
+  return meta;
 }
 
 function pixelConversationTitle(event) {
