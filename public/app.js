@@ -8193,7 +8193,7 @@ function renderPixelConversationContent(event) {
 }
 
 function pixelConversationTitle(event) {
-  if (event.eventType === "link_click") return `Clicou no link: ${event.targetText || event.eventName || "link"}`;
+  if (event.eventType === "link_click") return "Clicou no link";
   if (event.eventType === "element_click") return `Clicou em: ${event.targetText || event.eventName || "elemento"}`;
   if (event.eventType === "form_submit") return "Enviou um formulario no site";
   if (event.eventType === "page_view") return "Entrou no site";
