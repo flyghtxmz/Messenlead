@@ -1014,6 +1014,108 @@ svg {
   height: 34px;
 }
 
+.contact-tag-picker-wrap {
+  position: relative;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.contact-tag-add-button {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.contact-tag-add-button:hover,
+.contact-tag-add-button:focus-visible {
+  outline: 0;
+  border-color: #8ccaa9;
+  background: #f7fcf8;
+}
+
+.contact-tag-add-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.contact-tag-picker {
+  display: grid;
+  width: min(300px, 72vw);
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.13);
+}
+
+.contact-tag-folder {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid #eef2f5;
+}
+
+.contact-tag-folder:last-child {
+  border-bottom: 0;
+}
+
+.contact-tag-folder > strong {
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+
+.contact-tag-option-list {
+  display: grid;
+  gap: 4px;
+}
+
+.contact-tag-option-list button {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+  color: #344054;
+  font-size: 12px;
+  text-align: left;
+}
+
+.contact-tag-option-list button:not(:disabled):hover {
+  background: #f5f6f8;
+}
+
+.contact-tag-option-list button:disabled {
+  background: #f8fafc;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.contact-tag-option-list button span,
+.contact-tag-picker-empty {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.contact-tag-picker-empty {
+  padding: 10px;
+}
+
 .compact-filter {
   display: grid;
   gap: 4px;

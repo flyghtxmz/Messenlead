@@ -284,6 +284,7 @@ let nextStepPickerNodeId = "";
 let actionPickerNodeId = "";
 let actionPickerCategory = "contact";
 let actionTagPickerStepId = "";
+let contactTagPickerContactId = "";
 let conditionPickerNodeId = "";
 let conditionPickerCategory = "recommended";
 let conditionPickerQuery = "";
@@ -4565,6 +4566,11 @@ function handleWorkspaceClick(event) {
     if (!event.target.closest("[data-action]")) return render();
   }
 
+  if (contactTagPickerContactId && !event.target.closest(".contact-tag-picker") && !event.target.closest("[data-action='open-contact-tag-picker']")) {
+    contactTagPickerContactId = "";
+    if (!event.target.closest("[data-action]")) return render();
+  }
+
   if (canvasAddMenu && !event.target.closest(".canvas-add-menu")) {
     canvasAddMenu = null;
     document.querySelector(".canvas-add-menu")?.remove();
@@ -4704,6 +4710,8 @@ function handleWorkspaceClick(event) {
   if (action === "send-sim") return sendSimulationMessage();
   if (action === "new-contact") return createContact();
   if (action === "refresh-contacts") return refreshContacts();
+  if (action === "open-contact-tag-picker") return openContactTagPicker(id);
+  if (action === "select-contact-tag") return selectContactTag(id, button.dataset.tag);
   if (action === "add-contact-tag") return addTagFromContactEditor(id, button.dataset.inputId);
   if (action === "remove-contact-tag") return removeContactTag(id, button.dataset.tag);
   if (action === "select-contact") {
@@ -6288,12 +6296,44 @@ function addTagFromContactEditor(contactId, inputId) {
   const input = inputId ? document.getElementById(inputId) : null;
   const value = input?.value.trim();
   if (!contact || !value) return;
+  if (!isSavedTagForPage(value, contact.pageId || currentFlowPageId())) {
+    toastMessage("Selecione uma tag salva nesta Pagina.");
+    return;
+  }
 
   addTagToContact(contact, value);
   if (input) input.value = "";
   saveState();
   syncContactToServer(contact, { action: "add_tag", tag: value });
   render();
+}
+
+function openContactTagPicker(contactId) {
+  if (!contactId) return;
+  contactTagPickerContactId = contactTagPickerContactId === contactId ? "" : contactId;
+  render();
+}
+
+function selectContactTag(contactId, value) {
+  const contact = state.contacts.find((item) => item.id === contactId);
+  const tagName = String(value || "").trim();
+  if (!contact || !tagName) return;
+
+  if (!isSavedTagForPage(tagName, contact.pageId || currentFlowPageId())) {
+    toastMessage("Esta tag nao existe na Pagina selecionada.");
+    return;
+  }
+
+  addTagToContact(contact, tagName);
+  contactTagPickerContactId = "";
+  saveState();
+  syncContactToServer(contact, { action: "add_tag", tag: tagName });
+  render();
+}
+
+function isSavedTagForPage(value, pageId = currentFlowPageId()) {
+  const target = normalizeTagKey(value);
+  return tagRecordsForPage(pageId).some((tag) => normalizeTagKey(tag.name) === target);
 }
 
 function removeContactTag(contactId, value) {
@@ -8385,7 +8425,6 @@ function tagsMarkup(contact) {
 }
 
 function renderContactTagEditor(contact) {
-  const inputId = `tag_input_${String(contact.id || contact.psid).replace(/[^a-z0-9_-]/gi, "_")}`;
   const tags = contactTags(contact);
   return `
     <div class="contact-tag-editor">
@@ -8405,10 +8444,49 @@ function renderContactTagEditor(contact) {
             : tag("sem-tag")
         }
       </div>
-      <div class="tag-editor-row">
-        <input id="${attr(inputId)}" placeholder="Nova tag" />
-        <button class="icon-button" type="button" data-action="add-contact-tag" data-id="${attr(contact.id)}" data-input-id="${attr(inputId)}" title="Adicionar tag">${icons.plus}</button>
+      <div class="contact-tag-picker-wrap">
+        <button class="contact-tag-add-button" type="button" data-action="open-contact-tag-picker" data-id="${attr(contact.id)}" title="Adicionar tag salva">${icons.plus}<span>Tag salva</span></button>
+        ${contactTagPickerContactId === contact.id ? renderContactTagPicker(contact) : ""}
       </div>
+    </div>
+  `;
+}
+
+function renderContactTagPicker(contact) {
+  const pageId = normalizeFlowPageId(contact.pageId || currentFlowPageId());
+  const folders = tagFoldersForPage(pageId);
+  const records = tagRecordsForPage(pageId);
+  const applied = new Set(contactTags(contact).map(normalizeTagKey));
+
+  if (!records.length) {
+    return `
+      <div class="contact-tag-picker">
+        <div class="contact-tag-picker-empty">Nenhuma tag salva nesta Pagina.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="contact-tag-picker">
+      ${folders
+        .map((folder) => {
+          const folderTags = records.filter((record) => (record.folderId || DEFAULT_TAG_FOLDER_ID) === folder.id);
+          if (!folderTags.length) return "";
+          return `
+            <div class="contact-tag-folder">
+              <strong>${escapeHtml(folder.name)}</strong>
+              <div class="contact-tag-option-list">
+                ${folderTags
+                  .map((record) => {
+                    const selected = applied.has(normalizeTagKey(record.name));
+                    return `<button type="button" data-action="select-contact-tag" data-id="${attr(contact.id)}" data-tag="${attr(record.name)}" ${selected ? "disabled" : ""}>${escapeHtml(record.name)}${selected ? `<span>aplicada</span>` : ""}</button>`;
+                  })
+                  .join("")}
+              </div>
+            </div>
+          `;
+        })
+        .join("")}
     </div>
   `;
 }
