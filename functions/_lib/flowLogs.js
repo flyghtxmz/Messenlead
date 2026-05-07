@@ -166,6 +166,7 @@ const COMPACT_WARN_EVENTS = new Set([
   "no_start_node",
   "no_replies",
   "guard_limit",
+  "flow_runtime_reset",
   "delay_skipped_inactive_flow",
   "delay_skipped_missing_node",
   "user_response_wait_inactive_flow",

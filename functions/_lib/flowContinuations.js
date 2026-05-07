@@ -263,6 +263,47 @@ export async function consumeFlowResponseWait(env, pageId, psid) {
   return { ...wait, status: "consumed", consumedAt: now };
 }
 
+export async function resetFlowRuntimeState(env, options = {}) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  if (!hasDb) return { continuations: 0, responseWaits: 0 };
+
+  const pageIds = normalizePageIds(options.pageIds || options.pageId);
+  const now = new Date().toISOString();
+  const continuationParams = ["reset", "Flow runtime reset", now];
+  const responseParams = ["reset", "Flow runtime reset", now];
+  const continuationPageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
+  const responsePageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
+
+  const continuationResult = await env.DB.prepare(`
+    UPDATE flow_continuations
+    SET status = ?,
+        last_error = ?,
+        updated_at = ?,
+        processed_at = COALESCE(NULLIF(processed_at, ''), ?)
+    WHERE status IN ('scheduled', 'processing')
+      ${continuationPageFilter}
+  `)
+    .bind(...continuationParams, now, ...pageIds)
+    .run();
+
+  const responseWaitResult = await env.DB.prepare(`
+    UPDATE flow_response_waits
+    SET status = ?,
+        last_error = ?,
+        updated_at = ?,
+        consumed_at = COALESCE(NULLIF(consumed_at, ''), ?)
+    WHERE status = 'waiting'
+      ${responsePageFilter}
+  `)
+    .bind(...responseParams, now, ...pageIds)
+    .run();
+
+  return {
+    continuations: Number(continuationResult.meta?.changes || 0),
+    responseWaits: Number(responseWaitResult.meta?.changes || 0)
+  };
+}
+
 export async function processFlowContinuations(env, processor, options = {}) {
   const hasDb = await ensureFlowContinuationSchema(env);
   if (!hasDb) return { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0 };
@@ -340,7 +381,7 @@ async function retryOrFailContinuation(env, continuation, error) {
   await env.DB.prepare(`
     UPDATE flow_continuations
     SET status = ?, attempts = ?, due_at = ?, last_error = ?, updated_at = ?
-    WHERE id = ?
+    WHERE id = ? AND status = 'processing'
   `)
     .bind(
       final ? "failed" : "scheduled",
@@ -362,7 +403,7 @@ async function markContinuation(env, id, status, options = {}) {
         last_error = ?,
         updated_at = ?,
         processed_at = COALESCE(NULLIF(?, ''), processed_at)
-    WHERE id = ?
+    WHERE id = ? AND status = 'processing'
   `)
     .bind(
       status,
@@ -378,7 +419,7 @@ async function cleanupFlowContinuations(env) {
   const before = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   await env.DB.prepare(`
     DELETE FROM flow_continuations
-    WHERE status IN ('processed', 'skipped', 'failed')
+    WHERE status IN ('processed', 'skipped', 'failed', 'reset')
       AND datetime(updated_at) < datetime(?)
   `)
     .bind(before)
@@ -402,7 +443,7 @@ async function cleanupFlowResponseWaits(env) {
   const before = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   await env.DB.prepare(`
     DELETE FROM flow_response_waits
-    WHERE status IN ('consumed', 'expired', 'skipped')
+    WHERE status IN ('consumed', 'expired', 'skipped', 'reset')
       AND datetime(updated_at) < datetime(?)
   `)
     .bind(before)
@@ -503,6 +544,13 @@ function stableHash(value) {
 
 function normalizePageId(pageId) {
   return String(pageId || DEFAULT_PAGE_ID).trim() || DEFAULT_PAGE_ID;
+}
+
+function normalizePageIds(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  return raw
+    .map((item) => normalizePageId(item))
+    .filter((item) => item && !["__all__", "*", "all"].includes(item));
 }
 
 function safeJsonObject(value) {

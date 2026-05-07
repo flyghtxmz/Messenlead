@@ -32,6 +32,14 @@ export default {
       return json({ ok: true, result });
     }
 
+    if (request.method === "POST" && ["/queue/reset", "/reset"].includes(url.pathname)) {
+      const body = (await readJson(request)) || {};
+      const result = await resetQueue(env, {
+        pageIds: body.pageIds || body.pageId || url.searchParams.get("pageId")
+      });
+      return json({ ok: true, reset: result });
+    }
+
     if (request.method === "GET" && ["/queue/status", "/status"].includes(url.pathname)) {
       const status = await queueStatus(env, {
         status: url.searchParams.get("status"),
@@ -348,7 +356,7 @@ async function retryOrFail(env, row, error, details = {}) {
   await env.RELAY_DB.prepare(`
     UPDATE relay_send_queue
     SET status = ?, attempts = ?, not_before = ?, last_error = ?, response_json = ?, updated_at = ?
-    WHERE id = ?
+    WHERE id = ? AND status = 'processing'
   `)
     .bind(
       final ? "failed" : "queued",
@@ -373,7 +381,7 @@ async function markRow(env, id, status, options = {}) {
         response_json = COALESCE(NULLIF(?, ''), response_json),
         updated_at = ?,
         sent_at = COALESCE(NULLIF(?, ''), sent_at)
-    WHERE id = ?
+    WHERE id = ? AND status = 'processing'
   `)
     .bind(
       status,
@@ -559,6 +567,27 @@ async function queueStatus(env, options = {}) {
   };
 }
 
+async function resetQueue(env, options = {}) {
+  const hasDb = await ensureSchema(env);
+  if (!hasDb) return { queued: 0 };
+
+  const pageIds = normalizePageIds(options.pageIds || options.pageId);
+  const now = new Date().toISOString();
+  const pageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
+  const result = await env.RELAY_DB.prepare(`
+    UPDATE relay_send_queue
+    SET status = 'reset',
+        last_error = 'Flow runtime reset',
+        updated_at = ?
+    WHERE status IN ('queued', 'processing')
+      ${pageFilter}
+  `)
+    .bind(now, ...pageIds)
+    .run();
+
+  return { queued: Number(result.meta?.changes || 0) };
+}
+
 async function getQueueRow(env, id) {
   if (!id || !env.RELAY_DB) return null;
   return env.RELAY_DB.prepare("SELECT * FROM relay_send_queue WHERE id = ?")
@@ -572,7 +601,7 @@ async function cleanupQueue(env) {
   const queueBefore = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   await env.RELAY_DB.prepare(`
     DELETE FROM relay_send_queue
-    WHERE status IN ('sent', 'skipped', 'failed')
+    WHERE status IN ('sent', 'skipped', 'failed', 'reset')
       AND datetime(updated_at) < datetime(?)
   `)
     .bind(queueBefore)
@@ -625,6 +654,13 @@ function json(payload, status = 200) {
 
 function clean(value, max) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function normalizePageIds(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  return raw
+    .map((item) => clean(item, 120))
+    .filter((item) => item && !["__all__", "*", "all"].includes(item));
 }
 
 function clampNumber(value, min, max, fallback) {

@@ -99,6 +99,67 @@ export async function reserveMessengerEvent(env, event = {}) {
   }
 }
 
+export async function resetMessengerSendQueue(env, options = {}) {
+  const hasDb = await ensureMessengerDeliverySchema(env);
+  if (!hasDb) return { queued: 0 };
+
+  const pageIds = normalizePageIds(options.pageIds || options.pageId);
+  const now = new Date().toISOString();
+  const pageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
+  const result = await env.DB.prepare(`
+    UPDATE messenger_send_queue
+    SET status = 'reset',
+        last_error = 'Flow runtime reset',
+        updated_at = ?
+    WHERE status IN ('queued', 'processing')
+      ${pageFilter}
+  `)
+    .bind(now, ...pageIds)
+    .run();
+
+  return { queued: Number(result.meta?.changes || 0) };
+}
+
+export async function resetExternalRelayQueues(env, options = {}) {
+  const targets = parseRelayTargets(env);
+  if (!targets.length) return [];
+
+  const pageIds = normalizePageIds(options.pageIds || options.pageId);
+  const results = [];
+
+  for (const target of targets) {
+    const resetUrl = relayEndpointUrl(target.url, "/queue/reset");
+    try {
+      const response = await fetch(resetUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-messenlead-relay-secret": target.secret
+        },
+        body: JSON.stringify({ pageIds })
+      });
+      const body = await response.json().catch(() => ({}));
+      results.push({
+        url: resetUrl,
+        ok: response.ok,
+        status: response.status,
+        reset: body.reset || body.result || {},
+        error: body.error || ""
+      });
+    } catch (error) {
+      results.push({
+        url: resetUrl,
+        ok: false,
+        status: 0,
+        reset: {},
+        error: error.message || "relay_reset_failed"
+      });
+    }
+  }
+
+  return results;
+}
+
 export async function enqueueMessengerReplies(env, options = {}) {
   const pageId = normalizePageId(options.pageId);
   const psid = String(options.psid || "").trim();
@@ -378,7 +439,7 @@ async function cleanupMessengerDelivery(env) {
     .catch(() => null);
   await env.DB.prepare(`
     DELETE FROM messenger_send_queue
-    WHERE status IN ('sent', 'skipped', 'failed')
+    WHERE status IN ('sent', 'skipped', 'failed', 'reset')
       AND datetime(updated_at) < datetime(?)
   `)
     .bind(queueBefore)
@@ -583,7 +644,7 @@ async function retryOrFail(env, row, error, log, details = {}) {
   await env.DB.prepare(`
     UPDATE messenger_send_queue
     SET status = ?, attempts = ?, not_before = ?, last_error = ?, updated_at = ?
-    WHERE id = ?
+    WHERE id = ? AND status = 'processing'
   `)
     .bind(
       final ? "failed" : "queued",
@@ -614,7 +675,7 @@ async function markQueueRow(env, id, status, options = {}) {
         response_json = COALESCE(NULLIF(?, ''), response_json),
         updated_at = ?,
         sent_at = COALESCE(NULLIF(?, ''), sent_at)
-    WHERE id = ?
+    WHERE id = ? AND status = 'processing'
   `)
     .bind(
       status,
@@ -822,6 +883,11 @@ function normalizeRelayUrl(value) {
   return url.endsWith("/send") ? url : `${url.replace(/\/+$/g, "")}/send`;
 }
 
+function relayEndpointUrl(value, path) {
+  const url = String(value || "").replace(/\/send$/g, "").replace(/\/+$/g, "");
+  return `${url}${path}`;
+}
+
 function externalRelayQueueId(eventId, index) {
   const stable = String(eventId || "").trim();
   if (stable) return `ext_${stableHash(stable)}_${index}`;
@@ -860,6 +926,13 @@ function parseJson(value) {
 
 function normalizePageId(pageId) {
   return String(pageId || "__global__").trim() || "__global__";
+}
+
+function normalizePageIds(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  return raw
+    .map((item) => normalizePageId(item))
+    .filter((item) => item && !["__all__", "*", "all"].includes(item));
 }
 
 function clampNumber(value, min, max, fallback) {

@@ -2723,6 +2723,7 @@ function renderSettings() {
           ${metricInline("Tags salvas", tags.length)}
           ${metricInline("Usuarios com tags", taggedContacts)}
           ${metricInline("Paginas conectadas", connectedPageCount)}
+          <button class="compact-danger-action" type="button" data-action="reset-running-flows" title="Reiniciar execucoes de fluxos em andamento">${icons.refresh}<span>Reiniciar fluxos em andamento</span></button>
           <button class="compact-danger-action" type="button" data-action="clear-all-contact-tags" title="Limpar tags de todas as paginas">${icons.trash}<span>Limpar tags de todas as paginas</span></button>
           <p class="muted">As tags criadas nos nodes de ação aparecem no dropdown e podem ser agrupadas por pasta aqui.</p>
         </div>
@@ -2914,6 +2915,53 @@ async function confirmClearAllContactTags() {
     danger: true,
     onConfirm: () => clearAllContactTagsForConnectedPages(pages)
   });
+}
+
+async function confirmResetRunningFlows() {
+  const pages = await ensureConnectedPagesForRuntimeReset();
+  if (!pages.length) {
+    toastMessage("Nenhuma pagina conectada encontrada para reiniciar.");
+    return;
+  }
+
+  openConfirmModal({
+    title: "Reiniciar fluxos em andamento",
+    message: `Cancelar esperas, respostas aguardadas e envios pendentes de fluxos em ${pages.length} pagina${pages.length === 1 ? "" : "s"} conectada${pages.length === 1 ? "" : "s"}? Os fluxos salvos, tags e contatos nao serao apagados. Quem enviar nova mensagem depois disso iniciara o fluxo novamente pelo gatilho.`,
+    submitLabel: "Reiniciar",
+    danger: true,
+    onConfirm: () => resetRunningFlowsForPages(pages)
+  });
+}
+
+async function ensureConnectedPagesForRuntimeReset() {
+  const pages = await ensureConnectedPagesForTagCleanup();
+  if (pages.length) return pages;
+  const pageId = currentFlowPageId();
+  return pageId ? [{ id: pageId, name: selectedPageName(pageId) || pageId }] : [];
+}
+
+async function resetRunningFlowsForPages(pages = []) {
+  const normalizedPages = pages
+    .map((page) => ({ id: normalizeFlowPageId(page.id), name: page.name || selectedPageName(page.id) || page.id }))
+    .filter((page) => page.id);
+
+  if (!normalizedPages.length) {
+    toastMessage("Nenhuma pagina conectada para reiniciar.");
+    return;
+  }
+
+  try {
+    const result = await apiPost("/api/flow-runtime/reset", {
+      pageIds: normalizedPages.map((page) => page.id)
+    });
+    const reset = result.reset || {};
+    const total = Number(reset.continuations || 0) + Number(reset.responseWaits || 0) + Number(reset.queuedMessages || 0) + Number(reset.relayQueuedMessages || 0);
+    toastMessage(`Fluxos em andamento reiniciados: ${total} item${total === 1 ? "" : "s"} cancelado${total === 1 ? "" : "s"}.`);
+    await loadFlowLogsForPage(flowLogState.scope === "all" ? "__all__" : currentFlowPageId(), { silent: true });
+    render();
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel reiniciar os fluxos em andamento.");
+  }
 }
 
 async function ensureConnectedPagesForTagCleanup() {
@@ -5044,6 +5092,7 @@ function handleWorkspaceClick(event) {
   if (action === "delete-campaign") return deleteCampaign(id);
   if (action === "create-tag-folder") return openCreateTagFolderModal();
   if (action === "delete-tag-folder") return confirmDeleteTagFolder(button.dataset.folderId);
+  if (action === "reset-running-flows") return confirmResetRunningFlows();
   if (action === "clear-all-contact-tags") return confirmClearAllContactTags();
   if (action === "set-flow-log-scope") return setFlowLogScope(button.dataset.scope);
   if (action === "refresh-flow-logs") return refreshFlowLogs();
