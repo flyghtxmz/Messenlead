@@ -2275,6 +2275,7 @@ function renderMediaLibrary() {
   );
   const imageAssets = assets.filter((asset) => asset.kind === "image");
   const audioAssets = assets.filter((asset) => asset.kind === "audio");
+  const videoAssets = assets.filter((asset) => asset.kind === "video");
 
   workspace.innerHTML = `
     <div class="media-library-grid">
@@ -2291,6 +2292,7 @@ function renderMediaLibrary() {
         <div class="panel-body image-tool-body">
           <input id="mediaImageUpload" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" hidden />
           <input id="mediaAudioUpload" type="file" accept="audio/mpeg,.mp3" hidden />
+          <input id="mediaVideoUpload" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" hidden />
           <div class="media-upload-grid">
             <button class="image-dropzone media-upload-card" type="button" data-action="choose-media-image" ${mediaState.uploading ? "disabled" : ""}>
               ${icons.image}
@@ -2301,6 +2303,11 @@ function renderMediaLibrary() {
               ${icons.send}
               <strong>Upar áudio MP3</strong>
               <span>Arquivo .mp3 público e permanente para enviar no Messenger.</span>
+            </button>
+            <button class="image-dropzone media-upload-card" type="button" data-action="choose-media-video" ${mediaState.uploading ? "disabled" : ""}>
+              ${icons.video}
+              <strong>Upar video</strong>
+              <span>MP4 recomendado para envio no Messenger. WebM e MOV ficam salvos como midia.</span>
             </button>
           </div>
           ${mediaState.uploading ? `<div class="video-progress"><span>Enviando para R2...</span><div><i style="width:66%"></i></div></div>` : ""}
