@@ -8320,6 +8320,7 @@ function renderNode(node, selected) {
         <button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>
       </div>
       <p>${escapeHtml(summary.body)}</p>
+      ${summary.chips?.length ? renderNodeSummaryChips(summary.chips) : ""}
       ${outputRows}
       <div class="node-footer">
         <span>${escapeHtml(summary.footer)}</span>
@@ -8363,7 +8364,8 @@ function nodeCardSummary(node) {
     const blockChoices = (node.contentBlocks || []).reduce((sum, block) => sum + (block.buttons?.length || 0), 0);
     const choices = (node.buttons?.length || 0) + (node.quickReplies?.length || 0) + blockChoices;
     return {
-      body: messageNodeSummaryBody(node),
+      body: messageNodeSummaryText(node),
+      chips: messageNodeContentChips(node),
       footer: `${blockCount} bloco${blockCount === 1 ? "" : "s"} · ${choices} opção${choices === 1 ? "" : "ões"}`,
       status: connectionTargets(flow, node).length ? "conectado" : "fim"
     };
@@ -8403,42 +8405,82 @@ function nodeCardSummary(node) {
   };
 }
 
-function messageNodeSummaryBody(node) {
+function renderNodeSummaryChips(chips = []) {
+  return `
+    <div class="node-summary-chips">
+      ${chips.map((chip) => `<span>${escapeHtml(chip)}</span>`).join("")}
+    </div>
+  `;
+}
+
+function messageNodeSummaryText(node) {
   normalizeNodeStructure(node);
   const text = String(node.contentBlocks?.find((block) => block.type === "text" && block.text)?.text || node.message || "").trim();
-  const parts = [];
-  const mediaSummary = messageBlockCountsSummary(node.contentBlocks || []);
+  return text || "Mensagem do Messenger";
+}
 
-  if (text) parts.push(text);
-  if (mediaSummary) parts.push(mediaSummary);
-  return parts.join(" · ") || "Mensagem do Messenger";
+function messageNodeContentChips(node) {
+  normalizeNodeStructure(node);
+  const labels = {
+    text: ["texto", "textos"],
+    image: ["imagem", "imagens"],
+    audio: ["áudio", "áudios"],
+    video: ["vídeo", "vídeos"],
+    file: ["arquivo", "arquivos"],
+    card: ["card", "cards"],
+    gallery: ["galeria", "galerias"],
+    data_collection: ["coleta", "coletas"],
+    dynamic: ["dinâmico", "dinâmicos"]
+  };
+  const counts = (node.contentBlocks || []).reduce((map, block) => {
+    const type = messageBlockPreviewType(block);
+    map[type] = (map[type] || 0) + 1;
+    return map;
+  }, {});
+
+  return Object.entries(counts).map(([type, count]) => {
+    const label = labels[type] || [type, `${type}s`];
+    return `${count} ${count === 1 ? label[0] : label[1]}`;
+  });
+}
+
+function messageBlockPreviewType(block = {}) {
+  const type = String(block.type || "text");
+  const url = String(block.url || "").toLowerCase();
+  if (type === "file") {
+    if (/\.(mp3|m4a|aac|wav|ogg|oga|opus|webm)(\?|#|$)/.test(url)) return "audio";
+    if (/\.(mp4|mov|m4v|webm)(\?|#|$)/.test(url)) return "video";
+    if (/\.(png|jpe?g|gif|webp|avif)(\?|#|$)/.test(url)) return "image";
+  }
+  if (["text", "image", "audio", "video", "file", "card", "gallery", "data_collection", "dynamic"].includes(type)) return type;
+  return "file";
 }
 
 function messageBlockCountsSummary(blocks = []) {
   const labels = {
     text: "texto",
     image: "imagem",
-    audio: "audio",
-    video: "video",
+    audio: "áudio",
+    video: "vídeo",
     file: "arquivo",
     card: "card",
     gallery: "galeria",
     data_collection: "coleta",
-    dynamic: "dinamico"
+    dynamic: "dinâmico"
   };
   const plurals = {
     text: "textos",
     image: "imagens",
-    audio: "audios",
-    video: "videos",
+    audio: "áudios",
+    video: "vídeos",
     file: "arquivos",
     card: "cards",
     gallery: "galerias",
     data_collection: "coletas",
-    dynamic: "dinamicos"
+    dynamic: "dinâmicos"
   };
   const counts = blocks.reduce((map, block) => {
-    const type = block.type || "text";
+    const type = messageBlockPreviewType(block);
     map[type] = (map[type] || 0) + 1;
     return map;
   }, {});
