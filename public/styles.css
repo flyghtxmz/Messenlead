@@ -1815,6 +1815,37 @@ svg {
   color: #0077ff;
 }
 
+.node.link_click_wait {
+  border-left-color: #0a84ff;
+}
+
+.node.link_click_wait .node-title svg {
+  background: #eaf4ff;
+  color: #0a84ff;
+}
+
+.node.link_click_wait .link-click-node-port.yes {
+  top: 65px;
+  border-color: #45cf8a;
+}
+
+.node.link_click_wait .link-click-node-port.no {
+  top: 117px;
+  border-color: #ff5757;
+}
+
+.node.link_click_wait .link-click-node-port.yes:hover,
+.node.link_click_wait .link-click-node-port.yes:focus-visible {
+  border-color: #00b871;
+  box-shadow: 0 0 0 4px rgba(0, 184, 113, 0.16);
+}
+
+.node.link_click_wait .link-click-node-port.no:hover,
+.node.link_click_wait .link-click-node-port.no:focus-visible {
+  border-color: #e84b4b;
+  box-shadow: 0 0 0 4px rgba(232, 75, 75, 0.16);
+}
+
 .node.comment {
   min-height: 112px;
   border-color: #d7dce4;

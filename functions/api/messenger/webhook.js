@@ -7,6 +7,7 @@ import {
   consumeFlowLinkClickWait,
   consumeFlowResponseWait,
   processFlowContinuations,
+  processFlowLinkClickWaitTimeouts,
   scheduleFlowContinuation,
   scheduleFlowLinkClickWait,
   scheduleFlowResponseWait
@@ -517,6 +518,114 @@ export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
   };
 }
 
+export async function processMessengerLinkClickTimeouts(env, options = {}) {
+  return processFlowLinkClickWaitTimeouts(env, async (wait) => {
+    const pageId = wait.pageId;
+    const psid = wait.psid;
+    const log = flowEventLogger(env, pageId, psid);
+    const activeFlow = await activeFlowById(env, pageId, wait.flowId);
+
+    if (!activeFlow) {
+      await log("warn", "link_click_wait_timeout_inactive_flow", "Tempo de clique venceu, mas o fluxo nao esta mais ativo.", {
+        linkClickWaitId: wait.id,
+        flowId: wait.flowId,
+        waitNodeId: wait.waitNodeId,
+        timeoutResumeNodeId: wait.timeoutResumeNodeId || ""
+      }, wait.flow);
+      return { status: "skipped", reason: "Flow is not active" };
+    }
+
+    const resumeNodeId = wait.timeoutResumeNodeId || "";
+    const start = activeFlow.nodes?.find((node) => node.id === resumeNodeId);
+    if (!start || start.type === "trigger" || start.type === "comment") {
+      await log("warn", "link_click_wait_timeout_missing_node", "Tempo de clique venceu, mas o bloco de nao clicou nao existe mais.", {
+        linkClickWaitId: wait.id,
+        flowId: wait.flowId,
+        waitNodeId: wait.waitNodeId,
+        timeoutResumeNodeId: resumeNodeId
+      }, activeFlow);
+      return { status: "skipped", reason: "Timeout resume node not found" };
+    }
+
+    const contact = (await getContact(env, pageId, psid)) || wait.contact || { psid, pageId };
+    await log("info", "link_click_wait_timeout_resuming", "Retomando fluxo pela saida Nao clicou.", {
+      linkClickWaitId: wait.id,
+      waitNodeId: wait.waitNodeId,
+      timeoutResumeNodeId: resumeNodeId,
+      sourceNodeId: wait.sourceNodeId || "",
+      expiresAt: wait.expiresAt || ""
+    }, activeFlow);
+
+    const eventId = linkClickTimeoutRuntimeEventId(wait);
+    const result = await executeFlowFromNode({
+      context: {
+        ...serializableFlowContext(wait.context),
+        eventId,
+        policyExpiresAt: wait.policyExpiresAt || wait.context?.policyExpiresAt || "",
+        eventType: "link_click_timeout",
+        resumedFromLinkClickTimeout: true
+      },
+      env,
+      pageId,
+      contact,
+      log,
+      flow: activeFlow,
+      start
+    });
+
+    if (result.actions.length) {
+      await applyContactActions(env, pageId, psid, result.actions, {
+        psid,
+        status: contact.status || "open",
+        source: "Messenger link click timeout",
+        lastSeen: contact.lastSeen || new Date().toISOString()
+      });
+      await log("info", "actions_applied", "Acoes da saida Nao clicou foram aplicadas no contato.", {
+        actions: result.actions
+      }, activeFlow);
+    }
+
+    if (result.replies.length) {
+      const queued = await enqueueMessengerReplies(env, {
+        pageId,
+        psid,
+        replies: result.replies.slice(0, 5),
+        flow: activeFlow,
+        eventId,
+        policyExpiresAt: wait.policyExpiresAt || wait.context?.policyExpiresAt || ""
+      });
+      await log("info", "replies_queued", "Respostas da saida Nao clicou enfileiradas para envio.", {
+        queuedCount: queued.length,
+        queueIds: queued,
+        policyExpiresAt: wait.policyExpiresAt || wait.context?.policyExpiresAt || ""
+      }, activeFlow);
+
+      const hasLocalQueued = queued.some((id) => !isExternalRelayQueueId(id));
+      if (hasLocalQueued) {
+        const drain = await processMessengerSendQueue(env, {
+          pageId,
+          limit: Number(env.MESSENLEAD_LINK_CLICK_TIMEOUT_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5)
+        });
+        await log("info", "queue_drain_finished", "Fila processada apos saida Nao clicou.", drain, activeFlow);
+      }
+    }
+
+    if (!result.replies.length && !result.continuation && !result.responseWait && !result.linkClickWait) {
+      await log("warn", "no_replies", "Saida Nao clicou terminou sem resposta para enviar.", {
+        linkClickWaitId: wait.id,
+        actions: result.actions
+      }, activeFlow);
+    }
+
+    return {
+      status: "processed",
+      continuation: result.continuation || null,
+      responseWait: result.responseWait || null,
+      linkClickWait: result.linkClickWait || null
+    };
+  }, options);
+}
+
 async function buildReplies(context, env, pageId, contact = null, log = null) {
   const startedAt = Date.now();
   const timeoutMs = flowTimeoutMs(env);
@@ -848,7 +957,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
     }
 
     if (current.type === "link_click_wait") {
-      const targetId = nextExecutableTargetId(current, stepContext);
+      const targetId = current.clickedNext || current.next || nextExecutableTargetId(current, stepContext);
       const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
       if (!next || next.type === "trigger" || next.type === "comment") {
         await log?.("warn", "next_node", "Bloco de aguardar clique sem proximo passo executavel.", {
@@ -859,7 +968,9 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
         break;
       }
 
-      const sourceNode = previousNode?.type === "message" ? previousNode : lastMessageLinkNode;
+      const sourceNode = (previousNode?.type === "message" && messageNodeTrackedLinks(previousNode).length)
+        ? previousNode
+        : lastMessageLinkNode || findPreviousMessageLinkNode(flow, current);
       const sourceLinkUrls = messageNodeTrackedLinks(sourceNode);
       if (!sourceNode || !sourceLinkUrls.length) {
         await log?.("warn", "link_click_wait_without_source", "Aguardar clique no link precisa vir depois de uma mensagem com botao de URL rastreado.", {
@@ -877,6 +988,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
         flow,
         waitNode: current,
         resumeNodeId: next.id,
+        timeoutResumeNodeId: current.noClickNext || "",
         sourceNodeId: sourceNode?.id || "",
         sourceLinkUrls,
         context: serializableFlowContext(context),
@@ -1019,6 +1131,15 @@ function linkClickRuntimeEventId(wait = {}, event = {}) {
   ].join(":");
 }
 
+function linkClickTimeoutRuntimeEventId(wait = {}) {
+  return [
+    "link_click_timeout",
+    wait.id || "",
+    wait.timeoutResumeNodeId || "",
+    wait.expiresAt || ""
+  ].join(":");
+}
+
 function serializableFlowContext(context = {}) {
   return {
     text: context.text || "",
@@ -1032,6 +1153,7 @@ function serializableFlowContext(context = {}) {
     resumedFromDelay: Boolean(context.resumedFromDelay),
     resumedFromUserInput: Boolean(context.resumedFromUserInput),
     resumedFromLinkClick: Boolean(context.resumedFromLinkClick),
+    resumedFromLinkClickTimeout: Boolean(context.resumedFromLinkClickTimeout),
     linkClickEventId: context.linkClickEventId || "",
     responseText: context.responseText || ""
   };
@@ -1264,6 +1386,7 @@ function nextExecutableTargetId(node, context = {}) {
   normalizeNodeShape(node);
   if (node.type === "condition") return conditionMatchesNode(node, context) ? node.yesNext : node.noNext;
   if (node.type === "randomizer") return pickRandomVariation(node, context)?.next || null;
+  if (node.type === "link_click_wait") return node.clickedNext || node.next || null;
   if (node.type === "message") {
     const option = context.ignoreMessageOptionRouting ? null : matchingMessageOption(node, context);
     return option?.next || node.next || null;
@@ -1347,7 +1470,10 @@ function normalizeNodeShape(node) {
     node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
   }
   if (node.type === "link_click_wait") {
-    node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
+    node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes ?? 5) || 0);
+    node.clickedNext = node.clickedNext || node.next || null;
+    node.noClickNext = node.noClickNext || null;
+    node.next = node.clickedNext;
   }
 }
 
@@ -1656,6 +1782,41 @@ function messageNodeTrackedLinks(node = {}) {
   });
 
   return [...new Set(urls)];
+}
+
+function findPreviousMessageLinkNode(flow = {}, node = {}, seen = new Set()) {
+  const targetId = String(node?.id || "");
+  if (!targetId || seen.has(targetId)) return null;
+  seen.add(targetId);
+
+  const incoming = (flow.nodes || []).filter((item) => nodeOutputTargetIds(item).includes(targetId));
+  for (const item of incoming) {
+    if (item.type === "message" && messageNodeTrackedLinks(item).length) return item;
+  }
+
+  for (const item of incoming) {
+    const found = findPreviousMessageLinkNode(flow, item, seen);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+function nodeOutputTargetIds(node = {}) {
+  normalizeNodeShape(node);
+  if (node.type === "condition") return [node.yesNext, node.noNext].filter(Boolean);
+  if (node.type === "randomizer") return (node.variations || []).map((variation) => variation.next).filter(Boolean);
+  if (node.type === "message") {
+    const blockButtons = (node.contentBlocks || []).flatMap((block) => block.buttons || []);
+    return [
+      node.next,
+      ...(node.buttons || []).map((option) => option.next),
+      ...(node.quickReplies || []).map((option) => option.next),
+      ...blockButtons.map((option) => option.next)
+    ].filter(Boolean);
+  }
+  if (node.type === "link_click_wait") return [node.clickedNext || node.next, node.noClickNext].filter(Boolean);
+  return [node.next].filter(Boolean);
 }
 
 async function sendMessengerReply(psid, reply, env, pageId, log = null, flow = null) {

@@ -71,6 +71,7 @@ export async function ensureFlowContinuationSchema(env) {
       flow_name TEXT,
       wait_node_id TEXT,
       resume_node_id TEXT NOT NULL,
+      timeout_resume_node_id TEXT,
       source_node_id TEXT,
       source_link_urls_json TEXT NOT NULL DEFAULT '[]',
       event_id TEXT,
@@ -88,12 +89,20 @@ export async function ensureFlowContinuationSchema(env) {
     )
   `).run();
 
+  await ensureFlowLinkClickWaitColumn(env, "timeout_resume_node_id", "TEXT");
+
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_link_click_waits_page_psid_status ON flow_link_click_waits(page_id, psid, status, updated_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_link_click_waits_source_status ON flow_link_click_waits(page_id, source_node_id, status, updated_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_link_click_waits_status_expires ON flow_link_click_waits(status, expires_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_link_click_waits_flow_status ON flow_link_click_waits(flow_id, status, updated_at DESC)").run();
 
   return true;
+}
+
+async function ensureFlowLinkClickWaitColumn(env, name, type) {
+  const result = await env.DB.prepare("PRAGMA table_info(flow_link_click_waits)").all();
+  const exists = (result.results || []).some((column) => column.name === name);
+  if (!exists) await env.DB.prepare(`ALTER TABLE flow_link_click_waits ADD COLUMN ${name} ${type}`).run();
 }
 
 export async function scheduleFlowContinuation(env, options = {}) {
@@ -306,6 +315,7 @@ export async function scheduleFlowLinkClickWait(env, options = {}) {
   const flow = options.flow || {};
   const waitNode = options.waitNode || {};
   const resumeNodeId = String(options.resumeNodeId || "").trim();
+  const timeoutResumeNodeId = String(options.timeoutResumeNodeId || options.noClickResumeNodeId || "").trim();
   const sourceNodeId = String(options.sourceNodeId || "").trim();
   if (!psid || !resumeNodeId) return null;
 
@@ -314,16 +324,17 @@ export async function scheduleFlowLinkClickWait(env, options = {}) {
 
   await env.DB.prepare(`
     INSERT INTO flow_link_click_waits (
-      id, page_id, psid, flow_id, flow_name, wait_node_id, resume_node_id, source_node_id,
+      id, page_id, psid, flow_id, flow_name, wait_node_id, resume_node_id, timeout_resume_node_id, source_node_id,
       source_link_urls_json, event_id, policy_expires_at, flow_json, context_json, contact_json,
       wait_config_json, status, expires_at, last_error, created_at, updated_at, consumed_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, '', ?, ?, '')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, '', ?, ?, '')
     ON CONFLICT(id) DO UPDATE SET
       flow_id = excluded.flow_id,
       flow_name = excluded.flow_name,
       wait_node_id = excluded.wait_node_id,
       resume_node_id = excluded.resume_node_id,
+      timeout_resume_node_id = excluded.timeout_resume_node_id,
       source_node_id = excluded.source_node_id,
       source_link_urls_json = excluded.source_link_urls_json,
       event_id = excluded.event_id,
@@ -346,6 +357,7 @@ export async function scheduleFlowLinkClickWait(env, options = {}) {
       String(flow.name || options.flowName || ""),
       String(waitNode.id || options.waitNodeId || ""),
       resumeNodeId,
+      timeoutResumeNodeId,
       sourceNodeId,
       JSON.stringify(Array.isArray(options.sourceLinkUrls) ? options.sourceLinkUrls : []),
       String(options.eventId || ""),
@@ -367,6 +379,7 @@ export async function scheduleFlowLinkClickWait(env, options = {}) {
     flowId: String(flow.id || options.flowId || ""),
     waitNodeId: String(waitNode.id || options.waitNodeId || ""),
     resumeNodeId,
+    timeoutResumeNodeId,
     sourceNodeId,
     sourceLinkUrls: Array.isArray(options.sourceLinkUrls) ? options.sourceLinkUrls : [],
     policyExpiresAt: normalizeIso(options.policyExpiresAt) || "",
@@ -395,7 +408,7 @@ export async function consumeFlowLinkClickWait(env, event = {}) {
   for (const row of rows.results || []) {
     const wait = rowToLinkClickWait(row);
     if (wait.expiresAt && Date.parse(wait.expiresAt) < Date.now()) {
-      await markLinkClickWait(env, wait.id, "expired", { error: "Link click wait expired" });
+      if (!wait.timeoutResumeNodeId) await markLinkClickWait(env, wait.id, "expired", { error: "Link click wait expired" });
       continue;
     }
     if (!pixelEventMatchesLinkClickWait(event, wait)) continue;
@@ -460,7 +473,7 @@ export async function resetFlowRuntimeState(env, options = {}) {
         last_error = ?,
         updated_at = ?,
         consumed_at = COALESCE(NULLIF(consumed_at, ''), ?)
-    WHERE status = 'waiting'
+    WHERE status IN ('waiting', 'timeout_processing')
       ${linkClickPageFilter}
   `)
     .bind(...linkClickParams, now, ...pageIds)
@@ -529,11 +542,75 @@ export async function processFlowContinuations(env, processor, options = {}) {
   return stats;
 }
 
+export async function processFlowLinkClickWaitTimeouts(env, processor, options = {}) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  if (!hasDb) return { processed: 0, resumed: 0, skipped: 0, failed: 0 };
+
+  await cleanupFlowLinkClickWaits(env);
+
+  const limit = clampNumber(options.limit || env.MESSENLEAD_LINK_CLICK_TIMEOUT_LIMIT, 1, 25, DEFAULT_LIMIT);
+  const pageFilter = options.pageId ? "AND page_id = ?" : "";
+  const params = options.pageId ? [new Date().toISOString(), normalizePageId(options.pageId), limit] : [new Date().toISOString(), limit];
+  const rows = await env.DB.prepare(`
+    SELECT *
+    FROM flow_link_click_waits
+    WHERE status = 'waiting'
+      AND timeout_resume_node_id <> ''
+      AND expires_at <> ''
+      AND datetime(expires_at) <= datetime(?)
+      ${pageFilter}
+    ORDER BY datetime(expires_at) ASC, datetime(created_at) ASC
+    LIMIT ?
+  `)
+    .bind(...params)
+    .all();
+
+  const stats = { processed: 0, resumed: 0, skipped: 0, failed: 0 };
+  for (const row of rows.results || []) {
+    stats.processed += 1;
+    const wait = rowToLinkClickWait(row);
+    const claimed = await claimLinkClickTimeout(env, wait.id);
+    if (!claimed) {
+      stats.skipped += 1;
+      continue;
+    }
+
+    try {
+      const result = await processor(wait);
+      if (result?.status === "skipped") {
+        await markLinkClickWait(env, wait.id, "skipped", { error: result.reason || "Skipped" });
+        stats.skipped += 1;
+        continue;
+      }
+
+      await markLinkClickWait(env, wait.id, "timed_out");
+      stats.resumed += 1;
+    } catch (error) {
+      await markLinkClickWait(env, wait.id, "failed", { error: error.message || "Link click timeout failed" });
+      stats.failed += 1;
+    }
+  }
+
+  return stats;
+}
+
 async function claimContinuation(env, id) {
   const result = await env.DB.prepare(`
     UPDATE flow_continuations
     SET status = 'processing', updated_at = ?
     WHERE id = ? AND status = 'scheduled'
+  `)
+    .bind(new Date().toISOString(), id)
+    .run();
+
+  return Number(result.meta?.changes || 0) > 0;
+}
+
+async function claimLinkClickTimeout(env, id) {
+  const result = await env.DB.prepare(`
+    UPDATE flow_link_click_waits
+    SET status = 'timeout_processing', updated_at = ?
+    WHERE id = ? AND status = 'waiting'
   `)
     .bind(new Date().toISOString(), id)
     .run();
@@ -604,6 +681,7 @@ async function cleanupFlowResponseWaits(env) {
     WHERE status = 'waiting'
       AND expires_at <> ''
       AND datetime(expires_at) < datetime(?)
+      AND (timeout_resume_node_id IS NULL OR timeout_resume_node_id = '')
   `)
     .bind(now, now)
     .run()
@@ -612,7 +690,7 @@ async function cleanupFlowResponseWaits(env) {
   const before = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   await env.DB.prepare(`
     DELETE FROM flow_response_waits
-    WHERE status IN ('consumed', 'expired', 'skipped', 'reset')
+    WHERE status IN ('consumed', 'expired', 'timed_out', 'skipped', 'failed', 'reset')
       AND datetime(updated_at) < datetime(?)
   `)
     .bind(before)
@@ -701,6 +779,7 @@ function rowToLinkClickWait(row) {
     flowName: row.flow_name || "",
     waitNodeId: row.wait_node_id || "",
     resumeNodeId: row.resume_node_id || "",
+    timeoutResumeNodeId: row.timeout_resume_node_id || "",
     sourceNodeId: row.source_node_id || "",
     sourceLinkUrls: parseJsonArray(row.source_link_urls_json),
     eventId: row.event_id || "",

@@ -1046,7 +1046,10 @@ function normalizeNodeStructure(node) {
   }
 
   if (node.type === "link_click_wait") {
-    node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
+    node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes ?? 5) || 0);
+    node.clickedNext = node.clickedNext || node.next || null;
+    node.noClickNext = node.noClickNext || null;
+    node.next = node.clickedNext;
   }
   if (node.type === "randomizer") {
     node.randomEveryTime = node.randomEveryTime !== false;
@@ -4688,11 +4691,20 @@ function renderLinkClickWaitSettings(flow, node) {
           <span>Tempo limite em minutos</span>
           <input type="number" min="0" data-node-field="timeoutMinutes" value="${attr(node.timeoutMinutes || 0)}" placeholder="0 = sem limite" />
         </label>
-        <span class="settings-helper">Este bloco aguarda o clique em um link rastreado enviado pelo node de mensagem anterior no caminho.</span>
+        <span class="settings-helper">Este bloco aguarda o clique em um link rastreado enviado pelo node de mensagem anterior no caminho. A saida "Nao clicou" roda quando o tempo limite termina.</span>
       </div>
-      <div class="then-block">
-        <strong>Depois do clique...</strong>
-        ${renderSelectedNextStep(flow, node)}
+      <div class="condition-branches">
+        ${targetSelectField(flow, node, node.clickedNext, "Se clicou no link", {
+          field: "clickedNext",
+          className: "condition-next-step",
+          placeholder: "Escolher Proximo Passo"
+        })}
+        <div class="condition-branch-divider"><span></span><strong>Se nao</strong><span></span></div>
+        ${targetSelectField(flow, node, node.noClickNext, "Se nao clicou no prazo", {
+          field: "noClickNext",
+          className: "condition-next-step",
+          placeholder: "Escolher Proximo Passo"
+        })}
       </div>
     </form>
   `;
@@ -5565,7 +5577,9 @@ function addNode(type) {
     delayMinutes: type === "delay" ? 5 : undefined,
     saveResponse: type === "user_input" ? true : undefined,
     responseField: type === "user_input" ? "ultima_resposta" : undefined,
-    timeoutMinutes: ["user_input", "link_click_wait"].includes(type) ? 0 : undefined,
+    timeoutMinutes: type === "link_click_wait" ? 5 : type === "user_input" ? 0 : undefined,
+    clickedNext: type === "link_click_wait" ? null : undefined,
+    noClickNext: type === "link_click_wait" ? null : undefined,
     randomEveryTime: type === "randomizer" ? true : undefined,
     variations: type === "randomizer"
       ? [
@@ -5657,7 +5671,9 @@ function buildNode(type, x, y) {
     delayMinutes: type === "delay" ? 5 : undefined,
     saveResponse: type === "user_input" ? true : undefined,
     responseField: type === "user_input" ? "ultima_resposta" : undefined,
-    timeoutMinutes: ["user_input", "link_click_wait"].includes(type) ? 0 : undefined,
+    timeoutMinutes: type === "link_click_wait" ? 5 : type === "user_input" ? 0 : undefined,
+    clickedNext: type === "link_click_wait" ? null : undefined,
+    noClickNext: type === "link_click_wait" ? null : undefined,
     randomEveryTime: type === "randomizer" ? true : undefined,
     variations: type === "randomizer"
       ? [
@@ -5845,6 +5861,8 @@ function remapImportedNodeReferences(node, idMap) {
   node.next = remapImportedTarget(node.next, idMap);
   node.yesNext = remapImportedTarget(node.yesNext, idMap);
   node.noNext = remapImportedTarget(node.noNext, idMap);
+  node.clickedNext = remapImportedTarget(node.clickedNext, idMap);
+  node.noClickNext = remapImportedTarget(node.noClickNext, idMap);
   if (Array.isArray(node.buttons)) node.buttons.forEach((option) => {
     option.id = makeId("btn");
     option.next = remapImportedTarget(option.next, idMap);
@@ -5972,6 +5990,8 @@ function replaceNodeReference(node, oldId, newId = null) {
   if (node.next === oldId) node.next = newId;
   if (node.yesNext === oldId) node.yesNext = newId;
   if (node.noNext === oldId) node.noNext = newId;
+  if (node.clickedNext === oldId) node.clickedNext = newId;
+  if (node.noClickNext === oldId) node.noClickNext = newId;
   node.buttons?.forEach((option) => {
     if (option.next === oldId) option.next = newId;
   });
@@ -6013,6 +6033,11 @@ function clearOutputTarget(node, ref = {}) {
   normalizeNodeStructure(node);
   if (node.type === "condition" && (ref.field === "yesNext" || ref.field === "noNext")) {
     node[ref.field] = null;
+    return;
+  }
+  if (node.type === "link_click_wait" && (ref.field === "clickedNext" || ref.field === "noClickNext")) {
+    node[ref.field] = null;
+    if (ref.field === "clickedNext") node.next = null;
     return;
   }
   if (node.type === "randomizer" && ref.variationId) {
@@ -6059,6 +6084,8 @@ function duplicateSelectedNode() {
   copy.next = null;
   copy.yesNext = null;
   copy.noNext = null;
+  copy.clickedNext = null;
+  copy.noClickNext = null;
   if (Array.isArray(copy.buttons)) copy.buttons = copy.buttons.map((option) => ({ ...option, id: makeId("btn"), next: null }));
   if (Array.isArray(copy.quickReplies)) copy.quickReplies = copy.quickReplies.map((option) => ({ ...option, id: makeId("qr"), next: null }));
   if (Array.isArray(copy.variations)) copy.variations = copy.variations.map((variation) => ({ ...variation, id: makeId("var"), next: null }));
@@ -6610,7 +6637,9 @@ function addNextStep(type) {
     quickReplies: [],
     saveResponse: normalizedType === "user_input" ? true : undefined,
     responseField: normalizedType === "user_input" ? "ultima_resposta" : undefined,
-    timeoutMinutes: ["user_input", "link_click_wait"].includes(normalizedType) ? 0 : undefined,
+    timeoutMinutes: normalizedType === "link_click_wait" ? 5 : normalizedType === "user_input" ? 0 : undefined,
+    clickedNext: normalizedType === "link_click_wait" ? null : undefined,
+    noClickNext: normalizedType === "link_click_wait" ? null : undefined,
     next: canAcceptIncomingConnection(previousTarget) ? previousNext : null,
     x: clampNodeX(Math.round(current.x + 340)),
     y: clampNodeY(Math.round(current.y))
@@ -6634,7 +6663,7 @@ function setExistingNextStep(nodeId, targetId) {
   const target = flow?.nodes.find((item) => item.id === targetId);
   if (!flow || !node || !target || node.id === target.id || !canAcceptIncomingConnection(target)) return;
 
-  node.next = target.id;
+  assignPrimaryTarget(node, target.id);
   flow.updatedAt = new Date().toISOString();
   selectedNodeId = node.id;
   nextStepPickerNodeId = "";
@@ -7720,6 +7749,15 @@ function assignPrimaryTarget(node, targetId) {
     else node.noNext = targetId;
     return;
   }
+  if (node.type === "link_click_wait") {
+    if (!node.clickedNext) {
+      node.clickedNext = targetId;
+      node.next = targetId;
+    } else {
+      node.noClickNext = targetId;
+    }
+    return;
+  }
   if (node.type === "randomizer") {
     const empty = node.variations.find((variation) => !variation.next) || node.variations[0];
     if (empty) empty.next = targetId;
@@ -7734,6 +7772,11 @@ function assignOutputTarget(node, targetId, output = "") {
   const field = ref.field || "";
   if (node.type === "condition" && (field === "yesNext" || field === "noNext")) {
     node[field] = targetId;
+    return;
+  }
+  if (node.type === "link_click_wait" && (field === "clickedNext" || field === "noClickNext")) {
+    node[field] = targetId;
+    if (field === "clickedNext") node.next = targetId;
     return;
   }
   if (node.type === "message") {
@@ -8036,7 +8079,7 @@ function renderConnections(flow) {
       const { target, label } = connection;
       const start = nodeOutputPoint(node, connection);
       const end = nodeInputPoint(target);
-      const offset = node.type === "condition" || node.type === "message" ? 0 : index * 8;
+      const offset = ["condition", "message", "link_click_wait"].includes(node.type) ? 0 : index * 8;
       const startY = start.y + offset;
       const endY = end.y;
       const path = connectionPath(start.x, startY, end.x, endY);
@@ -8089,6 +8132,11 @@ function outputRefs(node) {
     if (node.noNext) refs.push({ targetId: node.noNext, label: "Não", field: "noNext" });
     return refs;
   }
+  if (node.type === "link_click_wait") {
+    if (node.clickedNext) refs.push({ targetId: node.clickedNext, label: "Clicou", field: "clickedNext" });
+    if (node.noClickNext) refs.push({ targetId: node.noClickNext, label: "Nao clicou", field: "noClickNext" });
+    return refs;
+  }
   if (node.type === "randomizer") {
     return node.variations
       .filter((variation) => variation.next)
@@ -8116,6 +8164,7 @@ function nextExecutableTargetId(node, context = {}) {
   normalizeNodeStructure(node);
   if (node.type === "condition") return conditionMatchesNode(node, context) ? node.yesNext : node.noNext;
   if (node.type === "randomizer") return pickRandomVariation(node, context)?.next || null;
+  if (node.type === "link_click_wait") return node.clickedNext || node.next || null;
   if (node.type === "message") {
     const option = matchingMessageOption(node, context);
     return option?.next || node.next || null;
@@ -8306,7 +8355,9 @@ function nodeOutputPoint(node, output = {}) {
       ? conditionOutputY(output.field)
       : node.type === "message"
         ? messageOutputY(node, output)
-        : NODE_CONNECT_Y;
+        : node.type === "link_click_wait"
+          ? linkClickOutputY(output.field)
+          : NODE_CONNECT_Y;
   return {
     x: canvasNodeLeft(node) + NODE_WIDTH,
     y: canvasNodeTop(node) + outputY
@@ -8315,6 +8366,10 @@ function nodeOutputPoint(node, output = {}) {
 
 function conditionOutputY(field) {
   return field === "noNext" ? 124 : 72;
+}
+
+function linkClickOutputY(field) {
+  return field === "noClickNext" ? 124 : 72;
 }
 
 function nodeInputPoint(node) {
@@ -8368,7 +8423,7 @@ function renderNode(node, selected) {
         <span>${escapeHtml(summary.footer)}</span>
         <span>${escapeHtml(summary.status)}</span>
       </div>
-      ${node.type === "message" ? "" : renderOutputPort(node)}
+      ${node.type === "message" ? "" : node.type === "link_click_wait" ? renderLinkClickWaitOutputPorts(node) : renderOutputPort(node)}
     </article>
   `;
 }
@@ -8434,10 +8489,11 @@ function nodeCardSummary(node) {
     };
   }
   if (node.type === "link_click_wait") {
+    const branchCount = [node.clickedNext, node.noClickNext].filter(Boolean).length;
     return {
       body: "Pausa o fluxo ate o contato clicar no link do node anterior.",
       footer: node.timeoutMinutes ? `${node.timeoutMinutes} min limite` : "sem limite",
-      status: node.next ? "conectado" : "fim"
+      status: branchCount ? `${branchCount} saida${branchCount === 1 ? "" : "s"}` : "fim"
     };
   }
   if (node.type === "randomizer") {
@@ -8701,6 +8757,13 @@ function renderConditionOutputPorts(node) {
   return `
     <button class="node-port condition-node-port yes" type="button" data-port-source="${attr(node.id)}" data-port-field="yesNext" aria-label="Conectar quando corresponde"></button>
     <button class="node-port condition-node-port no" type="button" data-port-source="${attr(node.id)}" data-port-field="noNext" aria-label="Conectar quando não corresponde"></button>
+  `;
+}
+
+function renderLinkClickWaitOutputPorts(node) {
+  return `
+    <button class="node-port link-click-node-port yes" type="button" data-port-source="${attr(node.id)}" data-port-field="clickedNext" aria-label="Conectar quando clicou"></button>
+    <button class="node-port link-click-node-port no" type="button" data-port-source="${attr(node.id)}" data-port-field="noClickNext" aria-label="Conectar quando nao clicou"></button>
   `;
 }
 
@@ -9209,7 +9272,10 @@ function applyTargetSelection(node, target) {
     if (variation) variation.next = value;
     return;
   }
-  if (field) node[field] = value;
+  if (field) {
+    node[field] = value;
+    if (node.type === "link_click_wait" && field === "clickedNext") node.next = value;
+  }
 }
 
 function defaultNodeMessage(type) {
