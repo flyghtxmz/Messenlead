@@ -2951,6 +2951,15 @@ async function resetRunningFlowsForPages(pages = []) {
   }
 
   try {
+    window.clearTimeout(flowStore.saveTimer);
+    flowStore.status = "Salvando antes do reset";
+    updateSyncPill();
+    const saved = await syncAllFlowsToServer();
+    if (!saved) {
+      toastMessage("Nao consegui salvar o fluxo atual no D1. Reset cancelado para evitar executar um desenho antigo.");
+      return;
+    }
+
     const result = await apiPost("/api/flow-runtime/reset", {
       pageIds: normalizedPages.map((page) => page.id)
     });
@@ -3568,7 +3577,7 @@ async function syncFlowToServer(flow) {
 
 async function syncAllFlowsToServer() {
   const pageId = currentFlowPageId();
-  if (!state.flows.length) return;
+  if (!state.flows.length) return true;
 
   try {
     state.flows.forEach((flow) => {
@@ -3579,10 +3588,12 @@ async function syncAllFlowsToServer() {
     flowStore.pageId = pageId;
     flowStore.status = "Fluxos salvos no D1";
     updateSyncPill();
+    return true;
   } catch (error) {
     flowStore.serverAvailable = false;
     flowStore.status = flowStoreStatusFromError(error);
     updateSyncPill();
+    return false;
   }
 }
 
@@ -5529,13 +5540,38 @@ function addNode(type) {
     y: clampNodeY(Math.round(nextY))
   };
   normalizeNodeStructure(node);
-  if (current && !outputRefs(current).length) assignPrimaryTarget(current, node.id);
+  insertNodeAfterCurrentOutput(current, node);
   flow.nodes.push(node);
   flow.updatedAt = new Date().toISOString();
   selectedNodeId = node.id;
   showInspector = true;
   saveState();
   render();
+}
+
+function insertNodeAfterCurrentOutput(current, node) {
+  if (!current || !node) return;
+  const insertion = simpleInsertionOutput(current);
+  if (!insertion) {
+    if (!outputRefs(current).length) assignPrimaryTarget(current, node.id);
+    return;
+  }
+
+  if (insertion.targetId) node.next = insertion.targetId;
+  assignOutputTarget(current, node.id, insertion);
+}
+
+function simpleInsertionOutput(node) {
+  if (!node || node.type === "comment" || node.type === "condition" || node.type === "randomizer") return null;
+  normalizeNodeStructure(node);
+  if (node.type === "message") {
+    const refs = outputRefs(node);
+    if (refs.length > 1) return null;
+    if (node.next) return { targetId: node.next, field: "next", kind: "default" };
+    if (!refs.length) return { targetId: null, field: "next", kind: "default" };
+    return refs[0].field === "next" || refs[0].kind === "default" ? refs[0] : null;
+  }
+  return { targetId: node.next || null, field: "next" };
 }
 
 function addNodeFromCanvasMenu(type) {
@@ -7419,6 +7455,8 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
 }
 
 function interactiveStartNode(flow, context) {
+  if (!["postback", "quick_reply"].includes(context.eventType)) return null;
+
   for (const node of flow.nodes || []) {
     if (node.type !== "message") continue;
     normalizeNodeStructure(node);

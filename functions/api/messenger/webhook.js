@@ -1034,6 +1034,8 @@ function nextExecutableTargetId(node, context = {}) {
 }
 
 function interactiveStartNode(flow, context) {
+  if (!["postback", "quick_reply"].includes(context.eventType)) return null;
+
   for (const node of flow.nodes || []) {
     if (node.type !== "message") continue;
     normalizeNodeShape(node);
