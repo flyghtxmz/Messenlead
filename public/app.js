@@ -1566,7 +1566,7 @@ function renderPages() {
                           <strong>${escapeHtml(conversationTitle(selectedConversation, selectedPage.name))}</strong>
                           ${renderConversationStatus(selectedConversation, selectedPage.id)}
                         </div>
-                        <div class="conversation">
+                        <div class="conversation" data-conversation-scroll>
                           ${
                             metaState.messages
                               ? renderMetaConversationMessages(metaState.messages, selectedPage.id, metaState.pixelEvents || [])
@@ -3094,6 +3094,7 @@ function refreshBroadcastEligibility() {
 async function loadMetaMessages(pageId, conversationId, options = {}) {
   if (metaState.loadingMessages && options.silent) return;
   metaState.loadingMessages = true;
+  let shouldRenderAfterLoad = true;
   try {
     const conversation = metaState.conversations?.find((item) => item.id === conversationId);
     const psid = conversation ? recipientIdFromConversation(conversation, pageId) : "";
@@ -3103,19 +3104,54 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
         ? apiGet(`/api/pixel/events?pageId=${encodeURIComponent(pageId)}&psid=${encodeURIComponent(psid)}&days=90&limit=80`).catch(() => ({ events: [] }))
         : Promise.resolve({ events: [] })
     ]);
+    if (activeView === "pages" && (metaState.selectedPageId !== pageId || metaState.selectedConversationId !== conversationId)) {
+      shouldRenderAfterLoad = false;
+      return;
+    }
     metaState.messages = result.messages || [];
     metaState.pixelEvents = pixelResult.events || [];
     metaState.error = "";
     markMetaConversationRead(pageId, conversationId);
   } catch (error) {
+    if (activeView === "pages" && (metaState.selectedPageId !== pageId || metaState.selectedConversationId !== conversationId)) {
+      shouldRenderAfterLoad = false;
+      return;
+    }
     metaState.messages = [];
     metaState.pixelEvents = [];
     metaState.error = error.message;
     toastMessage(error.message);
   } finally {
     metaState.loadingMessages = false;
-    if (!options.silent || activeView === "pages") render();
+    if (shouldRenderAfterLoad && (!options.silent || activeView === "pages")) {
+      const scrollSnapshot = options.silent && activeView === "pages" ? captureMetaConversationScroll() : null;
+      render();
+      if (scrollSnapshot) restoreMetaConversationScroll(scrollSnapshot);
+    }
   }
+}
+
+function captureMetaConversationScroll() {
+  const scroller = document.querySelector("[data-conversation-scroll]");
+  if (!scroller) return null;
+  const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+  return {
+    scrollTop: scroller.scrollTop,
+    scrollHeight: scroller.scrollHeight,
+    stickToBottom: distanceFromBottom <= 48
+  };
+}
+
+function restoreMetaConversationScroll(snapshot) {
+  window.requestAnimationFrame(() => {
+    const scroller = document.querySelector("[data-conversation-scroll]");
+    if (!scroller) return;
+    if (snapshot.stickToBottom) {
+      scroller.scrollTop = scroller.scrollHeight;
+      return;
+    }
+    scroller.scrollTop = Math.min(snapshot.scrollTop, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+  });
 }
 
 function shouldLoadContactsForCurrentPage() {
@@ -8442,23 +8478,25 @@ function renderMetaConversationMessages(messages, pageId, pixelEvents = []) {
 
 function conversationPixelTimelineEvents(events = []) {
   const visibleEvents = events.filter((event) => event.eventType !== "site_heartbeat");
-  if (visibleEvents.some((event) => ["site_active", "site_inactive"].includes(event.eventType))) return visibleEvents;
+  if (visibleEvents.some((event) => ["site_active", "site_inactive"].includes(event.eventType))) {
+    return collapseConversationPixelEvents(visibleEvents);
+  }
 
   const presenceEvents = events
     .filter((event) => event.contactPsid && ["page_view", "link_click", "element_click", "form_submit", "site_heartbeat", "site_exit"].includes(event.eventType))
     .sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""));
 
   const latest = presenceEvents[0];
-  if (!latest || latest.eventType === "site_exit") return visibleEvents;
+  if (!latest || latest.eventType === "site_exit") return collapseConversationPixelEvents(visibleEvents);
 
   const latestTime = Date.parse(latest.createdAt || "");
-  if (!Number.isFinite(latestTime)) return visibleEvents;
+  if (!Number.isFinite(latestTime)) return collapseConversationPixelEvents(visibleEvents);
 
   const age = Date.now() - latestTime;
   const syntheticType = age > PIXEL_HEARTBEAT_STALE_MS ? "site_inactive" : "site_active";
   const syntheticTime = syntheticType === "site_inactive" ? new Date(latestTime + PIXEL_HEARTBEAT_STALE_MS).toISOString() : latest.createdAt;
 
-  return [
+  return collapseConversationPixelEvents([
     ...visibleEvents,
     {
       ...latest,
@@ -8467,7 +8505,77 @@ function conversationPixelTimelineEvents(events = []) {
       eventName: syntheticType,
       createdAt: syntheticTime
     }
-  ];
+  ]);
+}
+
+function collapseConversationPixelEvents(events = []) {
+  const grouped = new Map();
+  const passthrough = [];
+
+  events.forEach((event) => {
+    const key = pixelConversationGroupKey(event);
+    if (!key) {
+      passthrough.push(event);
+      return;
+    }
+    const group = grouped.get(key) || [];
+    group.push(event);
+    grouped.set(key, group);
+  });
+
+  const collapsed = [...grouped.values()].map(mergePixelConversationGroup);
+  return [...passthrough, ...collapsed].sort((left, right) => Date.parse(left.createdAt || "") - Date.parse(right.createdAt || ""));
+}
+
+function pixelConversationGroupKey(event) {
+  const type = String(event?.eventType || "");
+  if (!["page_view", "link_click", "site_active", "site_inactive", "site_exit"].includes(type)) return "";
+  const destination = pixelConversationDestinationKey(event);
+  if (!destination) return "";
+  const family = ["site_active", "site_inactive", "site_exit"].includes(type) ? "presence" : type;
+  return [event.pageId || "", event.contactPsid || event.visitorId || "", family, destination].join(":");
+}
+
+function mergePixelConversationGroup(events = []) {
+  const sorted = [...events].sort((left, right) => Date.parse(left.createdAt || "") - Date.parse(right.createdAt || ""));
+  const latest = sorted[sorted.length - 1] || {};
+  const first = sorted[0] || latest;
+  const destination = pixelConversationDestinationKey(latest);
+  return {
+    ...latest,
+    data: {
+      ...(latest.data || {}),
+      groupedCount: sorted.length,
+      groupedDomain: destination,
+      groupedFirstAt: first.createdAt || "",
+      groupedLastAt: latest.createdAt || ""
+    }
+  };
+}
+
+function pixelConversationDestinationKey(event) {
+  return pixelUrlHostname(event?.targetUrl) || pixelUrlHostname(event?.url) || normalizePixelDestination(event?.siteId) || normalizePixelDestination(event?.path);
+}
+
+function pixelUrlHostname(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const base = location.origin && location.origin !== "null" ? location.origin : "https://messenlead.local";
+    const url = new URL(raw, base);
+    return normalizePixelDestination(url.hostname);
+  } catch {
+    return "";
+  }
+}
+
+function normalizePixelDestination(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/\?.*$/, "")
+    .replace(/#.*$/, "");
 }
 
 function renderLocalConversationMessages(messages = []) {
@@ -8526,8 +8634,12 @@ function pixelConversationMeta(event) {
   const meta = [];
   const nodeNumber = String(data.contactNodeNumber || "").trim();
   const pageViews = Number(data.contactPageViews || 0);
+  const groupedCount = Number(data.groupedCount || 0);
+  const groupedDomain = String(data.groupedDomain || "").trim();
   if (nodeNumber) meta.push(`Node ${nodeNumber}`);
   if (pageViews > 0) meta.push(`${pageViews} pagina${pageViews === 1 ? "" : "s"} vista${pageViews === 1 ? "" : "s"}`);
+  if (groupedCount > 1) meta.push(`${groupedCount} evento${groupedCount === 1 ? "" : "s"}`);
+  if (groupedDomain && !meta.includes(groupedDomain)) meta.push(groupedDomain);
   return meta;
 }
 
