@@ -84,7 +84,7 @@ Para multi-Página, `MESSENGER_PAGE_ACCESS_TOKEN` não é obrigatório: o app us
 
 ## Biblioteca de mídia com R2
 
-Para upar imagens e áudios MP3 permanentes para usar nos fluxos, crie um bucket Cloudflare R2 e vincule ao Pages com o binding:
+Para upar imagens, áudios MP3 e vídeos permanentes para usar nos fluxos, crie um bucket Cloudflare R2 e vincule ao Pages com o binding:
 
 ```txt
 MEDIA_BUCKET
@@ -123,6 +123,8 @@ POST   /api/media
 DELETE /api/media?pageId=PAGE_ID&id=MEDIA_ID
 GET    /media/arquivo.mp3
 ```
+
+Para envio de vídeo no Messenger, prefira arquivos `.mp4`. O painel também aceita WebM/MOV na biblioteca, mas a compatibilidade final de envio depende do Messenger.
 
 ## Fila e bloco de espera
 

@@ -2895,7 +2895,7 @@ svg {
 
 .media-upload-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -2960,6 +2960,12 @@ svg {
 
 .media-asset-preview audio {
   width: calc(100% - 18px);
+}
+
+.media-asset-preview video {
+  width: 100%;
+  max-height: 180px;
+  background: #0f172a;
 }
 
 .media-asset-main {
@@ -5021,6 +5027,16 @@ svg {
   height: auto;
   max-height: 420px;
   object-fit: contain;
+}
+
+.message-video-preview video,
+.message-audio-preview audio {
+  width: 100%;
+}
+
+.message-video-preview video {
+  max-height: 420px;
+  background: #0f172a;
 }
 
 .message-image-block-preview.empty {

@@ -2319,6 +2319,18 @@ function renderMediaLibrary() {
       <section class="panel media-assets-panel">
         <div class="panel-header">
           <div>
+            <h2>Videos</h2>
+            <span>${videoAssets.length} arquivo${videoAssets.length === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+        <div class="panel-body media-asset-list">
+          ${mediaState.loading && !videoAssets.length ? `<div class="empty-state">Carregando midia...</div>` : videoAssets.length ? videoAssets.map(renderMediaAssetCard).join("") : emptyInline("Nenhum video enviado ainda.")}
+        </div>
+      </section>
+
+      <section class="panel media-assets-panel">
+        <div class="panel-header">
+          <div>
             <h2>Áudios MP3</h2>
             <span>${audioAssets.length} arquivo${audioAssets.length === 1 ? "" : "s"}</span>
           </div>
@@ -2345,12 +2357,15 @@ function renderMediaLibrary() {
 
 function renderMediaAssetCard(asset) {
   const isImage = asset.kind === "image";
+  const isVideo = asset.kind === "video";
   return `
     <article class="media-asset-card">
-      <div class="media-asset-preview ${isImage ? "image" : "audio"}">
+      <div class="media-asset-preview ${isImage ? "image" : isVideo ? "video" : "audio"}">
         ${
           isImage
             ? `<img src="${attr(asset.url)}" alt="${attr(asset.originalName || asset.fileName)}" loading="lazy" />`
+            : isVideo
+              ? `<video src="${attr(asset.url)}" controls playsinline preload="metadata"></video>`
             : `<audio src="${attr(asset.url)}" controls preload="metadata"></audio>`
         }
       </div>
@@ -4022,6 +4037,7 @@ function renderMessageContentBlock(flow, node, block) {
             `
             : ""
         }
+        ${block.type === "video" || block.type === "audio" ? renderMessageMediaPreview(block) : ""}
         ${block.type === "file" ? `<input data-message-block-field="fileName" data-block-id="${attr(block.id)}" value="${attr(block.fileName || "")}" placeholder="Nome do arquivo" />` : ""}
       </article>
     `;
@@ -4071,6 +4087,31 @@ function renderMessageImagePreview(block) {
     <a class="message-image-block-preview" href="${attr(block.url)}" target="_blank" rel="noopener">
       <img src="${attr(block.url)}" alt="${attr(block.title || "Preview da imagem")}" loading="lazy" />
     </a>
+  `;
+}
+
+function renderMessageMediaPreview(block) {
+  if (!block.url) {
+    return `
+      <div class="message-image-block-preview empty">
+        ${block.type === "video" ? icons.video : icons.send}
+        <span>Adicione a URL do ${block.type === "video" ? "video" : "audio"} para visualizar.</span>
+      </div>
+    `;
+  }
+
+  if (block.type === "video") {
+    return `
+      <div class="message-image-block-preview message-video-preview">
+        <video src="${attr(block.url)}" controls playsinline preload="metadata"></video>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="message-image-block-preview message-audio-preview">
+      <audio src="${attr(block.url)}" controls preload="metadata"></audio>
+    </div>
   `;
 }
 
@@ -4971,6 +5012,7 @@ function handleWorkspaceClick(event) {
   if (action === "refresh-media-assets") return loadMediaAssetsForPage(currentFlowPageId());
   if (action === "choose-media-image") return document.querySelector("#mediaImageUpload")?.click();
   if (action === "choose-media-audio") return document.querySelector("#mediaAudioUpload")?.click();
+  if (action === "choose-media-video") return document.querySelector("#mediaVideoUpload")?.click();
   if (action === "copy-media-url") return copyMediaUrl(id);
   if (action === "insert-media-in-message") return insertMediaInSelectedMessage(id);
   if (action === "delete-media-asset") return confirmDeleteMediaAsset(id);
@@ -5114,6 +5156,11 @@ function handleWorkspaceChange(event) {
   }
   if (target.id === "mediaAudioUpload") {
     uploadMediaFile(target.files?.[0], "audio");
+    target.value = "";
+    return;
+  }
+  if (target.id === "mediaVideoUpload") {
+    uploadMediaFile(target.files?.[0], "video");
     target.value = "";
     return;
   }
@@ -6688,9 +6735,14 @@ function deleteCampaign(id) {
 
 async function uploadMediaFile(file, kind) {
   if (!file) return;
-  const normalizedKind = kind === "audio" ? "audio" : "image";
+  const normalizedKind = ["audio", "video"].includes(kind) ? kind : "image";
   if (normalizedKind === "audio" && !/\.mp3$/i.test(file.name || "")) {
     mediaState.error = "Envie um arquivo .mp3.";
+    render();
+    return;
+  }
+  if (normalizedKind === "video" && !String(file.type || "").startsWith("video/") && !/\.(mp4|webm|mov)$/i.test(file.name || "")) {
+    mediaState.error = "Envie um arquivo de video.";
     render();
     return;
   }
@@ -6718,7 +6770,7 @@ async function uploadMediaFile(file, kind) {
     const result = await apiPostForm("/api/media", form);
     mediaState.assets = [result.asset, ...mediaState.assets.filter((asset) => asset.id !== result.asset.id)];
     mediaState.error = "";
-    toastMessage(`${normalizedKind === "audio" ? "Audio" : "Imagem"} enviado para a biblioteca.`);
+    toastMessage(`${mediaKindLabel(normalizedKind)} enviado para a biblioteca.`);
     await loadMediaAssetsForPage(pageId, { silent: true });
   } catch (error) {
     mediaState.error = error.message || "Nao foi possivel enviar o arquivo.";
@@ -6727,6 +6779,12 @@ async function uploadMediaFile(file, kind) {
     mediaState.uploading = false;
     if (activeView === "media") render();
   }
+}
+
+function mediaKindLabel(kind) {
+  if (kind === "audio") return "Audio";
+  if (kind === "video") return "Video";
+  return "Imagem";
 }
 
 function copyMediaUrl(id) {
