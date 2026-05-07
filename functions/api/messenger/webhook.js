@@ -1,8 +1,9 @@
 import { listFlows } from "../../_lib/flows.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
-import { applyContactActions, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
+import { applyContactActions, getContact, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { createMessengerContactToken } from "../../_lib/pixel.js";
+import { processFlowContinuations, scheduleFlowContinuation } from "../../_lib/flowContinuations.js";
 import { enqueueMessengerReplies, messengerEventDedupId, processMessengerSendQueue, reserveMessengerEvent } from "../../_lib/messengerDelivery.js";
 
 export async function onRequestGet({ request, env }) {
@@ -171,7 +172,14 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
     status: contact.status || ""
   });
 
-  const { replies, actions, flow } = await buildReplies(context, env, pageId, contact, log);
+  const policyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const { replies, actions, flow, continuation } = await buildReplies(
+    { ...context, eventId, policyExpiresAt },
+    env,
+    pageId,
+    contact,
+    log
+  );
   if (actions.length) {
     await applyContactActions(env, pageId, psid, actions, {
       psid,
@@ -183,11 +191,18 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
   }
 
   if (!replies.length) {
+    if (continuation) {
+      await log("info", "flow_waiting", "Fluxo pausado até o bloco de espera vencer.", {
+        continuationId: continuation.id,
+        dueAt: continuation.dueAt,
+        resumeNodeId: continuation.resumeNodeId
+      }, flow);
+      return;
+    }
     await log("warn", "no_replies", "O fluxo terminou sem resposta para enviar.", { actions }, flow);
     return;
   }
 
-  const policyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const queued = await enqueueMessengerReplies(env, {
     pageId,
     psid,
@@ -214,6 +229,103 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
 
 function isExternalRelayQueueId(value) {
   return String(value || "").startsWith("relay_") || String(value || "").startsWith("ext_");
+}
+
+export async function processMessengerFlowContinuations(env, options = {}) {
+  return processFlowContinuations(env, async (continuation) => {
+    const pageId = continuation.pageId;
+    const psid = continuation.psid;
+    const log = flowEventLogger(env, pageId, psid);
+    const activeFlow = await activeFlowById(env, pageId, continuation.flowId);
+
+    if (!activeFlow) {
+      await log("warn", "delay_skipped_inactive_flow", "Espera ignorada porque o fluxo nao esta mais ativo.", {
+        continuationId: continuation.id,
+        flowId: continuation.flowId,
+        resumeNodeId: continuation.resumeNodeId
+      }, continuation.flow);
+      return { status: "skipped", reason: "Flow is not active" };
+    }
+
+    const start = activeFlow.nodes?.find((node) => node.id === continuation.resumeNodeId);
+    if (!start || start.type === "trigger" || start.type === "comment") {
+      await log("warn", "delay_skipped_missing_node", "Espera ignorada porque o proximo bloco nao existe mais.", {
+        continuationId: continuation.id,
+        flowId: continuation.flowId,
+        resumeNodeId: continuation.resumeNodeId
+      }, activeFlow);
+      return { status: "skipped", reason: "Resume node not found" };
+    }
+
+    const contact = (await getContact(env, pageId, psid)) || continuation.contact || { psid, pageId };
+    await log("info", "delay_resuming", "Retomando fluxo apos espera.", {
+      continuationId: continuation.id,
+      delayNodeId: continuation.delayNodeId,
+      resumeNodeId: continuation.resumeNodeId,
+      dueAt: continuation.dueAt
+    }, activeFlow);
+
+    const result = await executeFlowFromNode({
+      context: {
+        ...serializableFlowContext(continuation.context),
+        eventId: continuationRuntimeEventId(continuation),
+        policyExpiresAt: continuation.policyExpiresAt || "",
+        resumedFromDelay: true
+      },
+      env,
+      pageId,
+      contact,
+      log,
+      flow: activeFlow,
+      start
+    });
+
+    if (result.actions.length) {
+      await applyContactActions(env, pageId, psid, result.actions, {
+        psid,
+        status: contact.status || "open",
+        source: "Messenger delay",
+        lastSeen: contact.lastSeen || new Date().toISOString()
+      });
+      await log("info", "actions_applied", "Acoes da retomada foram aplicadas no contato.", {
+        actions: result.actions
+      }, activeFlow);
+    }
+
+    if (result.replies.length) {
+      const queued = await enqueueMessengerReplies(env, {
+        pageId,
+        psid,
+        replies: result.replies.slice(0, 5),
+        flow: activeFlow,
+        eventId: continuationRuntimeEventId(continuation),
+        policyExpiresAt: continuation.policyExpiresAt || ""
+      });
+      await log("info", "replies_queued", "Respostas retomadas enfileiradas para envio.", {
+        queuedCount: queued.length,
+        queueIds: queued,
+        policyExpiresAt: continuation.policyExpiresAt || ""
+      }, activeFlow);
+
+      const hasLocalQueued = queued.some((id) => !isExternalRelayQueueId(id));
+      if (hasLocalQueued) {
+        const drain = await processMessengerSendQueue(env, {
+          pageId,
+          limit: Number(env.MESSENLEAD_CONTINUATION_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5)
+        });
+        await log("info", "queue_drain_finished", "Fila processada apos retomada da espera.", drain, activeFlow);
+      }
+    }
+
+    if (!result.replies.length && !result.continuation) {
+      await log("warn", "no_replies", "Retomada do fluxo terminou sem resposta para enviar.", {
+        continuationId: continuation.id,
+        actions: result.actions
+      }, activeFlow);
+    }
+
+    return { status: "processed", continuation: result.continuation };
+  }, options);
 }
 
 async function buildReplies(context, env, pageId, contact = null, log = null) {
@@ -260,6 +372,19 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     nodeId: start.id,
     nodeType: start.type
   }, flow);
+
+  return executeFlowFromNode({
+    context,
+    env,
+    pageId,
+    contact,
+    log,
+    flow,
+    start,
+    startedAt,
+    deadline,
+    timeoutMs
+  });
 
   const replies = [];
   const actions = [];
@@ -345,6 +470,138 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   return { replies, actions, flow };
 }
 
+async function executeFlowFromNode({ context, env, pageId, contact, log, flow, start, startedAt = Date.now(), deadline = Date.now() + flowTimeoutMs(env), timeoutMs = flowTimeoutMs(env) }) {
+  const replies = [];
+  const actions = [];
+  const runtimeContact = runtimeContactFrom(contact);
+  let current = start;
+  let guard = 0;
+
+  while (current && guard < 12) {
+    if (Date.now() > deadline) {
+      await log?.("error", "flow_timeout", "Execucao do fluxo interrompida por timeout.", {
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        lastNodeId: current.id || ""
+      }, flow);
+      break;
+    }
+
+    guard += 1;
+    const stepContext = { ...context, contact: runtimeContact, flow };
+    await log?.("info", "node_enter", `Executando bloco: ${nodeLogName(current)}.`, {
+      step: guard,
+      nodeId: current.id,
+      nodeType: current.type,
+      nodeTitle: current.title || current.name || "",
+      contactTags: runtimeContact.tags || []
+    }, flow);
+
+    if (current.type === "delay") {
+      const targetId = nextExecutableTargetId(current, stepContext);
+      const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
+      if (!next || next.type === "trigger" || next.type === "comment") {
+        await log?.("warn", "next_node", "Bloco de espera sem proximo passo executavel.", {
+          fromNodeId: current.id,
+          targetId: targetId || ""
+        }, flow);
+        current = null;
+        break;
+      }
+
+      const dueAt = delayDueAt(current, runtimeContact, env);
+      if (Date.parse(dueAt) <= Date.now() + 1000) {
+        await log?.("info", "delay_elapsed", "Espera ja venceu; fluxo continua sem agendar.", {
+          delayNodeId: current.id,
+          resumeNodeId: next.id,
+          dueAt
+        }, flow);
+        current = next;
+        continue;
+      }
+
+      const continuation = await scheduleFlowContinuation(env, {
+        pageId,
+        psid: runtimeContact.psid || contact?.psid || "",
+        flow,
+        delayNode: current,
+        resumeNodeId: next.id,
+        context: serializableFlowContext(context),
+        contact: runtimeContact,
+        eventId: context.eventId || "",
+        dueAt,
+        policyExpiresAt: context.policyExpiresAt || ""
+      });
+
+      await log?.("info", "delay_scheduled", "Fluxo pausado pelo bloco de espera.", {
+        continuationId: continuation?.id || "",
+        delayNodeId: current.id,
+        resumeNodeId: next.id,
+        dueAt,
+        policyExpiresAt: context.policyExpiresAt || ""
+      }, flow);
+
+      return { replies, actions, flow, continuation };
+    }
+
+    if (current.type === "message") {
+      const nodeReplies = repliesForMessageNode(current, stepContext);
+      replies.push(...nodeReplies);
+      await log?.("info", "message_prepared", "Mensagem preparada para envio.", {
+        nodeId: current.id,
+        replyCount: nodeReplies.length,
+        replyTypes: nodeReplies.map((reply) => reply.type || "text")
+      }, flow);
+    }
+
+    if (current.type === "action") {
+      const nodeActions = actionStepsForNode(current);
+      actions.push(...nodeActions);
+      applyRuntimeContactActions(runtimeContact, nodeActions);
+      await log?.("info", "action_node_executed", "Bloco de acao executado no estado do contato.", {
+        nodeId: current.id,
+        actions: nodeActions,
+        resultingTags: runtimeContact.tags || []
+      }, flow);
+    }
+
+    if (current.type === "condition") {
+      const matched = conditionMatchesNode(current, stepContext);
+      await log?.(matched ? "info" : "warn", "condition_result", `Condicao ${matched ? "correspondeu" : "nao correspondeu"}.`, {
+        nodeId: current.id,
+        result: matched ? "yes" : "no",
+        conditions: current.conditions || [],
+        contactTags: runtimeContact.tags || [],
+        yesNext: current.yesNext || "",
+        noNext: current.noNext || ""
+      }, flow);
+    }
+
+    const targetId = nextExecutableTargetId(current, stepContext);
+    const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
+    await log?.(next ? "info" : "warn", "next_node", next ? `Proximo bloco: ${nodeLogName(next)}.` : "Nenhum proximo bloco executavel encontrado.", {
+      fromNodeId: current.id,
+      targetId: targetId || "",
+      nextNodeId: next?.id || "",
+      nextNodeType: next?.type || ""
+    }, flow);
+    current = next && next.type !== "trigger" && next.type !== "comment" ? next : null;
+  }
+
+  if (guard >= 12 && current) {
+    await log?.("warn", "guard_limit", "Execucao interrompida para evitar loop no fluxo.", {
+      lastNodeId: current.id
+    }, flow);
+  }
+
+  await log?.("info", "flow_finished", "Execucao do fluxo finalizada.", {
+    replyCount: replies.length,
+    actionCount: actions.length
+  }, flow);
+
+  return { replies, actions, flow, continuation: null };
+}
+
 function flowEventLogger(env, pageId, psid) {
   return async (level, event, message, data = {}, flow = null) => {
     await safeAddFlowLog(env, {
@@ -380,6 +637,133 @@ function flowTimeoutMs(env) {
   const value = Number(env.MESSENLEAD_FLOW_TIMEOUT_MS || 3000);
   if (!Number.isFinite(value)) return 3000;
   return Math.max(500, Math.min(12000, Math.floor(value)));
+}
+
+async function activeFlowById(env, pageId, flowId) {
+  const id = String(flowId || "").trim();
+  if (!id) return null;
+  const flows = await listFlows(env, pageId, { status: "active" });
+  return flows.find((flow) => flow.id === id) || null;
+}
+
+function continuationRuntimeEventId(continuation = {}) {
+  return [
+    "delay",
+    continuation.id || "",
+    continuation.resumeNodeId || "",
+    continuation.dueAt || ""
+  ].join(":");
+}
+
+function serializableFlowContext(context = {}) {
+  return {
+    text: context.text || "",
+    normalizedInput: context.normalizedInput || "",
+    eventType: context.eventType || "",
+    referralRef: context.referralRef || "",
+    referralSource: context.referralSource || "",
+    hasReferral: Boolean(context.hasReferral),
+    eventId: context.eventId || "",
+    policyExpiresAt: context.policyExpiresAt || "",
+    resumedFromDelay: Boolean(context.resumedFromDelay)
+  };
+}
+
+function delayDueAt(node, contact = {}, env = {}) {
+  normalizeNodeShape(node);
+  const now = Date.now();
+  let due = now;
+
+  if (node.delayType === "date") {
+    due = parseDelayDate(node.specificDate, now);
+  } else if (node.delayType === "dynamic_date") {
+    const fieldValue = contact?.customFields?.[node.dynamicField] || contact?.[node.dynamicField] || "";
+    due = parseDelayDate(fieldValue, now);
+  } else {
+    due = now + delayDurationMs(node);
+  }
+
+  return applyDelayWindow(new Date(due), node, env).toISOString();
+}
+
+function delayDurationMs(node) {
+  const value = Math.max(0, Number(node.delayValue ?? node.delayMinutes) || 0);
+  const unit = String(node.delayUnit || "minutes");
+  if (unit === "days") return value * 24 * 60 * 60 * 1000;
+  if (unit === "hours") return value * 60 * 60 * 1000;
+  return value * 60 * 1000;
+}
+
+function parseDelayDate(value, fallback) {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  const normalized = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text) ? `${text}:00` : text;
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function applyDelayWindow(date, node, env) {
+  const start = timeToMinutes(node.continueStart);
+  const end = timeToMinutes(node.continueEnd);
+  const days = String(node.continueDays || "any");
+  if (start == null && end == null && days === "any") return date;
+
+  const offsetMinutes = Number(env.MESSENLEAD_FLOW_TIMEZONE_OFFSET_MINUTES || env.MESSENLEAD_TIMEZONE_OFFSET_MINUTES || 0);
+  const offset = Number.isFinite(offsetMinutes) ? offsetMinutes : 0;
+  let local = new Date(date.getTime() + offset * 60 * 1000);
+
+  for (let guard = 0; guard < 14; guard += 1) {
+    if (!dayAllowed(local, days)) {
+      local = startOfNextLocalDay(local, start ?? 0);
+      continue;
+    }
+
+    if (start != null && minutesOfDay(local) < start) {
+      local = setLocalMinutes(local, start);
+    }
+
+    if (end != null && minutesOfDay(local) > end) {
+      local = startOfNextLocalDay(local, start ?? 0);
+      continue;
+    }
+
+    return new Date(local.getTime() - offset * 60 * 1000);
+  }
+
+  return date;
+}
+
+function timeToMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Math.max(0, Math.min(23, Number(match[1]) || 0));
+  const minutes = Math.max(0, Math.min(59, Number(match[2]) || 0));
+  return hours * 60 + minutes;
+}
+
+function minutesOfDay(date) {
+  return date.getUTCHours() * 60 + date.getUTCMinutes();
+}
+
+function setLocalMinutes(date, minutes) {
+  const next = new Date(date);
+  next.setUTCHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return next;
+}
+
+function startOfNextLocalDay(date, minutes) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + 1);
+  next.setUTCHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return next;
+}
+
+function dayAllowed(date, mode) {
+  if (mode === "any") return true;
+  const day = date.getUTCDay();
+  if (mode === "weekdays") return day >= 1 && day <= 5;
+  if (mode === "weekends") return day === 0 || day === 6;
+  return true;
 }
 
 async function fetchMessengerUserProfile(env, pageId, psid, log = null) {
@@ -572,6 +956,17 @@ function normalizeNodeShape(node) {
   }
   if (node.type === "randomizer" && !Array.isArray(node.variations)) {
     node.variations = [{ id: "default", label: "Variação A", weight: 100, next: node.next || null }];
+  }
+  if (node.type === "delay") {
+    node.delayType ||= "duration";
+    node.delayUnit ||= "minutes";
+    node.delayMinutes = Math.max(0, Number(node.delayMinutes) || 0);
+    node.delayValue = Math.max(0, Number(node.delayValue ?? node.delayMinutes) || 0);
+    node.continueStart ||= "";
+    node.continueEnd ||= "";
+    node.continueDays ||= "any";
+    node.specificDate ||= "";
+    node.dynamicField ||= "";
   }
 }
 

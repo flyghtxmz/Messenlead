@@ -147,6 +147,9 @@ function parseJson(value) {
 
 const COMPACT_INFO_EVENTS = new Set([
   "flow_started",
+  "flow_waiting",
+  "delay_scheduled",
+  "delay_resuming",
   "condition_result",
   "send_success",
   "manual_log_test",
@@ -160,6 +163,8 @@ const COMPACT_WARN_EVENTS = new Set([
   "no_start_node",
   "no_replies",
   "guard_limit",
+  "delay_skipped_inactive_flow",
+  "delay_skipped_missing_node",
   "send_retry_scheduled",
   "send_policy_skipped",
   "send_rate_limited",

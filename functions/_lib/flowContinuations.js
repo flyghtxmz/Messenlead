@@ -1,0 +1,328 @@
+const DEFAULT_PAGE_ID = "__global__";
+const DEFAULT_LIMIT = 8;
+const DEFAULT_MAX_ATTEMPTS = 4;
+
+export async function ensureFlowContinuationSchema(env) {
+  if (!env.DB) return false;
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS flow_continuations (
+      id TEXT PRIMARY KEY,
+      page_id TEXT NOT NULL,
+      psid TEXT NOT NULL,
+      flow_id TEXT,
+      flow_name TEXT,
+      delay_node_id TEXT,
+      resume_node_id TEXT NOT NULL,
+      event_id TEXT,
+      flow_json TEXT NOT NULL,
+      context_json TEXT NOT NULL,
+      contact_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 4,
+      due_at TEXT NOT NULL,
+      policy_expires_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      processed_at TEXT
+    )
+  `).run();
+
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_continuations_status_due ON flow_continuations(status, due_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_continuations_page_status_due ON flow_continuations(page_id, status, due_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_continuations_page_psid_status ON flow_continuations(page_id, psid, status, due_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_continuations_flow_status ON flow_continuations(flow_id, status, due_at)").run();
+
+  return true;
+}
+
+export async function scheduleFlowContinuation(env, options = {}) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  if (!hasDb) return null;
+
+  await cleanupFlowContinuations(env);
+
+  const now = new Date().toISOString();
+  const pageId = normalizePageId(options.pageId);
+  const psid = String(options.psid || "").trim();
+  const flow = options.flow || {};
+  const delayNode = options.delayNode || {};
+  const resumeNodeId = String(options.resumeNodeId || "").trim();
+  const dueAt = normalizeIso(options.dueAt) || now;
+  if (!psid || !resumeNodeId) return null;
+
+  const id = continuationId({
+    pageId,
+    psid,
+    flowId: flow.id || options.flowId || "",
+    delayNodeId: delayNode.id || options.delayNodeId || "",
+    resumeNodeId
+  });
+  const maxAttempts = clampNumber(options.maxAttempts || env.MESSENLEAD_FLOW_CONTINUATION_MAX_ATTEMPTS, 1, 8, DEFAULT_MAX_ATTEMPTS);
+
+  await env.DB.prepare(`
+    INSERT INTO flow_continuations (
+      id, page_id, psid, flow_id, flow_name, delay_node_id, resume_node_id, event_id,
+      flow_json, context_json, contact_json, status, attempts, max_attempts,
+      due_at, policy_expires_at, last_error, created_at, updated_at, processed_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 0, ?, ?, ?, '', ?, ?, '')
+    ON CONFLICT(id) DO UPDATE SET
+      flow_name = excluded.flow_name,
+      resume_node_id = excluded.resume_node_id,
+      event_id = excluded.event_id,
+      flow_json = excluded.flow_json,
+      context_json = excluded.context_json,
+      contact_json = excluded.contact_json,
+      status = CASE
+        WHEN flow_continuations.status = 'processing' THEN flow_continuations.status
+        ELSE 'scheduled'
+      END,
+      attempts = CASE
+        WHEN flow_continuations.status = 'processing' THEN flow_continuations.attempts
+        ELSE 0
+      END,
+      max_attempts = excluded.max_attempts,
+      due_at = CASE
+        WHEN flow_continuations.status = 'processing' THEN flow_continuations.due_at
+        ELSE excluded.due_at
+      END,
+      policy_expires_at = excluded.policy_expires_at,
+      last_error = '',
+      updated_at = excluded.updated_at,
+      processed_at = CASE
+        WHEN flow_continuations.status = 'processing' THEN flow_continuations.processed_at
+        ELSE ''
+      END
+  `)
+    .bind(
+      id,
+      pageId,
+      psid,
+      String(flow.id || options.flowId || ""),
+      String(flow.name || options.flowName || ""),
+      String(delayNode.id || options.delayNodeId || ""),
+      resumeNodeId,
+      String(options.eventId || ""),
+      JSON.stringify(flow || {}),
+      JSON.stringify(safeJsonObject(options.context)),
+      JSON.stringify(safeJsonObject(options.contact)),
+      maxAttempts,
+      dueAt,
+      normalizeIso(options.policyExpiresAt) || "",
+      now,
+      now
+    )
+    .run();
+
+  return {
+    id,
+    pageId,
+    psid,
+    flowId: String(flow.id || options.flowId || ""),
+    delayNodeId: String(delayNode.id || options.delayNodeId || ""),
+    resumeNodeId,
+    dueAt,
+    policyExpiresAt: normalizeIso(options.policyExpiresAt) || ""
+  };
+}
+
+export async function processFlowContinuations(env, processor, options = {}) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  if (!hasDb) return { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0 };
+
+  await cleanupFlowContinuations(env);
+
+  const limit = clampNumber(options.limit || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT, 1, 25, DEFAULT_LIMIT);
+  const pageFilter = options.pageId ? "AND page_id = ?" : "";
+  const params = options.pageId ? [new Date().toISOString(), normalizePageId(options.pageId), limit] : [new Date().toISOString(), limit];
+  const rows = await env.DB.prepare(`
+    SELECT *
+    FROM flow_continuations
+    WHERE status = 'scheduled'
+      AND datetime(due_at) <= datetime(?)
+      ${pageFilter}
+    ORDER BY datetime(due_at) ASC, datetime(created_at) ASC
+    LIMIT ?
+  `)
+    .bind(...params)
+    .all();
+
+  const stats = { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0 };
+  for (const row of rows.results || []) {
+    stats.processed += 1;
+    const continuation = rowToContinuation(row);
+    const claimed = await claimContinuation(env, continuation.id);
+    if (!claimed) {
+      stats.skipped += 1;
+      continue;
+    }
+
+    try {
+      const result = await processor(continuation);
+      if (result?.status === "skipped") {
+        await markContinuation(env, continuation.id, "skipped", {
+          error: result.reason || "Skipped",
+          processedAt: new Date().toISOString()
+        });
+        stats.skipped += 1;
+        continue;
+      }
+
+      await markContinuation(env, continuation.id, "processed", {
+        processedAt: new Date().toISOString()
+      });
+      stats.resumed += 1;
+      if (result?.continuation) stats.scheduled += 1;
+    } catch (error) {
+      const status = await retryOrFailContinuation(env, continuation, error.message || "Continuation failed");
+      stats[status] = (stats[status] || 0) + 1;
+    }
+  }
+
+  return stats;
+}
+
+async function claimContinuation(env, id) {
+  const result = await env.DB.prepare(`
+    UPDATE flow_continuations
+    SET status = 'processing', updated_at = ?
+    WHERE id = ? AND status = 'scheduled'
+  `)
+    .bind(new Date().toISOString(), id)
+    .run();
+
+  return Number(result.meta?.changes || 0) > 0;
+}
+
+async function retryOrFailContinuation(env, continuation, error) {
+  const attempts = Number(continuation.attempts || 0) + 1;
+  const maxAttempts = Number(continuation.maxAttempts || DEFAULT_MAX_ATTEMPTS);
+  const final = attempts >= maxAttempts;
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(`
+    UPDATE flow_continuations
+    SET status = ?, attempts = ?, due_at = ?, last_error = ?, updated_at = ?
+    WHERE id = ?
+  `)
+    .bind(
+      final ? "failed" : "scheduled",
+      attempts,
+      final ? now : new Date(Date.now() + retryDelayMs(attempts)).toISOString(),
+      String(error || "").slice(0, 1200),
+      now,
+      continuation.id
+    )
+    .run();
+
+  return final ? "failed" : "retried";
+}
+
+async function markContinuation(env, id, status, options = {}) {
+  await env.DB.prepare(`
+    UPDATE flow_continuations
+    SET status = ?,
+        last_error = ?,
+        updated_at = ?,
+        processed_at = COALESCE(NULLIF(?, ''), processed_at)
+    WHERE id = ?
+  `)
+    .bind(
+      status,
+      options.error || "",
+      options.updatedAt || new Date().toISOString(),
+      options.processedAt || "",
+      id
+    )
+    .run();
+}
+
+async function cleanupFlowContinuations(env) {
+  const before = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(`
+    DELETE FROM flow_continuations
+    WHERE status IN ('processed', 'skipped', 'failed')
+      AND datetime(updated_at) < datetime(?)
+  `)
+    .bind(before)
+    .run()
+    .catch(() => null);
+}
+
+function rowToContinuation(row) {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    psid: row.psid,
+    flowId: row.flow_id || "",
+    flowName: row.flow_name || "",
+    delayNodeId: row.delay_node_id || "",
+    resumeNodeId: row.resume_node_id || "",
+    eventId: row.event_id || "",
+    flow: parseJson(row.flow_json),
+    context: parseJson(row.context_json),
+    contact: parseJson(row.contact_json),
+    status: row.status || "scheduled",
+    attempts: Number(row.attempts || 0),
+    maxAttempts: Number(row.max_attempts || DEFAULT_MAX_ATTEMPTS),
+    dueAt: row.due_at || "",
+    policyExpiresAt: row.policy_expires_at || "",
+    lastError: row.last_error || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    processedAt: row.processed_at || ""
+  };
+}
+
+function continuationId(parts = {}) {
+  return `fcont_${stableHash([
+    normalizePageId(parts.pageId),
+    parts.psid || "",
+    parts.flowId || "",
+    parts.delayNodeId || "",
+    parts.resumeNodeId || ""
+  ].join(":"))}`;
+}
+
+function stableHash(value) {
+  let hash = 2166136261;
+  for (const char of String(value || "")) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function normalizePageId(pageId) {
+  return String(pageId || DEFAULT_PAGE_ID).trim() || DEFAULT_PAGE_ID;
+}
+
+function safeJsonObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function parseJson(value) {
+  try {
+    return value ? JSON.parse(value) : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeIso(value) {
+  const timestamp = Date.parse(value || "");
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "";
+}
+
+function retryDelayMs(attempts) {
+  return [5000, 30000, 120000, 300000, 900000][Math.max(0, Math.min(4, attempts - 1))];
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(number)));
+}

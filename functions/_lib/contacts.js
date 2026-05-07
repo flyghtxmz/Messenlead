@@ -48,6 +48,21 @@ export async function listContacts(env, pageId) {
   return (result.results || []).map(rowToContact);
 }
 
+export async function getContact(env, pageId, psid) {
+  const hasDb = await ensureContactSchema(env);
+  if (!hasDb || !psid) return null;
+
+  const row = await env.DB.prepare(`
+    SELECT page_id, psid, name, status, source, tags_json, custom_fields_json, last_seen, created_at, updated_at
+    FROM contacts
+    WHERE page_id = ? AND psid = ?
+  `)
+    .bind(normalizePageId(pageId), String(psid || "").trim())
+    .first();
+
+  return row ? rowToContact(row) : null;
+}
+
 export async function clearContactTags(env, pageId) {
   const hasDb = await ensureContactSchema(env);
   if (!hasDb) return { count: 0, contacts: [] };

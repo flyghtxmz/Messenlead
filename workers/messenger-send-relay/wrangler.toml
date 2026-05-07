@@ -3,7 +3,7 @@ main = "src/index.js"
 compatibility_date = "2026-05-01"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["* * * * *"]
 
 [[d1_databases]]
 binding = "RELAY_DB"
@@ -19,3 +19,8 @@ MESSENLEAD_RELAY_CRON_DRAIN_LIMIT = "20"
 MESSENLEAD_RELAY_MAX_ATTEMPTS = "4"
 MESSENLEAD_RELAY_DAILY_SEND_SOFT_LIMIT = "15000"
 MESSENLEAD_RELAY_MAX_QUEUED = "5000"
+# Optional: lets this Worker cron drain the main Pages queue, including delayed flow continuations.
+# Configure MESSENLEAD_PRIMARY_QUEUE_TOKEN as a secret with the same value as MESSENLEAD_OPERATOR_TOKEN.
+MESSENLEAD_PRIMARY_QUEUE_URL = "https://messenlead.pages.dev/api/messenger/queue"
+MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT = "12"
+MESSENLEAD_PRIMARY_CONTINUATION_LIMIT = "8"

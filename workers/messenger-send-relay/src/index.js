@@ -45,11 +45,41 @@ export default {
   },
 
   async scheduled(_controller, env) {
+    await drainPrimaryQueue(env);
     await processQueue(env, {
       limit: env.MESSENLEAD_RELAY_CRON_DRAIN_LIMIT || env.MESSENLEAD_RELAY_DRAIN_LIMIT || DEFAULT_DRAIN_LIMIT
     });
   }
 };
+
+async function drainPrimaryQueue(env) {
+  const queueUrl = clean(env.MESSENLEAD_PRIMARY_QUEUE_URL || env.MESSENLEAD_MAIN_QUEUE_URL, 500);
+  const token = clean(env.MESSENLEAD_PRIMARY_QUEUE_TOKEN || env.MESSENLEAD_OPERATOR_TOKEN, 500);
+  if (!queueUrl || !token) return { ok: false, skipped: true };
+
+  try {
+    const response = await fetch(queueUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        limit: env.MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT || 12,
+        continuationLimit: env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8
+      })
+    });
+    return {
+      ok: response.ok,
+      status: response.status
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error.message || "primary_queue_failed"
+    };
+  }
+}
 
 async function handleSend(request, env) {
   const body = await readJson(request);

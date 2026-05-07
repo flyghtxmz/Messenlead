@@ -124,6 +124,31 @@ DELETE /api/media?pageId=PAGE_ID&id=MEDIA_ID
 GET    /media/arquivo.mp3
 ```
 
+## Fila e bloco de espera
+
+O bloco `Espera` pausa o fluxo de verdade. Quando o webhook chega nesse bloco, ele salva uma continuacao no D1 na tabela `flow_continuations` com:
+
+- Pagina, PSID e fluxo.
+- Bloco de espera e proximo bloco.
+- Horario `due_at` para retomar.
+- Janela de politica `policy_expires_at` do Messenger.
+
+O endpoint abaixo processa continuacoes vencidas e depois drena a fila de envio:
+
+```txt
+POST /api/messenger/queue
+Authorization: Bearer MESSENLEAD_OPERATOR_TOKEN
+```
+
+Se voce estiver usando o Worker relay com cron, configure no Worker relay:
+
+```txt
+MESSENLEAD_PRIMARY_QUEUE_URL=https://messenlead.pages.dev/api/messenger/queue
+MESSENLEAD_PRIMARY_QUEUE_TOKEN=o-mesmo-valor-do-MESSENLEAD_OPERATOR_TOKEN-do-Pages
+```
+
+Assim o cron do relay chama a fila principal a cada 1 minuto e os fluxos pausados continuam mesmo com o dashboard fechado. Sem esse token no relay, a espera ainda fica salva no D1, mas so retoma quando `/api/messenger/queue` for chamado manualmente ou por outro cron externo.
+
 ## Configurar na Meta
 
 No Meta for Developers:
