@@ -6,3 +6,7 @@ pages_build_output_dir = "public"
 binding = "DB"
 database_name = "messenlead-db"
 database_id = "ab405875-90ab-4484-aa12-663940ba6524"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "messenlead-media"
