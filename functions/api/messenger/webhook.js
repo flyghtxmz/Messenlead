@@ -3,7 +3,7 @@ import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, getContact, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { createMessengerContactToken } from "../../_lib/pixel.js";
-import { processFlowContinuations, scheduleFlowContinuation } from "../../_lib/flowContinuations.js";
+import { consumeFlowResponseWait, processFlowContinuations, scheduleFlowContinuation, scheduleFlowResponseWait } from "../../_lib/flowContinuations.js";
 import { enqueueMessengerReplies, messengerEventDedupId, processMessengerSendQueue, reserveMessengerEvent } from "../../_lib/messengerDelivery.js";
 
 export async function onRequestGet({ request, env }) {
@@ -173,13 +173,11 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
   });
 
   const policyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const { replies, actions, flow, continuation } = await buildReplies(
-    { ...context, eventId, policyExpiresAt },
-    env,
-    pageId,
-    contact,
-    log
-  );
+  const flowContext = { ...context, eventId, policyExpiresAt };
+  const execution =
+    (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
+    (await buildReplies(flowContext, env, pageId, contact, log));
+  const { replies, actions, flow, continuation, responseWait } = execution;
   if (actions.length) {
     await applyContactActions(env, pageId, psid, actions, {
       psid,
@@ -190,6 +188,15 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
     await log("info", "actions_applied", "Ações do fluxo foram aplicadas no contato.", { actions }, flow);
   }
 
+  if (responseWait) {
+    await log("info", "flow_waiting_for_response", "Fluxo pausado ate o contato responder.", {
+      responseWaitId: responseWait.id,
+      waitNodeId: responseWait.waitNodeId,
+      resumeNodeId: responseWait.resumeNodeId,
+      expiresAt: responseWait.expiresAt || ""
+    }, flow);
+  }
+
   if (!replies.length) {
     if (continuation) {
       await log("info", "flow_waiting", "Fluxo pausado até o bloco de espera vencer.", {
@@ -197,6 +204,9 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
         dueAt: continuation.dueAt,
         resumeNodeId: continuation.resumeNodeId
       }, flow);
+      return;
+    }
+    if (responseWait) {
       return;
     }
     await log("warn", "no_replies", "O fluxo terminou sem resposta para enviar.", { actions }, flow);
@@ -317,14 +327,23 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       }
     }
 
-    if (!result.replies.length && !result.continuation) {
+    if (result.responseWait) {
+      await log("info", "flow_waiting_for_response", "Fluxo pausado ate o contato responder apos a retomada.", {
+        responseWaitId: result.responseWait.id,
+        waitNodeId: result.responseWait.waitNodeId,
+        resumeNodeId: result.responseWait.resumeNodeId,
+        expiresAt: result.responseWait.expiresAt || ""
+      }, activeFlow);
+    }
+
+    if (!result.replies.length && !result.continuation && !result.responseWait) {
       await log("warn", "no_replies", "Retomada do fluxo terminou sem resposta para enviar.", {
         continuationId: continuation.id,
         actions: result.actions
       }, activeFlow);
     }
 
-    return { status: "processed", continuation: result.continuation };
+    return { status: "processed", continuation: result.continuation, responseWait: result.responseWait };
   }, options);
 }
 
@@ -470,6 +489,81 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   return { replies, actions, flow };
 }
 
+async function buildRepliesFromResponseWait(context, env, pageId, contact = null, log = null) {
+  const psid = String(contact?.psid || "").trim();
+  if (!psid) return null;
+
+  const wait = await consumeFlowResponseWait(env, pageId, psid);
+  if (!wait) return null;
+
+  const activeFlow = await activeFlowById(env, pageId, wait.flowId);
+  if (!activeFlow) {
+    await log?.("warn", "user_response_wait_inactive_flow", "Resposta recebida, mas o fluxo que aguardava nao esta mais ativo.", {
+      responseWaitId: wait.id,
+      flowId: wait.flowId,
+      waitNodeId: wait.waitNodeId,
+      resumeNodeId: wait.resumeNodeId
+    }, wait.flow);
+    return { replies: [], actions: [], flow: wait.flow || null, continuation: null, responseWait: null, responseWaitHandled: true };
+  }
+
+  const start = activeFlow.nodes?.find((node) => node.id === wait.resumeNodeId);
+  if (!start || start.type === "trigger" || start.type === "comment") {
+    await log?.("warn", "user_response_wait_missing_node", "Resposta recebida, mas o proximo bloco da espera nao existe mais.", {
+      responseWaitId: wait.id,
+      flowId: wait.flowId,
+      waitNodeId: wait.waitNodeId,
+      resumeNodeId: wait.resumeNodeId
+    }, activeFlow);
+    return { replies: [], actions: [], flow: activeFlow, continuation: null, responseWait: null, responseWaitHandled: true };
+  }
+
+  const waitNode = activeFlow.nodes?.find((node) => node.id === wait.waitNodeId) || wait.waitNode || {};
+  normalizeNodeShape(waitNode);
+  const responseText = context.text || "";
+  const runtimeContact = runtimeContactFrom(contact || wait.contact || { psid, pageId });
+  const responseActions = [];
+
+  if (waitNode.saveResponse !== false && waitNode.responseField && responseText) {
+    responseActions.push({
+      type: "set_user_field",
+      fieldName: waitNode.responseField,
+      fieldValue: responseText
+    });
+    applyRuntimeContactActions(runtimeContact, responseActions);
+  }
+
+  await log?.("info", "user_response_wait_resuming", "Retomando fluxo com a resposta do contato.", {
+    responseWaitId: wait.id,
+    waitNodeId: wait.waitNodeId,
+    resumeNodeId: wait.resumeNodeId,
+    savedField: waitNode.responseField || "",
+    hasResponseText: Boolean(responseText)
+  }, activeFlow);
+
+  const result = await executeFlowFromNode({
+    context: {
+      ...serializableFlowContext(wait.context),
+      ...context,
+      responseText,
+      resumedFromUserInput: true,
+      ignoreMessageOptionRouting: true
+    },
+    env,
+    pageId,
+    contact: runtimeContact,
+    log,
+    flow: activeFlow,
+    start
+  });
+
+  return {
+    ...result,
+    actions: [...responseActions, ...(result.actions || [])],
+    responseWaitHandled: true
+  };
+}
+
 async function executeFlowFromNode({ context, env, pageId, contact, log, flow, start, startedAt = Date.now(), deadline = Date.now() + flowTimeoutMs(env), timeoutMs = flowTimeoutMs(env) }) {
   const replies = [];
   const actions = [];
@@ -544,6 +638,40 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
       return { replies, actions, flow, continuation };
     }
 
+    if (current.type === "user_input") {
+      const targetId = nextExecutableTargetId(current, stepContext);
+      const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
+      if (!next || next.type === "trigger" || next.type === "comment") {
+        await log?.("warn", "next_node", "Bloco de aguardar resposta sem proximo passo executavel.", {
+          fromNodeId: current.id,
+          targetId: targetId || ""
+        }, flow);
+        current = null;
+        break;
+      }
+
+      const responseWait = await scheduleFlowResponseWait(env, {
+        pageId,
+        psid: runtimeContact.psid || contact?.psid || "",
+        flow,
+        waitNode: current,
+        resumeNodeId: next.id,
+        context: serializableFlowContext(context),
+        contact: runtimeContact,
+        eventId: context.eventId || ""
+      });
+
+      await log?.("info", "user_response_wait_scheduled", "Fluxo pausado para aguardar a resposta do contato.", {
+        responseWaitId: responseWait?.id || "",
+        waitNodeId: current.id,
+        resumeNodeId: next.id,
+        responseField: current.responseField || "",
+        expiresAt: responseWait?.expiresAt || ""
+      }, flow);
+
+      return { replies, actions, flow, continuation: null, responseWait };
+    }
+
     if (current.type === "message") {
       const nodeReplies = repliesForMessageNode(current, stepContext);
       replies.push(...nodeReplies);
@@ -599,7 +727,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
     actionCount: actions.length
   }, flow);
 
-  return { replies, actions, flow, continuation: null };
+  return { replies, actions, flow, continuation: null, responseWait: null };
 }
 
 function flowEventLogger(env, pageId, psid) {
@@ -643,7 +771,7 @@ async function activeFlowById(env, pageId, flowId) {
   const id = String(flowId || "").trim();
   if (!id) return null;
   const flows = await listFlows(env, pageId, { status: "active" });
-  return flows.find((flow) => flow.id === id) || null;
+  return flows.find((flow) => flow.id === id) || parseFlows(env.MESSENLEAD_FLOW_JSON).find((flow) => flow.id === id && flow.status === "active") || null;
 }
 
 function continuationRuntimeEventId(continuation = {}) {
@@ -665,7 +793,9 @@ function serializableFlowContext(context = {}) {
     hasReferral: Boolean(context.hasReferral),
     eventId: context.eventId || "",
     policyExpiresAt: context.policyExpiresAt || "",
-    resumedFromDelay: Boolean(context.resumedFromDelay)
+    resumedFromDelay: Boolean(context.resumedFromDelay),
+    resumedFromUserInput: Boolean(context.resumedFromUserInput),
+    responseText: context.responseText || ""
   };
 }
 
@@ -896,7 +1026,10 @@ function nextExecutableTargetId(node, context = {}) {
   normalizeNodeShape(node);
   if (node.type === "condition") return conditionMatchesNode(node, context) ? node.yesNext : node.noNext;
   if (node.type === "randomizer") return pickRandomVariation(node, context)?.next || null;
-  if (node.type === "message") return matchingMessageOption(node, context)?.next || node.next || null;
+  if (node.type === "message") {
+    const option = context.ignoreMessageOptionRouting ? null : matchingMessageOption(node, context);
+    return option?.next || node.next || null;
+  }
   return node.next || null;
 }
 
@@ -967,6 +1100,11 @@ function normalizeNodeShape(node) {
     node.continueDays ||= "any";
     node.specificDate ||= "";
     node.dynamicField ||= "";
+  }
+  if (node.type === "user_input") {
+    node.saveResponse = node.saveResponse !== false;
+    node.responseField = String(node.responseField || "").trim();
+    node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
   }
 }
 

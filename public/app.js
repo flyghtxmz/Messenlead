@@ -27,6 +27,7 @@ const nodeLabels = {
   message: "Mensagem",
   condition: "Condição",
   delay: "Espera",
+  user_input: "Aguardar resposta",
   randomizer: "Randomizador",
   action: "Ação",
   comment: "Comentário"
@@ -37,6 +38,7 @@ const canvasAddOptions = [
   { type: "trigger", label: "Iniciar a automação" },
   { type: "action", label: "Ações" },
   { type: "condition", label: "Condição" },
+  { type: "user_input", label: "Aguardar resposta" },
   { type: "randomizer", label: "Randomizador" },
   { type: "delay", label: "Atraso Inteligente" },
   { type: "comment", label: "Comentar" }
@@ -229,6 +231,7 @@ const icons = {
   message: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/></svg>`,
   condition: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9 9-9Z"/><path d="M12 8v4l3 3"/></svg>`,
   delay: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+  user_input: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/><path d="M17 21v-4h4"/></svg>`,
   action: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h8l-1 8 11-13h-8l1-7Z"/></svg>`,
   trigger: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0"/><path d="M12 13V5m0 8 4-4m-4 4-4-4"/><path d="M5 19h14"/></svg>`,
   comment: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/></svg>`
@@ -1033,6 +1036,12 @@ function normalizeNodeStructure(node) {
     node.dynamicField = node.dynamicField || "";
   }
 
+  if (node.type === "user_input") {
+    node.saveResponse = node.saveResponse !== false;
+    node.responseField = node.responseField || "";
+    node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
+  }
+
   if (node.type === "randomizer") {
     node.randomEveryTime = node.randomEveryTime !== false;
     if (!Array.isArray(node.variations) || !node.variations.length) {
@@ -1657,6 +1666,7 @@ function renderFlows() {
         <div class="canvas-floating-tools" aria-label="Adicionar blocos">
           ${nodeAddButton("message", "Mensagem")}
           ${nodeAddButton("condition", "Condição")}
+          ${nodeAddButton("user_input", "Aguardar")}
           ${nodeAddButton("delay", "Espera")}
           ${nodeAddButton("action", "Ação")}
         </div>
@@ -3825,6 +3835,7 @@ function renderNextStepPicker(flow) {
         ${nextStepChoice("message", "Messenger", icons.message)}
         ${nextStepChoice("action", "Executar Ações", icons.action)}
         ${nextStepChoice("condition", "Condição", icons.condition)}
+        ${nextStepChoice("user_input", "Aguardar resposta", icons.user_input)}
         ${nextStepChoice("randomizer", "Randomizador", icons.workflow)}
         ${nextStepChoice("delay", "Atraso Inteligente", icons.delay)}
         <div class="next-step-existing-group">
@@ -3863,6 +3874,7 @@ function renderInspector(flow, node) {
   if (node.type === "message") return renderMessageSettings(flow, node);
   if (node.type === "condition") return renderConditionSettings(flow, node);
   if (node.type === "delay") return renderDelaySettings(flow, node);
+  if (node.type === "user_input") return renderUserInputSettings(flow, node);
   if (node.type === "randomizer") return renderRandomizerSettings(flow, node);
   if (node.type === "comment") return renderCommentSettings(flow, node);
   return renderActionSettings(flow, node);
@@ -4549,6 +4561,42 @@ function renderDelaySettings(flow, node) {
         </label>
       </div>
       ${renderSelectedNextStep(flow, node)}
+    </form>
+  `;
+}
+
+function renderUserInputSettings(flow, node) {
+  normalizeNodeStructure(node);
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Aguardar resposta", "Pausar o fluxo até o contato responder", icons.user_input)}
+      <label class="settings-field">
+        <span>Nome do bloco</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <div class="settings-card">
+        <label class="toggle-row">
+          <input type="checkbox" data-node-field="saveResponse" ${node.saveResponse ? "checked" : ""} />
+          <span>Salvar a próxima resposta do contato</span>
+        </label>
+        ${
+          node.saveResponse
+            ? `<label class="settings-field">
+                <span>Campo onde a resposta será salva</span>
+                <input data-node-field="responseField" value="${attr(node.responseField || "")}" placeholder="ex: ultima_resposta" />
+              </label>`
+            : ""
+        }
+        <label class="settings-field">
+          <span>Tempo limite em minutos</span>
+          <input type="number" min="0" data-node-field="timeoutMinutes" value="${attr(node.timeoutMinutes || 0)}" placeholder="0 = sem limite" />
+        </label>
+        <span class="settings-helper">Quando o contato responder, o fluxo continua pelo próximo passo usando a nova mensagem recebida.</span>
+      </div>
+      <div class="then-block">
+        <strong>Depois da resposta...</strong>
+        ${renderSelectedNextStep(flow, node)}
+      </div>
     </form>
   `;
 }
@@ -5417,6 +5465,9 @@ function addNode(type) {
     delayUnit: type === "delay" ? "minutes" : undefined,
     delayValue: type === "delay" ? 5 : undefined,
     delayMinutes: type === "delay" ? 5 : undefined,
+    saveResponse: type === "user_input" ? true : undefined,
+    responseField: type === "user_input" ? "ultima_resposta" : undefined,
+    timeoutMinutes: type === "user_input" ? 0 : undefined,
     randomEveryTime: type === "randomizer" ? true : undefined,
     variations: type === "randomizer"
       ? [
@@ -5481,6 +5532,9 @@ function buildNode(type, x, y) {
     delayUnit: type === "delay" ? "minutes" : undefined,
     delayValue: type === "delay" ? 5 : undefined,
     delayMinutes: type === "delay" ? 5 : undefined,
+    saveResponse: type === "user_input" ? true : undefined,
+    responseField: type === "user_input" ? "ultima_resposta" : undefined,
+    timeoutMinutes: type === "user_input" ? 0 : undefined,
     randomEveryTime: type === "randomizer" ? true : undefined,
     variations: type === "randomizer"
       ? [
@@ -6431,10 +6485,14 @@ function addNextStep(type) {
     actions: normalizedType === "action" ? [] : undefined,
     keyword: "",
     quickReplies: [],
+    saveResponse: normalizedType === "user_input" ? true : undefined,
+    responseField: normalizedType === "user_input" ? "ultima_resposta" : undefined,
+    timeoutMinutes: normalizedType === "user_input" ? 0 : undefined,
     next: canAcceptIncomingConnection(previousTarget) ? previousNext : null,
     x: clampNodeX(Math.round(current.x + 340)),
     y: clampNodeY(Math.round(current.y))
   };
+  normalizeNodeStructure(node);
 
   assignPrimaryTarget(current, node.id);
   flow.nodes.push(node);
@@ -6464,7 +6522,7 @@ function setExistingNextStep(nodeId, targetId) {
 }
 
 function nextStepType(type) {
-  if (["message", "action", "condition", "delay", "randomizer"].includes(type)) return type;
+  if (["message", "action", "condition", "delay", "user_input", "randomizer"].includes(type)) return type;
   return "";
 }
 
@@ -7289,6 +7347,10 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
     }
     if (current.type === "delay" && current.message) {
       messages.push({ from: "bot", text: smartDelaySummary(current) });
+    }
+    if (current.type === "user_input") {
+      messages.push({ from: "system", text: "Aguardando a próxima resposta do contato." });
+      break;
     }
     if (current.type === "condition") {
       messages.push({ from: "system", text: conditionMatchesNode(current, context) ? "Condição: caminho SIM" : "Condição: caminho NÃO" });
@@ -8233,6 +8295,13 @@ function nodeCardSummary(node) {
       status: node.next ? "conectado" : "fim"
     };
   }
+  if (node.type === "user_input") {
+    return {
+      body: "Pausa o fluxo até o contato responder no Messenger.",
+      footer: node.saveResponse && node.responseField ? `salva em ${node.responseField}` : "sem salvar campo",
+      status: node.next ? "conectado" : "fim"
+    };
+  }
   if (node.type === "randomizer") {
     return {
       body: `${node.variations?.length || 0} variações configuradas`,
@@ -8874,6 +8943,7 @@ function normalizeFieldValue(fieldName, value) {
   }
   if (fieldName === "delayMinutes") return Math.max(0, Number(value) || 0);
   if (fieldName === "delayValue") return Math.max(0, Number(value) || 0);
+  if (fieldName === "timeoutMinutes") return Math.max(0, Number(value) || 0);
   if (fieldName === "next") return value || null;
   return value;
 }
@@ -8923,6 +8993,7 @@ function defaultNodeMessage(type) {
     message: "Digite a mensagem que a página enviará no Messenger.",
     condition: "Defina palavras-chave ou critérios para seguir este caminho.",
     delay: "Aguardar alguns minutos antes de continuar.",
+    user_input: "Aguardar a próxima resposta do contato.",
     action: "Aplicar tag, abrir conversa ou notificar atendimento.",
     randomizer: "Distribuir contatos entre caminhos aleatórios.",
     comment: "Anotação interna do fluxo.",

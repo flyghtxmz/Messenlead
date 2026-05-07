@@ -35,6 +35,33 @@ export async function ensureFlowContinuationSchema(env) {
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_continuations_page_psid_status ON flow_continuations(page_id, psid, status, due_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_continuations_flow_status ON flow_continuations(flow_id, status, due_at)").run();
 
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS flow_response_waits (
+      id TEXT PRIMARY KEY,
+      page_id TEXT NOT NULL,
+      psid TEXT NOT NULL,
+      flow_id TEXT,
+      flow_name TEXT,
+      wait_node_id TEXT,
+      resume_node_id TEXT NOT NULL,
+      event_id TEXT,
+      flow_json TEXT NOT NULL,
+      context_json TEXT NOT NULL,
+      contact_json TEXT NOT NULL,
+      wait_config_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'waiting',
+      expires_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      consumed_at TEXT
+    )
+  `).run();
+
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_response_waits_page_psid_status ON flow_response_waits(page_id, psid, status, updated_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_response_waits_status_expires ON flow_response_waits(status, expires_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_response_waits_flow_status ON flow_response_waits(flow_id, status, updated_at DESC)").run();
+
   return true;
 }
 
@@ -127,6 +154,113 @@ export async function scheduleFlowContinuation(env, options = {}) {
     dueAt,
     policyExpiresAt: normalizeIso(options.policyExpiresAt) || ""
   };
+}
+
+export async function scheduleFlowResponseWait(env, options = {}) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  if (!hasDb) return null;
+
+  await cleanupFlowResponseWaits(env);
+
+  const now = new Date().toISOString();
+  const pageId = normalizePageId(options.pageId);
+  const psid = String(options.psid || "").trim();
+  const flow = options.flow || {};
+  const waitNode = options.waitNode || {};
+  const resumeNodeId = String(options.resumeNodeId || "").trim();
+  if (!psid || !resumeNodeId) return null;
+
+  const id = responseWaitId({ pageId, psid });
+  const expiresAt = normalizeIso(options.expiresAt) || responseWaitExpiresAt(waitNode);
+
+  await env.DB.prepare(`
+    INSERT INTO flow_response_waits (
+      id, page_id, psid, flow_id, flow_name, wait_node_id, resume_node_id, event_id,
+      flow_json, context_json, contact_json, wait_config_json, status, expires_at,
+      last_error, created_at, updated_at, consumed_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, '', ?, ?, '')
+    ON CONFLICT(id) DO UPDATE SET
+      flow_id = excluded.flow_id,
+      flow_name = excluded.flow_name,
+      wait_node_id = excluded.wait_node_id,
+      resume_node_id = excluded.resume_node_id,
+      event_id = excluded.event_id,
+      flow_json = excluded.flow_json,
+      context_json = excluded.context_json,
+      contact_json = excluded.contact_json,
+      wait_config_json = excluded.wait_config_json,
+      status = 'waiting',
+      expires_at = excluded.expires_at,
+      last_error = '',
+      updated_at = excluded.updated_at,
+      consumed_at = ''
+  `)
+    .bind(
+      id,
+      pageId,
+      psid,
+      String(flow.id || options.flowId || ""),
+      String(flow.name || options.flowName || ""),
+      String(waitNode.id || options.waitNodeId || ""),
+      resumeNodeId,
+      String(options.eventId || ""),
+      JSON.stringify(flow || {}),
+      JSON.stringify(safeJsonObject(options.context)),
+      JSON.stringify(safeJsonObject(options.contact)),
+      JSON.stringify(safeJsonObject(waitNode)),
+      expiresAt,
+      now,
+      now
+    )
+    .run();
+
+  return {
+    id,
+    pageId,
+    psid,
+    flowId: String(flow.id || options.flowId || ""),
+    waitNodeId: String(waitNode.id || options.waitNodeId || ""),
+    resumeNodeId,
+    expiresAt
+  };
+}
+
+export async function consumeFlowResponseWait(env, pageId, psid) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  if (!hasDb || !psid) return null;
+
+  await cleanupFlowResponseWaits(env);
+
+  const row = await env.DB.prepare(`
+    SELECT *
+    FROM flow_response_waits
+    WHERE page_id = ? AND psid = ? AND status = 'waiting'
+    ORDER BY datetime(updated_at) DESC
+    LIMIT 1
+  `)
+    .bind(normalizePageId(pageId), String(psid || "").trim())
+    .first();
+
+  if (!row) return null;
+
+  const wait = rowToResponseWait(row);
+  if (wait.expiresAt && Date.parse(wait.expiresAt) < Date.now()) {
+    await markResponseWait(env, wait.id, "expired", { error: "Response wait expired" });
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  const result = await env.DB.prepare(`
+    UPDATE flow_response_waits
+    SET status = 'consumed', consumed_at = ?, updated_at = ?
+    WHERE id = ? AND status = 'waiting'
+  `)
+    .bind(now, now, wait.id)
+    .run();
+
+  if (Number(result.meta?.changes || 0) <= 0) return null;
+  return { ...wait, status: "consumed", consumedAt: now };
 }
 
 export async function processFlowContinuations(env, processor, options = {}) {
@@ -252,6 +386,30 @@ async function cleanupFlowContinuations(env) {
     .catch(() => null);
 }
 
+async function cleanupFlowResponseWaits(env) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    UPDATE flow_response_waits
+    SET status = 'expired', last_error = 'Response wait expired', updated_at = ?
+    WHERE status = 'waiting'
+      AND expires_at <> ''
+      AND datetime(expires_at) < datetime(?)
+  `)
+    .bind(now, now)
+    .run()
+    .catch(() => null);
+
+  const before = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(`
+    DELETE FROM flow_response_waits
+    WHERE status IN ('consumed', 'expired', 'skipped')
+      AND datetime(updated_at) < datetime(?)
+  `)
+    .bind(before)
+    .run()
+    .catch(() => null);
+}
+
 function rowToContinuation(row) {
   return {
     id: row.id,
@@ -277,6 +435,29 @@ function rowToContinuation(row) {
   };
 }
 
+function rowToResponseWait(row) {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    psid: row.psid,
+    flowId: row.flow_id || "",
+    flowName: row.flow_name || "",
+    waitNodeId: row.wait_node_id || "",
+    resumeNodeId: row.resume_node_id || "",
+    eventId: row.event_id || "",
+    flow: parseJson(row.flow_json),
+    context: parseJson(row.context_json),
+    contact: parseJson(row.contact_json),
+    waitNode: parseJson(row.wait_config_json),
+    status: row.status || "waiting",
+    expiresAt: row.expires_at || "",
+    lastError: row.last_error || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    consumedAt: row.consumed_at || ""
+  };
+}
+
 function continuationId(parts = {}) {
   return `fcont_${stableHash([
     normalizePageId(parts.pageId),
@@ -285,6 +466,30 @@ function continuationId(parts = {}) {
     parts.delayNodeId || "",
     parts.resumeNodeId || ""
   ].join(":"))}`;
+}
+
+function responseWaitId(parts = {}) {
+  return `fwait_${stableHash([
+    normalizePageId(parts.pageId),
+    parts.psid || ""
+  ].join(":"))}`;
+}
+
+async function markResponseWait(env, id, status, options = {}) {
+  await env.DB.prepare(`
+    UPDATE flow_response_waits
+    SET status = ?, last_error = ?, updated_at = ?
+    WHERE id = ?
+  `)
+    .bind(status, options.error || "", options.updatedAt || new Date().toISOString(), id)
+    .run()
+    .catch(() => null);
+}
+
+function responseWaitExpiresAt(waitNode = {}) {
+  const minutes = Number(waitNode.timeoutMinutes || waitNode.timeout_minutes || 0);
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  return new Date(Date.now() + Math.floor(minutes) * 60 * 1000).toISOString();
 }
 
 function stableHash(value) {

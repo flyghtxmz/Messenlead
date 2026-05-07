@@ -1806,6 +1806,15 @@ svg {
   color: var(--coral);
 }
 
+.node.user_input {
+  border-left-color: #2f8cff;
+}
+
+.node.user_input .node-title svg {
+  background: #eaf4ff;
+  color: #0077ff;
+}
+
 .node.comment {
   min-height: 112px;
   border-color: #d7dce4;
@@ -4883,6 +4892,13 @@ svg {
   color: var(--muted);
   font-size: 10.5px;
   line-height: 1.25;
+}
+
+.settings-helper {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .message-builder-header {
