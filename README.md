@@ -82,6 +82,48 @@ Se não houver fluxo ativo para uma mensagem recebida, o webhook não envia resp
 
 Para multi-Página, `MESSENGER_PAGE_ACCESS_TOKEN` não é obrigatório: o app usa Facebook Login, busca as Páginas autorizadas e salva os Page Access Tokens no D1. Você só precisa de `MESSENGER_PAGE_ACCESS_TOKEN` se quiser operar uma única Página manualmente sem OAuth.
 
+## Biblioteca de mídia com R2
+
+Para upar imagens e áudios MP3 permanentes para usar nos fluxos, crie um bucket Cloudflare R2 e vincule ao Pages com o binding:
+
+```txt
+MEDIA_BUCKET
+```
+
+Configuração pelo painel:
+
+1. Cloudflare Dashboard → R2 Object Storage.
+2. Crie um bucket, por exemplo `messenlead-media`.
+3. Abra o projeto Pages `Messenlead`.
+4. Vá em `Settings` → `Functions` → `R2 bucket bindings`.
+5. Adicione:
+
+```txt
+Variable name: MEDIA_BUCKET
+R2 bucket: messenlead-media
+```
+
+Opcionalmente, se você ativar domínio público do R2 ou um custom domain, adicione:
+
+```txt
+MEDIA_PUBLIC_BASE_URL=https://media.seudominio.com
+```
+
+Se `MEDIA_PUBLIC_BASE_URL` não estiver configurado, o Messenlead entrega os arquivos por URLs do próprio projeto, como:
+
+```txt
+https://seu-projeto.pages.dev/media/arquivo.mp3
+```
+
+Endpoints:
+
+```txt
+GET    /api/media?pageId=PAGE_ID
+POST   /api/media
+DELETE /api/media?pageId=PAGE_ID&id=MEDIA_ID
+GET    /media/arquivo.mp3
+```
+
 ## Configurar na Meta
 
 No Meta for Developers:

@@ -15,6 +15,7 @@ const navItems = [
   { id: "subscribers", label: "Assinantes", icon: "users" },
   { id: "broadcasts", label: "Disparos", icon: "send" },
   { id: "pixel", label: "Pixel", icon: "pixel" },
+  { id: "media", label: "Mídia", icon: "upload" },
   { id: "image", label: "Imagem", icon: "image" },
   { id: "video", label: "Vídeo", icon: "video" },
   { id: "setup", label: "Messenger", icon: "plug" },
@@ -331,6 +332,13 @@ let pixelState = {
   rangeDays: 7,
   summary: null,
   events: [],
+  error: ""
+};
+let mediaState = {
+  pageId: "",
+  loading: false,
+  uploading: false,
+  assets: [],
   error: ""
 };
 let metaState = {
@@ -1201,6 +1209,7 @@ function render() {
     subscribers: renderSubscribers,
     broadcasts: renderBroadcasts,
     pixel: renderPixel,
+    media: renderMediaLibrary,
     image: renderImageTool,
     video: renderVideoTool,
     setup: renderSetup,
@@ -2252,6 +2261,105 @@ function safeTrackingToken(value) {
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 100) || "default";
+}
+
+function renderMediaLibrary() {
+  const pageId = currentFlowPageId();
+  const pageName = selectedPageName(pageId);
+  if (mediaState.pageId !== pageId && !mediaState.loading) {
+    loadMediaAssetsForPage(pageId, { silent: true });
+  }
+
+  const assets = filterBySearch(mediaState.assets || [], (asset) =>
+    `${asset.kind} ${asset.fileName} ${asset.originalName} ${asset.url}`
+  );
+  const imageAssets = assets.filter((asset) => asset.kind === "image");
+  const audioAssets = assets.filter((asset) => asset.kind === "audio");
+
+  workspace.innerHTML = `
+    <div class="media-library-grid">
+      <section class="panel media-upload-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Biblioteca de mídia</h2>
+            <span>Uploads permanentes para usar nos fluxos de ${escapeHtml(pageName)}.</span>
+          </div>
+          <div class="panel-actions">
+            <button class="secondary-button" type="button" data-action="refresh-media-assets">${icons.refresh}<span>Atualizar</span></button>
+          </div>
+        </div>
+        <div class="panel-body image-tool-body">
+          <input id="mediaImageUpload" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" hidden />
+          <input id="mediaAudioUpload" type="file" accept="audio/mpeg,.mp3" hidden />
+          <div class="media-upload-grid">
+            <button class="image-dropzone media-upload-card" type="button" data-action="choose-media-image" ${mediaState.uploading ? "disabled" : ""}>
+              ${icons.image}
+              <strong>Upar imagem</strong>
+              <span>JPG, PNG, WebP ou GIF. Ideal para cards e mensagens com imagem.</span>
+            </button>
+            <button class="image-dropzone media-upload-card" type="button" data-action="choose-media-audio" ${mediaState.uploading ? "disabled" : ""}>
+              ${icons.send}
+              <strong>Upar áudio MP3</strong>
+              <span>Arquivo .mp3 público e permanente para enviar no Messenger.</span>
+            </button>
+          </div>
+          ${mediaState.uploading ? `<div class="video-progress"><span>Enviando para R2...</span><div><i style="width:66%"></i></div></div>` : ""}
+          ${mediaState.error ? `<div class="modal-error">${escapeHtml(mediaState.error)}</div>` : ""}
+          <p class="muted">Para funcionar no Messenger, o arquivo precisa ser acessível publicamente. Configure o binding R2 <code>MEDIA_BUCKET</code>; se não houver domínio público do R2, o Messenlead entrega os arquivos por <code>/media/arquivo.ext</code>.</p>
+        </div>
+      </section>
+
+      <section class="panel media-assets-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Áudios MP3</h2>
+            <span>${audioAssets.length} arquivo${audioAssets.length === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+        <div class="panel-body media-asset-list">
+          ${mediaState.loading && !audioAssets.length ? `<div class="empty-state">Carregando mídia...</div>` : audioAssets.length ? audioAssets.map(renderMediaAssetCard).join("") : emptyInline("Nenhum áudio enviado ainda.")}
+        </div>
+      </section>
+
+      <section class="panel media-assets-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Imagens</h2>
+            <span>${imageAssets.length} arquivo${imageAssets.length === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+        <div class="panel-body media-asset-list media-image-list">
+          ${mediaState.loading && !imageAssets.length ? `<div class="empty-state">Carregando mídia...</div>` : imageAssets.length ? imageAssets.map(renderMediaAssetCard).join("") : emptyInline("Nenhuma imagem enviada ainda.")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderMediaAssetCard(asset) {
+  const isImage = asset.kind === "image";
+  return `
+    <article class="media-asset-card">
+      <div class="media-asset-preview ${isImage ? "image" : "audio"}">
+        ${
+          isImage
+            ? `<img src="${attr(asset.url)}" alt="${attr(asset.originalName || asset.fileName)}" loading="lazy" />`
+            : `<audio src="${attr(asset.url)}" controls preload="metadata"></audio>`
+        }
+      </div>
+      <div class="media-asset-main">
+        <strong>${escapeHtml(asset.originalName || asset.fileName)}</strong>
+        <span>${escapeHtml(asset.fileName)} - ${formatBytes(asset.size || 0)} - ${escapeHtml(asset.contentType || "")}</span>
+        <code>${escapeHtml(asset.url)}</code>
+        <small>${escapeHtml(formatDate(asset.createdAt) || asset.createdAt || "")}</small>
+      </div>
+      <div class="media-asset-actions">
+        <button class="secondary-button" type="button" data-action="copy-media-url" data-id="${attr(asset.id)}">${icons.copy}<span>URL</span></button>
+        <button class="secondary-button" type="button" data-action="insert-media-in-message" data-id="${attr(asset.id)}">${icons.plus}<span>Usar no node</span></button>
+        <button class="icon-button danger" type="button" data-action="delete-media-asset" data-id="${attr(asset.id)}" title="Excluir">${icons.trash}</button>
+      </div>
+    </article>
+  `;
 }
 
 function renderImageTool() {
@@ -3422,6 +3530,33 @@ async function loadPixelEventsForPage(pageId = currentFlowPageId(), options = {}
   }
 }
 
+async function loadMediaAssetsForPage(pageId = currentFlowPageId(), options = {}) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  mediaState = {
+    ...mediaState,
+    pageId: normalizedPageId,
+    loading: true,
+    error: options.keepError ? mediaState.error : ""
+  };
+  if (activeView === "media" && !options.silent) render();
+
+  try {
+    const result = await apiGet(`/api/media?pageId=${encodeURIComponent(normalizedPageId)}&limit=160`);
+    if (mediaState.pageId !== normalizedPageId) return;
+    mediaState.assets = Array.isArray(result.assets) ? result.assets : [];
+    mediaState.error = result.hasR2 === false ? "Configure o binding R2 MEDIA_BUCKET para enviar arquivos." : "";
+  } catch (error) {
+    if (mediaState.pageId !== normalizedPageId) return;
+    mediaState.assets = [];
+    mediaState.error = error.message || "Erro ao carregar midia";
+  } finally {
+    if (mediaState.pageId === normalizedPageId) {
+      mediaState.loading = false;
+      if (activeView === "media") render();
+    }
+  }
+}
+
 async function testFlowLog() {
   const pageId = currentFlowPageId();
   try {
@@ -3539,6 +3674,15 @@ async function apiPost(path, payload) {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+  return parseApiResponse(response);
+}
+
+async function apiPostForm(path, formData) {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    body: formData
   });
   return parseApiResponse(response);
 }
@@ -4781,6 +4925,12 @@ function handleWorkspaceClick(event) {
     pixelState.rangeDays = Number(button.dataset.days || 7);
     return loadPixelEventsForPage(currentFlowPageId());
   }
+  if (action === "refresh-media-assets") return loadMediaAssetsForPage(currentFlowPageId());
+  if (action === "choose-media-image") return document.querySelector("#mediaImageUpload")?.click();
+  if (action === "choose-media-audio") return document.querySelector("#mediaAudioUpload")?.click();
+  if (action === "copy-media-url") return copyMediaUrl(id);
+  if (action === "insert-media-in-message") return insertMediaInSelectedMessage(id);
+  if (action === "delete-media-asset") return confirmDeleteMediaAsset(id);
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
@@ -4911,6 +5061,16 @@ function handleWorkspaceChange(event) {
   }
   if (target.id === "audioUpload") {
     handleAudioUpload(target.files?.[0]);
+    target.value = "";
+    return;
+  }
+  if (target.id === "mediaImageUpload") {
+    uploadMediaFile(target.files?.[0], "image");
+    target.value = "";
+    return;
+  }
+  if (target.id === "mediaAudioUpload") {
+    uploadMediaFile(target.files?.[0], "audio");
     target.value = "";
     return;
   }
@@ -6481,6 +6641,110 @@ function deleteCampaign(id) {
       render();
     }
   });
+}
+
+async function uploadMediaFile(file, kind) {
+  if (!file) return;
+  const normalizedKind = kind === "audio" ? "audio" : "image";
+  if (normalizedKind === "audio" && !/\.mp3$/i.test(file.name || "")) {
+    mediaState.error = "Envie um arquivo .mp3.";
+    render();
+    return;
+  }
+  if (normalizedKind === "image" && !String(file.type || "").startsWith("image/")) {
+    mediaState.error = "Envie um arquivo de imagem.";
+    render();
+    return;
+  }
+
+  const pageId = currentFlowPageId();
+  const form = new FormData();
+  form.set("pageId", pageId);
+  form.set("kind", normalizedKind);
+  form.set("file", file);
+
+  mediaState = {
+    ...mediaState,
+    pageId,
+    uploading: true,
+    error: ""
+  };
+  if (activeView === "media") render();
+
+  try {
+    const result = await apiPostForm("/api/media", form);
+    mediaState.assets = [result.asset, ...mediaState.assets.filter((asset) => asset.id !== result.asset.id)];
+    mediaState.error = "";
+    toastMessage(`${normalizedKind === "audio" ? "Audio" : "Imagem"} enviado para a biblioteca.`);
+    await loadMediaAssetsForPage(pageId, { silent: true });
+  } catch (error) {
+    mediaState.error = error.message || "Nao foi possivel enviar o arquivo.";
+    toastMessage(mediaState.error);
+  } finally {
+    mediaState.uploading = false;
+    if (activeView === "media") render();
+  }
+}
+
+function copyMediaUrl(id) {
+  const asset = mediaAssetById(id);
+  if (!asset?.url) return;
+  return copyText(asset.url, "URL da midia copiada.");
+}
+
+function insertMediaInSelectedMessage(id) {
+  const asset = mediaAssetById(id);
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!asset || !flow || node?.type !== "message") {
+    toastMessage("Selecione um node de mensagem no fluxo para usar esta midia.");
+    return;
+  }
+
+  normalizeNodeStructure(node);
+  node.contentBlocks.push({
+    id: makeId("block"),
+    type: asset.kind,
+    text: "",
+    url: asset.url,
+    title: asset.originalName || asset.fileName,
+    subtitle: "",
+    fileName: asset.fileName,
+    fieldName: "",
+    endpoint: "",
+    items: [],
+    buttons: []
+  });
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  scheduleFlowSave();
+  toastMessage("Midia adicionada ao node de mensagem.");
+}
+
+function confirmDeleteMediaAsset(id) {
+  const asset = mediaAssetById(id);
+  if (!asset) return;
+
+  openConfirmModal({
+    title: "Excluir midia",
+    message: `Excluir "${asset.originalName || asset.fileName}" da biblioteca?`,
+    submitLabel: "Excluir",
+    danger: true,
+    onConfirm: async () => {
+      try {
+        await apiDelete(`/api/media?pageId=${encodeURIComponent(currentFlowPageId())}&id=${encodeURIComponent(id)}`);
+        mediaState.assets = mediaState.assets.filter((item) => item.id !== id);
+        toastMessage("Midia excluida.");
+      } catch (error) {
+        toastMessage(error.message || "Nao foi possivel excluir a midia.");
+      }
+      render();
+    }
+  });
+}
+
+function mediaAssetById(id) {
+  return (mediaState.assets || []).find((asset) => asset.id === id);
 }
 
 async function handleImageUpload(file) {
