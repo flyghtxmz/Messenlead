@@ -8363,7 +8363,7 @@ function nodeCardSummary(node) {
     const blockChoices = (node.contentBlocks || []).reduce((sum, block) => sum + (block.buttons?.length || 0), 0);
     const choices = (node.buttons?.length || 0) + (node.quickReplies?.length || 0) + blockChoices;
     return {
-      body: node.contentBlocks?.find((block) => block.type === "text")?.text || node.message || "Mensagem do Messenger",
+      body: messageNodeSummaryBody(node),
       footer: `${blockCount} bloco${blockCount === 1 ? "" : "s"} · ${choices} opção${choices === 1 ? "" : "ões"}`,
       status: connectionTargets(flow, node).length ? "conectado" : "fim"
     };
@@ -8401,6 +8401,52 @@ function nodeCardSummary(node) {
     footer: node.next ? "Próximo passo" : "Sem próximo passo",
     status: node.next ? "conectado" : "fim"
   };
+}
+
+function messageNodeSummaryBody(node) {
+  normalizeNodeStructure(node);
+  const text = String(node.contentBlocks?.find((block) => block.type === "text" && block.text)?.text || node.message || "").trim();
+  const parts = [];
+  const mediaSummary = messageBlockCountsSummary(node.contentBlocks || []);
+
+  if (text) parts.push(text);
+  if (mediaSummary) parts.push(mediaSummary);
+  return parts.join(" · ") || "Mensagem do Messenger";
+}
+
+function messageBlockCountsSummary(blocks = []) {
+  const labels = {
+    text: "texto",
+    image: "imagem",
+    audio: "audio",
+    video: "video",
+    file: "arquivo",
+    card: "card",
+    gallery: "galeria",
+    data_collection: "coleta",
+    dynamic: "dinamico"
+  };
+  const plurals = {
+    text: "textos",
+    image: "imagens",
+    audio: "audios",
+    video: "videos",
+    file: "arquivos",
+    card: "cards",
+    gallery: "galerias",
+    data_collection: "coletas",
+    dynamic: "dinamicos"
+  };
+  const counts = blocks.reduce((map, block) => {
+    const type = block.type || "text";
+    map[type] = (map[type] || 0) + 1;
+    return map;
+  }, {});
+
+  return Object.entries(counts)
+    .filter(([type]) => type !== "text")
+    .map(([type, count]) => `${count} ${count === 1 ? labels[type] || type : plurals[type] || `${type}s`}`)
+    .join(" + ");
 }
 
 function renderConditionNode(node, selected) {
