@@ -8597,25 +8597,40 @@ function pixelConversationGroupKey(event) {
   if (!["page_view", "link_click", "site_active", "site_inactive", "site_exit"].includes(type)) return "";
   const destination = pixelConversationDestinationKey(event);
   if (!destination) return "";
-  const family = ["site_active", "site_inactive", "site_exit"].includes(type) ? "presence" : type;
-  return [event.pageId || "", event.contactPsid || event.visitorId || "", family, destination].join(":");
+  return [event.pageId || "", event.contactPsid || event.visitorId || "", destination].join(":");
 }
 
 function mergePixelConversationGroup(events = []) {
   const sorted = [...events].sort((left, right) => Date.parse(left.createdAt || "") - Date.parse(right.createdAt || ""));
-  const latest = sorted[sorted.length - 1] || {};
-  const first = sorted[0] || latest;
-  const destination = pixelConversationDestinationKey(latest);
+  const representative = pixelConversationRepresentative(sorted);
+  const destination = pixelConversationDestinationKey(representative);
   return {
-    ...latest,
+    ...representative,
     data: {
-      ...(latest.data || {}),
-      groupedCount: sorted.length,
+      ...(representative.data || {}),
       groupedDomain: destination,
-      groupedFirstAt: first.createdAt || "",
-      groupedLastAt: latest.createdAt || ""
+      groupedSuppressedCount: Math.max(0, sorted.length - 1)
     }
   };
+}
+
+function pixelConversationRepresentative(events = []) {
+  return [...events]
+    .sort((left, right) => {
+      const priorityDiff = pixelConversationEventPriority(right) - pixelConversationEventPriority(left);
+      if (priorityDiff) return priorityDiff;
+      return Date.parse(right.createdAt || "") - Date.parse(left.createdAt || "");
+    })[0] || {};
+}
+
+function pixelConversationEventPriority(event) {
+  const type = String(event?.eventType || "");
+  if (type === "link_click") return 50;
+  if (type === "page_view") return 40;
+  if (type === "site_exit") return 30;
+  if (type === "site_inactive") return 20;
+  if (type === "site_active") return 10;
+  return 0;
 }
 
 function pixelConversationDestinationKey(event) {
@@ -8699,11 +8714,9 @@ function pixelConversationMeta(event) {
   const meta = [];
   const nodeNumber = String(data.contactNodeNumber || "").trim();
   const pageViews = Number(data.contactPageViews || 0);
-  const groupedCount = Number(data.groupedCount || 0);
   const groupedDomain = String(data.groupedDomain || "").trim();
   if (nodeNumber) meta.push(`Node ${nodeNumber}`);
   if (pageViews > 0) meta.push(`${pageViews} pagina${pageViews === 1 ? "" : "s"} vista${pageViews === 1 ? "" : "s"}`);
-  if (groupedCount > 1) meta.push(`${groupedCount} evento${groupedCount === 1 ? "" : "s"}`);
   if (groupedDomain && !meta.includes(groupedDomain)) meta.push(groupedDomain);
   return meta;
 }
