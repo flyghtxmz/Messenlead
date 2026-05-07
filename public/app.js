@@ -1666,7 +1666,7 @@ function renderFlows() {
         <div class="canvas-floating-tools" aria-label="Adicionar blocos">
           ${nodeAddButton("message", "Mensagem")}
           ${nodeAddButton("condition", "Condição")}
-          ${nodeAddButton("user_input", "Aguardar")}
+          ${nodeAddButton("user_input", "Aguardar resposta")}
           ${nodeAddButton("delay", "Espera")}
           ${nodeAddButton("action", "Ação")}
         </div>
