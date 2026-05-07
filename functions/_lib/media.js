@@ -182,17 +182,22 @@ function mediaKindFromFile(file, requestedKind) {
   const type = String(file.type || "").toLowerCase();
   if (type.startsWith("image/")) return "image";
   if (type === "audio/mpeg" || type === "audio/mp3" || /\.mp3$/i.test(file.name || "")) return "audio";
-  throw new Error("Envie uma imagem ou um audio MP3");
+  if (isVideoFile(file.name, type)) return "video";
+  throw new Error("Envie uma imagem, um audio MP3 ou um video MP4");
 }
 
 function normalizeKind(value) {
   const kind = String(value || "").trim().toLowerCase();
-  return ["image", "audio"].includes(kind) ? kind : "";
+  return ["image", "audio", "video"].includes(kind) ? kind : "";
 }
 
 function normalizeContentType(type, kind) {
   const value = String(type || "").toLowerCase();
   if (kind === "audio") return "audio/mpeg";
+  if (kind === "video") {
+    if (["video/mp4", "video/webm", "video/quicktime"].includes(value)) return value;
+    return "video/mp4";
+  }
   if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(value)) return value;
   if (kind === "image") return "image/jpeg";
   return "application/octet-stream";
@@ -202,6 +207,13 @@ function mediaExtension(fileName, contentType, kind) {
   if (kind === "audio") {
     if (!/\.mp3$/i.test(fileName || "")) throw new Error("Audio precisa ser MP3");
     return "mp3";
+  }
+  if (kind === "video") {
+    const extension = String(fileName || "").toLowerCase().match(/\.([a-z0-9]{2,5})$/)?.[1] || "";
+    if (["mp4", "webm", "mov"].includes(extension)) return extension;
+    if (contentType === "video/webm") return "webm";
+    if (contentType === "video/quicktime") return "mov";
+    return "mp4";
   }
 
   const fromType = {
@@ -214,6 +226,10 @@ function mediaExtension(fileName, contentType, kind) {
 
   const match = String(fileName || "").toLowerCase().match(/\.([a-z0-9]{2,5})$/);
   return match?.[1] || "jpg";
+}
+
+function isVideoFile(fileName, contentType) {
+  return String(contentType || "").startsWith("video/") || /\.(mp4|webm|mov)$/i.test(fileName || "");
 }
 
 function publicMediaUrl(request, env, key) {
