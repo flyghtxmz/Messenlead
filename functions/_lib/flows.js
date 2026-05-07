@@ -20,6 +20,7 @@ export async function ensureFlowSchema(env) {
 
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flows_page_id ON flows(page_id)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flows_page_status ON flows(page_id, status)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flows_page_status_updated ON flows(page_id, status, updated_at DESC)").run();
 
   return true;
 }

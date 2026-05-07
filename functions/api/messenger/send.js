@@ -1,3 +1,5 @@
+import { messengerPolicyStatus } from "../../_lib/messengerDelivery.js";
+
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
 }
@@ -19,6 +21,7 @@ export async function onRequestPost({ request, env }) {
 
   const psid = String(body.psid || "").trim();
   const text = String(body.text || "").trim();
+  const pageId = String(body.pageId || "").trim();
 
   if (!psid || !text) {
     return json({ error: "psid and text are required" }, 400);
@@ -26,6 +29,13 @@ export async function onRequestPost({ request, env }) {
 
   if (!env.MESSENGER_PAGE_ACCESS_TOKEN) {
     return json({ error: "Missing MESSENGER_PAGE_ACCESS_TOKEN" }, 500);
+  }
+
+  if (pageId && body.messaging_type !== "MESSAGE_TAG") {
+    const policy = await messengerPolicyStatus(env, pageId, psid);
+    if (!policy.allowed) {
+      return json({ error: "Outside Messenger 24h response window", policy }, 409);
+    }
   }
 
   const graphUrl = env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages";

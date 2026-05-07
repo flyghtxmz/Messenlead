@@ -1,5 +1,5 @@
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
-import { getAppWebhookSubscriptions, getMetaConfig, getSession, graphFetch, graphUrl, json, subscribeAppToPageWebhooks, subscribePageToMessengerWebhooks } from "../../_lib/meta.js";
+import { debugAccessToken, getAppWebhookSubscriptions, getMetaConfig, getSession, graphFetch, graphUrl, json, subscribeAppToPageWebhooks, subscribePageToMessengerWebhooks } from "../../_lib/meta.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
 
 export async function onRequestGet({ request, env }) {
@@ -57,9 +57,11 @@ export async function onRequestPost({ request, env }) {
 
   const appStatus = await readAppWebhookSubscriptionStatus(env, config, pageId);
   const status = await readWebhookSubscriptionStatus(env, config, pageId, pageAccessToken);
+  const tokenAudit = await auditPageToken(env, config, pageId, pageAccessToken);
   return json({
     pageId,
     hasPageAccessToken: true,
+    tokenAudit,
     appSubscription,
     ...appStatus,
     subscription,
@@ -76,13 +78,29 @@ async function webhookSubscriptionStatus(request, env, pageId) {
   }
 
   const status = await readWebhookSubscriptionStatus(env, config, pageId, pageAccessToken);
+  const tokenAudit = await auditPageToken(env, config, pageId, pageAccessToken);
   return json({
     pageId,
     appId: config.appId || "",
     hasPageAccessToken: true,
+    tokenAudit,
     ...appStatus,
     ...status
   });
+}
+
+async function auditPageToken(env, config, pageId, pageAccessToken) {
+  const audit = await debugAccessToken(config, pageAccessToken);
+  if (!audit.ok || !audit.isValid) {
+    await safeAddFlowLog(env, {
+      pageId,
+      level: "error",
+      event: "page_token_invalid",
+      message: "Token da Pagina parece invalido ou expirado.",
+      data: audit
+    });
+  }
+  return audit;
 }
 
 async function readAppWebhookSubscriptionStatus(env, config, pageId) {

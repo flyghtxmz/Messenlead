@@ -3,6 +3,7 @@ import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { createMessengerContactToken } from "../../_lib/pixel.js";
+import { enqueueMessengerReplies, messengerEventDedupId, processMessengerSendQueue, reserveMessengerEvent } from "../../_lib/messengerDelivery.js";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -132,7 +133,22 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
 
   const context = eventContext(event);
   const log = flowEventLogger(env, pageId, psid);
+  const eventId = messengerEventDedupId(pageId, event);
+  const dedup = await reserveMessengerEvent(env, {
+    id: eventId,
+    pageId,
+    psid,
+    eventType: context.eventType
+  });
+  if (!dedup.reserved) {
+    await log("warn", "duplicate_event_ignored", "Evento duplicado ignorado antes de executar fluxo.", {
+      eventId
+    });
+    return;
+  }
+
   await log("info", "event_received", "Mensagem recebida pelo webhook.", {
+    eventId,
     eventType: context.eventType,
     text: context.text,
     hasReferral: context.hasReferral,
@@ -171,12 +187,32 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
     return;
   }
 
-  for (const reply of replies.slice(0, 5)) {
-    await sendMessengerReply(psid, reply, env, pageId, log, flow);
-  }
+  const policyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const queued = await enqueueMessengerReplies(env, {
+    pageId,
+    psid,
+    replies: replies.slice(0, 5),
+    flow,
+    eventId,
+    policyExpiresAt
+  });
+  await log("info", "replies_queued", "Respostas enfileiradas para envio.", {
+    queuedCount: queued.length,
+    queueIds: queued,
+    policyExpiresAt
+  }, flow);
+
+  const drain = await processMessengerSendQueue(env, {
+    pageId,
+    limit: Number(env.MESSENLEAD_WEBHOOK_SEND_DRAIN_LIMIT || 5)
+  });
+  await log("info", "queue_drain_finished", "Processamento imediato da fila finalizado.", drain, flow);
 }
 
 async function buildReplies(context, env, pageId, contact = null, log = null) {
+  const startedAt = Date.now();
+  const timeoutMs = flowTimeoutMs(env);
+  const deadline = startedAt + timeoutMs;
   const dbFlows = pageId ? await listFlows(env, pageId, { status: "active" }) : [];
   const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
   const activeFlows = flows.filter((flow) => flow.status === "active");
@@ -195,7 +231,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     return { replies: [], actions: [], flow: null };
   }
 
-  await log?.("info", "flow_selected", `Fluxo selecionado: ${flow.name || flow.id}.`, {
+  await log?.("info", "flow_started", `Fluxo iniciado: ${flow.name || flow.id}.`, {
     flowId: flow.id,
     flowName: flow.name || "",
     trigger: flow.trigger || "",
@@ -225,6 +261,15 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   let guard = 0;
 
   while (current && guard < 12) {
+    if (Date.now() > deadline) {
+      await log?.("error", "flow_timeout", "Execucao do fluxo interrompida por timeout.", {
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        lastNodeId: current.id || ""
+      }, flow);
+      break;
+    }
+
     guard += 1;
     const stepContext = { ...context, contact: runtimeContact, flow };
     await log?.("info", "node_enter", `Executando bloco: ${nodeLogName(current)}.`, {
@@ -322,6 +367,12 @@ function parsePayloadForDiagnostics(rawText) {
 
 function pageIdFromPayload(payload) {
   return payload?.entry?.find((entry) => entry?.id)?.id || "__global__";
+}
+
+function flowTimeoutMs(env) {
+  const value = Number(env.MESSENLEAD_FLOW_TIMEOUT_MS || 3000);
+  if (!Number.isFinite(value)) return 3000;
+  return Math.max(500, Math.min(12000, Math.floor(value)));
 }
 
 async function fetchMessengerUserProfile(env, pageId, psid, log = null) {

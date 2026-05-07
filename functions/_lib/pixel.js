@@ -1,6 +1,8 @@
 const DEFAULT_PAGE_ID = "__global__";
 const DEFAULT_SITE_ID = "default";
 const MAX_TEXT = 1200;
+const PIXEL_PRESENCE_STALE_MS = 90 * 1000;
+const COMPACT_PIXEL_EVENTS = new Set(["page_view", "link_click", "site_exit"]);
 
 export async function ensurePixelSchema(env) {
   if (!env.DB) return false;
@@ -36,6 +38,31 @@ export async function ensurePixelSchema(env) {
     )
   `).run();
 
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS pixel_presence (
+      page_id TEXT NOT NULL,
+      visitor_id TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT '',
+      site_id TEXT NOT NULL,
+      contact_psid TEXT,
+      contact_token TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      url TEXT,
+      path TEXT,
+      title TEXT,
+      referrer TEXT,
+      country TEXT,
+      city TEXT,
+      data_json TEXT NOT NULL DEFAULT '{}',
+      first_seen_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      last_heartbeat_at TEXT,
+      exited_at TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (page_id, visitor_id, session_id)
+    )
+  `).run();
+
   await ensurePixelColumn(env, "contact_psid", "TEXT");
   await ensurePixelColumn(env, "contact_token", "TEXT");
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_page_created ON pixel_events(page_id, created_at)").run();
@@ -43,6 +70,10 @@ export async function ensurePixelSchema(env) {
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_page_visitor ON pixel_events(page_id, visitor_id, created_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_page_contact ON pixel_events(page_id, contact_psid, created_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_site_created ON pixel_events(site_id, created_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_events_page_psid_type_created ON pixel_events(page_id, contact_psid, event_type, created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_presence_page_contact ON pixel_presence(page_id, contact_psid, updated_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_presence_page_status_updated ON pixel_presence(page_id, status, updated_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pixel_presence_page_visitor ON pixel_presence(page_id, visitor_id, updated_at DESC)").run();
 
   return true;
 }
@@ -141,6 +172,40 @@ export async function addPixelEvent(env, event = {}, request = null) {
     createdAt: now
   };
 
+  const presenceEvent = shouldUpdatePixelPresence(row.eventType) ? await upsertPixelPresence(env, row) : null;
+  if (!shouldPersistPixelEvent(env, row.eventType)) {
+    return presenceEvent || rowToPixelEvent({
+      id: row.id,
+      page_id: row.pageId,
+      site_id: row.siteId,
+      visitor_id: row.visitorId,
+      session_id: row.sessionId,
+      contact_psid: row.contactPsid,
+      contact_token: row.contactToken,
+      event_type: row.eventType,
+      event_name: row.eventName,
+      url: row.url,
+      path: row.path,
+      title: row.title,
+      referrer: row.referrer,
+      target_url: row.targetUrl,
+      target_text: row.targetText,
+      target_id: row.targetId,
+      target_classes: row.targetClasses,
+      utm_source: row.utmSource,
+      utm_medium: row.utmMedium,
+      utm_campaign: row.utmCampaign,
+      utm_term: row.utmTerm,
+      utm_content: row.utmContent,
+      user_agent: row.userAgent,
+      ip_hash: row.ipHash,
+      country: row.country,
+      city: row.city,
+      data_json: row.dataJson,
+      created_at: row.createdAt
+    });
+  }
+
   await env.DB.prepare(`
     INSERT INTO pixel_events (
       id, page_id, site_id, visitor_id, session_id, contact_psid, contact_token, event_type, event_name,
@@ -236,7 +301,11 @@ export async function listPixelEvents(env, pageId, options = {}) {
       .bind(normalizedPageId, psid, since, limit)
       .all();
 
-    return (result.results || []).map(rowToPixelEvent);
+    const events = (result.results || []).map(rowToPixelEvent);
+    const presenceEvents = await listPixelPresenceEvents(env, normalizedPageId, { psid, since, limit: 10 });
+    return [...events, ...presenceEvents]
+      .sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""))
+      .slice(0, limit);
   }
 
   const result = await env.DB.prepare(`
@@ -370,6 +439,149 @@ function rowToPixelEvent(row) {
     data: parseJsonObject(row.data_json),
     createdAt: row.created_at || ""
   };
+}
+
+async function upsertPixelPresence(env, row = {}) {
+  const status = row.eventType === "site_exit" ? "exited" : "active";
+  const heartbeatAt = row.eventType === "site_heartbeat" ? row.createdAt : "";
+  const exitedAt = row.eventType === "site_exit" ? row.createdAt : "";
+  const sessionId = row.sessionId || "";
+
+  await env.DB.prepare(`
+    INSERT INTO pixel_presence (
+      page_id, visitor_id, session_id, site_id, contact_psid, contact_token, status,
+      url, path, title, referrer, country, city, data_json,
+      first_seen_at, last_seen_at, last_heartbeat_at, exited_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(page_id, visitor_id, session_id) DO UPDATE SET
+      site_id = excluded.site_id,
+      contact_psid = COALESCE(NULLIF(excluded.contact_psid, ''), contact_psid),
+      contact_token = COALESCE(NULLIF(excluded.contact_token, ''), contact_token),
+      status = excluded.status,
+      url = COALESCE(NULLIF(excluded.url, ''), url),
+      path = COALESCE(NULLIF(excluded.path, ''), path),
+      title = COALESCE(NULLIF(excluded.title, ''), title),
+      referrer = COALESCE(NULLIF(excluded.referrer, ''), referrer),
+      country = COALESCE(NULLIF(excluded.country, ''), country),
+      city = COALESCE(NULLIF(excluded.city, ''), city),
+      data_json = excluded.data_json,
+      last_seen_at = excluded.last_seen_at,
+      last_heartbeat_at = COALESCE(NULLIF(excluded.last_heartbeat_at, ''), last_heartbeat_at),
+      exited_at = excluded.exited_at,
+      updated_at = excluded.updated_at
+  `)
+    .bind(
+      row.pageId,
+      row.visitorId,
+      sessionId,
+      row.siteId,
+      row.contactPsid,
+      row.contactToken,
+      status,
+      row.url,
+      row.path,
+      row.title,
+      row.referrer,
+      row.country,
+      row.city,
+      row.dataJson,
+      row.createdAt,
+      row.createdAt,
+      heartbeatAt,
+      exitedAt,
+      row.createdAt
+    )
+    .run();
+
+  return presenceRowToPixelEvent({
+    page_id: row.pageId,
+    visitor_id: row.visitorId,
+    session_id: sessionId,
+    site_id: row.siteId,
+    contact_psid: row.contactPsid,
+    contact_token: row.contactToken,
+    status,
+    url: row.url,
+    path: row.path,
+    title: row.title,
+    referrer: row.referrer,
+    country: row.country,
+    city: row.city,
+    data_json: row.dataJson,
+    first_seen_at: row.createdAt,
+    last_seen_at: row.createdAt,
+    last_heartbeat_at: heartbeatAt,
+    exited_at: exitedAt,
+    updated_at: row.createdAt
+  });
+}
+
+async function listPixelPresenceEvents(env, pageId, options = {}) {
+  const result = await env.DB.prepare(`
+    SELECT *
+    FROM pixel_presence
+    WHERE page_id = ?
+      AND contact_psid = ?
+      AND datetime(updated_at) >= datetime(?)
+    ORDER BY datetime(updated_at) DESC
+    LIMIT ?
+  `)
+    .bind(pageId, options.psid || "", options.since || sinceIso(7), Math.max(1, Math.min(25, Number(options.limit) || 10)))
+    .all();
+
+  return (result.results || [])
+    .map((row) => presenceRowToPixelEvent(row))
+    .filter((event) => event && event.eventType !== "site_exit");
+}
+
+function presenceRowToPixelEvent(row) {
+  const lastSeen = row.last_seen_at || row.updated_at || "";
+  const lastSeenTime = Date.parse(lastSeen);
+  const active = row.status !== "exited" && Number.isFinite(lastSeenTime) && Date.now() - lastSeenTime <= PIXEL_PRESENCE_STALE_MS;
+  const eventType = row.status === "exited" ? "site_exit" : active ? "site_active" : "site_inactive";
+  const createdAt = eventType === "site_inactive" && Number.isFinite(lastSeenTime)
+    ? new Date(lastSeenTime + PIXEL_PRESENCE_STALE_MS).toISOString()
+    : row.exited_at || lastSeen || row.updated_at || "";
+
+  return {
+    id: `presence_${row.page_id || DEFAULT_PAGE_ID}_${row.visitor_id || "visitor"}_${row.session_id || "session"}_${eventType}`,
+    pageId: row.page_id,
+    siteId: row.site_id,
+    visitorId: row.visitor_id,
+    sessionId: row.session_id || "",
+    contactPsid: row.contact_psid || "",
+    hasContactToken: Boolean(row.contact_token),
+    eventType,
+    eventName: eventType,
+    url: row.url || "",
+    path: row.path || "",
+    title: row.title || "",
+    referrer: row.referrer || "",
+    targetUrl: "",
+    targetText: "",
+    targetId: "",
+    targetClasses: "",
+    utmSource: "",
+    utmMedium: "",
+    utmCampaign: "",
+    utmTerm: "",
+    utmContent: "",
+    country: row.country || "",
+    city: row.city || "",
+    data: parseJsonObject(row.data_json),
+    createdAt
+  };
+}
+
+function shouldUpdatePixelPresence(eventType) {
+  return ["page_view", "link_click", "site_heartbeat", "site_exit"].includes(eventType);
+}
+
+function shouldPersistPixelEvent(env, eventType) {
+  const mode = String(env.MESSENLEAD_PIXEL_LOG_MODE || env.PIXEL_LOG_MODE || "compact").trim().toLowerCase();
+  if (["verbose", "debug", "all"].includes(mode)) return true;
+  return COMPACT_PIXEL_EVENTS.has(eventType);
 }
 
 function normalizeEventType(value) {

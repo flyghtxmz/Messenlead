@@ -22,6 +22,8 @@ export async function ensureContactSchema(env) {
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contacts_page_id ON contacts(page_id)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contacts_page_status ON contacts(page_id, status)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contacts_page_last_seen ON contacts(page_id, last_seen)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contacts_page_updated ON contacts(page_id, updated_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contacts_page_status_updated ON contacts(page_id, status, updated_at DESC)").run();
 
   return true;
 }

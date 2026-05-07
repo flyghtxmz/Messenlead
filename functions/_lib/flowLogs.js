@@ -18,11 +18,17 @@ export async function ensureFlowLogSchema(env) {
 
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_logs_page_created ON flow_logs(page_id, created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_logs_flow_id ON flow_logs(flow_id)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_logs_page_psid_created ON flow_logs(page_id, psid, created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_logs_page_flow_created ON flow_logs(page_id, flow_id, created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_logs_page_event_created ON flow_logs(page_id, event, created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_logs_page_level_created ON flow_logs(page_id, level, created_at DESC)").run();
 
   return true;
 }
 
 export async function addFlowLog(env, log = {}) {
+  if (!shouldPersistFlowLog(env, log)) return false;
+
   const hasDb = await ensureFlowLogSchema(env);
   if (!hasDb) return false;
 
@@ -137,4 +143,46 @@ function parseJson(value) {
   } catch {
     return {};
   }
+}
+
+const COMPACT_INFO_EVENTS = new Set([
+  "flow_started",
+  "condition_result",
+  "send_success",
+  "manual_log_test",
+  "manual_webhook_subscription",
+  "manual_app_webhook_subscription"
+]);
+
+const COMPACT_WARN_EVENTS = new Set([
+  "condition_result",
+  "no_active_flow",
+  "no_start_node",
+  "no_replies",
+  "guard_limit",
+  "send_retry_scheduled",
+  "send_policy_skipped",
+  "send_rate_limited",
+  "page_token_invalid",
+  "app_webhook_subscription_check_failed",
+  "webhook_subscription_check_failed",
+  "standby_received",
+  "missing_psid",
+  "no_messaging_events",
+  "ignored_object"
+]);
+
+function shouldPersistFlowLog(env, log = {}) {
+  if (log.force) return true;
+
+  const mode = String(env.MESSENLEAD_FLOW_LOG_MODE || env.MESSENLEAD_LOG_MODE || "compact").trim().toLowerCase();
+  if (["verbose", "debug", "all"].includes(mode)) return true;
+
+  const level = String(log.level || "info").trim().toLowerCase();
+  const event = String(log.event || "").trim();
+  if (!event) return level === "error";
+  if (event.startsWith("manual_")) return true;
+  if (level === "error") return true;
+  if (level === "warn") return COMPACT_WARN_EVENTS.has(event);
+  return COMPACT_INFO_EVENTS.has(event);
 }

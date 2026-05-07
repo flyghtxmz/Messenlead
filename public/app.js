@@ -2070,7 +2070,7 @@ function renderPixel() {
         <div class="panel-header">
           <div>
             <h2>Pixel do site</h2>
-            <span>Rastreia visualizacoes, cliques em links, botoes e formularios para ${escapeHtml(pageName)}.</span>
+            <span>Rastreia entradas no site e cliques em links para ${escapeHtml(pageName)}.</span>
           </div>
           <div class="panel-actions">
             <button class="secondary-button" type="button" data-action="refresh-pixel-events">${icons.refresh}<span>Atualizar</span></button>
@@ -2083,7 +2083,7 @@ function renderPixel() {
             <span>Instale antes de fechar a tag &lt;/head&gt; do seu site.</span>
             <span>O identificador do site e definido automaticamente pelo dominio onde o pixel foi instalado.</span>
             <span>O visitante e anonimo: o pixel identifica navegador/sessao, nao uma pessoa real sem login ou parametro externo.</span>
-            <span>Links, botoes e elementos com <code>data-ml-track</code> entram nos eventos automaticamente.</span>
+            <span>Cliques em links sao registrados automaticamente; outros eventos ficam disponiveis apenas em modo detalhado.</span>
           </div>
         </div>
       </section>
@@ -2103,7 +2103,6 @@ function renderPixel() {
           ${renderPixelMetric("Visitantes", summary.visitors || 0)}
           ${renderPixelMetric("Paginas vistas", summary.pageViews || 0)}
           ${renderPixelMetric("Cliques em links", summary.linkClicks || 0)}
-          ${renderPixelMetric("Cliques em botoes", summary.elementClicks || 0)}
         </div>
       </aside>
 
@@ -2243,7 +2242,7 @@ function shortVisitorId(value) {
 
 function pixelInstallSnippet(pageId = currentFlowPageId()) {
   const origin = location.origin === "null" ? "https://messenlead.pages.dev" : location.origin;
-  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&v=4`;
+  const scriptUrl = `${origin}/api/pixel/script?pageId=${encodeURIComponent(normalizeFlowPageId(pageId))}&v=5`;
   return `<script async src="${scriptUrl}"></script>`;
 }
 
@@ -3244,7 +3243,7 @@ async function sendMetaMessage() {
   }
 
   try {
-    await apiPost("/api/meta/send", { pageId: page.id, psid, text });
+    await apiPost("/api/meta/send", { pageId: page.id, psid, text, lastSeen: conversation.updated_time || "" });
     textarea.value = "";
     metaState.messages = null;
     metaState.pixelEvents = null;
@@ -8179,6 +8178,8 @@ function renderMetaConversationMessages(messages, pageId, pixelEvents = []) {
 
 function conversationPixelTimelineEvents(events = []) {
   const visibleEvents = events.filter((event) => event.eventType !== "site_heartbeat");
+  if (visibleEvents.some((event) => ["site_active", "site_inactive"].includes(event.eventType))) return visibleEvents;
+
   const presenceEvents = events
     .filter((event) => event.contactPsid && ["page_view", "link_click", "element_click", "form_submit", "site_heartbeat", "site_exit"].includes(event.eventType))
     .sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""));

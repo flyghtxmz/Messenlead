@@ -1,0 +1,8 @@
+name = "messenlead-messenger-send-relay"
+main = "src/index.js"
+compatibility_date = "2026-05-01"
+
+[vars]
+# Configure this as a secret in production:
+# wrangler secret put MESSENLEAD_SEND_RELAY_SECRET
+MESSENLEAD_SEND_RELAY_SECRET = ""

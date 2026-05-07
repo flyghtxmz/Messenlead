@@ -15,7 +15,7 @@ export function onRequestGet() {
   var contactKey = "messenlead.pixel.contact:" + config.siteId;
   var heartbeatTimer = 0;
   var exitSent = false;
-  var HEARTBEAT_INTERVAL_MS = 30000;
+  var HEARTBEAT_INTERVAL_MS = 60000;
 
   function randomId(prefix) {
     if (window.crypto && crypto.randomUUID) return prefix + "_" + crypto.randomUUID();
@@ -297,7 +297,7 @@ export function onRequestGet() {
 
   window.MessenleadPixel = {
     loaded: true,
-    version: "4",
+    version: "5",
     endpoint: endpoint,
     config: config,
     track: function (eventName, data) {

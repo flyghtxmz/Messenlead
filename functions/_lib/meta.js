@@ -299,6 +299,45 @@ export async function getAppWebhookSubscriptions(config) {
   }
 }
 
+export async function debugAccessToken(config, inputToken) {
+  if (!config.appId || !config.appSecret || !inputToken) {
+    return {
+      ok: false,
+      isValid: false,
+      error: "Missing app credentials or input token"
+    };
+  }
+
+  try {
+    const result = await graphFetch(
+      graphUrl(config, "/debug_token", {
+        input_token: inputToken,
+        access_token: appAccessToken(config)
+      })
+    );
+    const data = result.data || {};
+    return {
+      ok: true,
+      isValid: Boolean(data.is_valid),
+      appId: data.app_id || "",
+      type: data.type || "",
+      profileId: data.profile_id || "",
+      expiresAt: data.expires_at ? new Date(Number(data.expires_at) * 1000).toISOString() : "",
+      scopes: Array.isArray(data.scopes) ? data.scopes : [],
+      granularScopes: Array.isArray(data.granular_scopes) ? data.granular_scopes : [],
+      data
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      isValid: false,
+      status: error.status || 500,
+      error: error.message,
+      details: error.payload || null
+    };
+  }
+}
+
 export async function subscribeAppToPageWebhooks(config, callbackUrl, verifyToken) {
   if (!config.appId || !config.appSecret) {
     return { ok: false, error: "Missing app id or app secret" };
