@@ -32,6 +32,7 @@ export async function onRequestPost({ request, env }) {
       reset: {
         continuations: runtime.continuations || 0,
         responseWaits: runtime.responseWaits || 0,
+        linkClickWaits: runtime.linkClickWaits || 0,
         queuedMessages: queue.queued || 0,
         relayQueuedMessages: relays.reduce((sum, relay) => sum + Number(relay.reset?.queued || 0), 0)
       },

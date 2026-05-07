@@ -28,6 +28,7 @@ const nodeLabels = {
   condition: "Condição",
   delay: "Espera",
   user_input: "Aguardar resposta",
+  link_click_wait: "Aguardar clique no link",
   randomizer: "Randomizador",
   action: "Ação",
   comment: "Comentário"
@@ -39,6 +40,7 @@ const canvasAddOptions = [
   { type: "action", label: "Ações" },
   { type: "condition", label: "Condição" },
   { type: "user_input", label: "Aguardar resposta" },
+  { type: "link_click_wait", label: "Aguardar clique no link" },
   { type: "randomizer", label: "Randomizador" },
   { type: "delay", label: "Atraso Inteligente" },
   { type: "comment", label: "Comentar" }
@@ -232,6 +234,7 @@ const icons = {
   condition: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9 9-9Z"/><path d="M12 8v4l3 3"/></svg>`,
   delay: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
   user_input: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/><path d="M17 21v-4h4"/></svg>`,
+  link_click_wait: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4.93"/><path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 19.07"/><path d="M12 8v8"/></svg>`,
   action: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h8l-1 8 11-13h-8l1-7Z"/></svg>`,
   trigger: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0"/><path d="M12 13V5m0 8 4-4m-4 4-4-4"/><path d="M5 19h14"/></svg>`,
   comment: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/></svg>`
@@ -1042,6 +1045,9 @@ function normalizeNodeStructure(node) {
     node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
   }
 
+  if (node.type === "link_click_wait") {
+    node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
+  }
   if (node.type === "randomizer") {
     node.randomEveryTime = node.randomEveryTime !== false;
     if (!Array.isArray(node.variations) || !node.variations.length) {
@@ -1667,6 +1673,7 @@ function renderFlows() {
           ${nodeAddButton("message", "Mensagem")}
           ${nodeAddButton("condition", "Condição")}
           ${nodeAddButton("user_input", "Aguardar resposta")}
+          ${nodeAddButton("link_click_wait", "Aguardar link")}
           ${nodeAddButton("delay", "Espera")}
           ${nodeAddButton("action", "Ação")}
         </div>
@@ -2964,7 +2971,12 @@ async function resetRunningFlowsForPages(pages = []) {
       pageIds: normalizedPages.map((page) => page.id)
     });
     const reset = result.reset || {};
-    const total = Number(reset.continuations || 0) + Number(reset.responseWaits || 0) + Number(reset.queuedMessages || 0) + Number(reset.relayQueuedMessages || 0);
+    const total =
+      Number(reset.continuations || 0) +
+      Number(reset.responseWaits || 0) +
+      Number(reset.linkClickWaits || 0) +
+      Number(reset.queuedMessages || 0) +
+      Number(reset.relayQueuedMessages || 0);
     toastMessage(`Fluxos em andamento reiniciados: ${total} item${total === 1 ? "" : "s"} cancelado${total === 1 ? "" : "s"}.`);
     await loadFlowLogsForPage(flowLogState.scope === "all" ? "__all__" : currentFlowPageId(), { silent: true });
     render();
@@ -3895,6 +3907,7 @@ function renderNextStepPicker(flow) {
         ${nextStepChoice("action", "Executar Ações", icons.action)}
         ${nextStepChoice("condition", "Condição", icons.condition)}
         ${nextStepChoice("user_input", "Aguardar resposta", icons.user_input)}
+        ${nextStepChoice("link_click_wait", "Aguardar clique no link", icons.link_click_wait)}
         ${nextStepChoice("randomizer", "Randomizador", icons.workflow)}
         ${nextStepChoice("delay", "Atraso Inteligente", icons.delay)}
         <div class="next-step-existing-group">
@@ -3934,6 +3947,7 @@ function renderInspector(flow, node) {
   if (node.type === "condition") return renderConditionSettings(flow, node);
   if (node.type === "delay") return renderDelaySettings(flow, node);
   if (node.type === "user_input") return renderUserInputSettings(flow, node);
+  if (node.type === "link_click_wait") return renderLinkClickWaitSettings(flow, node);
   if (node.type === "randomizer") return renderRandomizerSettings(flow, node);
   if (node.type === "comment") return renderCommentSettings(flow, node);
   return renderActionSettings(flow, node);
@@ -4654,6 +4668,30 @@ function renderUserInputSettings(flow, node) {
       </div>
       <div class="then-block">
         <strong>Depois da resposta...</strong>
+        ${renderSelectedNextStep(flow, node)}
+      </div>
+    </form>
+  `;
+}
+
+function renderLinkClickWaitSettings(flow, node) {
+  normalizeNodeStructure(node);
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Aguardar clique no link", "Pausar ate o contato clicar no link anterior", icons.link_click_wait)}
+      <label class="settings-field">
+        <span>Nome do bloco</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <div class="settings-card">
+        <label class="settings-field">
+          <span>Tempo limite em minutos</span>
+          <input type="number" min="0" data-node-field="timeoutMinutes" value="${attr(node.timeoutMinutes || 0)}" placeholder="0 = sem limite" />
+        </label>
+        <span class="settings-helper">Este bloco aguarda o clique em um link rastreado enviado pelo node de mensagem anterior no caminho.</span>
+      </div>
+      <div class="then-block">
+        <strong>Depois do clique...</strong>
         ${renderSelectedNextStep(flow, node)}
       </div>
     </form>
@@ -5527,7 +5565,7 @@ function addNode(type) {
     delayMinutes: type === "delay" ? 5 : undefined,
     saveResponse: type === "user_input" ? true : undefined,
     responseField: type === "user_input" ? "ultima_resposta" : undefined,
-    timeoutMinutes: type === "user_input" ? 0 : undefined,
+    timeoutMinutes: ["user_input", "link_click_wait"].includes(type) ? 0 : undefined,
     randomEveryTime: type === "randomizer" ? true : undefined,
     variations: type === "randomizer"
       ? [
@@ -5619,7 +5657,7 @@ function buildNode(type, x, y) {
     delayMinutes: type === "delay" ? 5 : undefined,
     saveResponse: type === "user_input" ? true : undefined,
     responseField: type === "user_input" ? "ultima_resposta" : undefined,
-    timeoutMinutes: type === "user_input" ? 0 : undefined,
+    timeoutMinutes: ["user_input", "link_click_wait"].includes(type) ? 0 : undefined,
     randomEveryTime: type === "randomizer" ? true : undefined,
     variations: type === "randomizer"
       ? [
@@ -6572,7 +6610,7 @@ function addNextStep(type) {
     quickReplies: [],
     saveResponse: normalizedType === "user_input" ? true : undefined,
     responseField: normalizedType === "user_input" ? "ultima_resposta" : undefined,
-    timeoutMinutes: normalizedType === "user_input" ? 0 : undefined,
+    timeoutMinutes: ["user_input", "link_click_wait"].includes(normalizedType) ? 0 : undefined,
     next: canAcceptIncomingConnection(previousTarget) ? previousNext : null,
     x: clampNodeX(Math.round(current.x + 340)),
     y: clampNodeY(Math.round(current.y))
@@ -6607,7 +6645,7 @@ function setExistingNextStep(nodeId, targetId) {
 }
 
 function nextStepType(type) {
-  if (["message", "action", "condition", "delay", "user_input", "randomizer"].includes(type)) return type;
+  if (["message", "action", "condition", "delay", "user_input", "link_click_wait", "randomizer"].includes(type)) return type;
   return "";
 }
 
@@ -7435,6 +7473,10 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
     }
     if (current.type === "user_input") {
       messages.push({ from: "system", text: "Aguardando a próxima resposta do contato." });
+      break;
+    }
+    if (current.type === "link_click_wait") {
+      messages.push({ from: "system", text: "Aguardando clique no link enviado pelo node anterior." });
       break;
     }
     if (current.type === "condition") {
@@ -8391,6 +8433,13 @@ function nodeCardSummary(node) {
       status: node.next ? "conectado" : "fim"
     };
   }
+  if (node.type === "link_click_wait") {
+    return {
+      body: "Pausa o fluxo ate o contato clicar no link do node anterior.",
+      footer: node.timeoutMinutes ? `${node.timeoutMinutes} min limite` : "sem limite",
+      status: node.next ? "conectado" : "fim"
+    };
+  }
   if (node.type === "randomizer") {
     return {
       body: `${node.variations?.length || 0} variações configuradas`,
@@ -9169,6 +9218,7 @@ function defaultNodeMessage(type) {
     condition: "Defina palavras-chave ou critérios para seguir este caminho.",
     delay: "Aguardar alguns minutos antes de continuar.",
     user_input: "Aguardar a próxima resposta do contato.",
+    link_click_wait: "Aguardar clique no link enviado pelo node anterior.",
     action: "Aplicar tag, abrir conversa ou notificar atendimento.",
     randomizer: "Distribuir contatos entre caminhos aleatórios.",
     comment: "Anotação interna do fluxo.",

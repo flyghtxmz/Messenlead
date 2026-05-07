@@ -62,6 +62,37 @@ export async function ensureFlowContinuationSchema(env) {
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_response_waits_status_expires ON flow_response_waits(status, expires_at)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_response_waits_flow_status ON flow_response_waits(flow_id, status, updated_at DESC)").run();
 
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS flow_link_click_waits (
+      id TEXT PRIMARY KEY,
+      page_id TEXT NOT NULL,
+      psid TEXT NOT NULL,
+      flow_id TEXT,
+      flow_name TEXT,
+      wait_node_id TEXT,
+      resume_node_id TEXT NOT NULL,
+      source_node_id TEXT,
+      source_link_urls_json TEXT NOT NULL DEFAULT '[]',
+      event_id TEXT,
+      policy_expires_at TEXT,
+      flow_json TEXT NOT NULL,
+      context_json TEXT NOT NULL,
+      contact_json TEXT NOT NULL,
+      wait_config_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'waiting',
+      expires_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      consumed_at TEXT
+    )
+  `).run();
+
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_link_click_waits_page_psid_status ON flow_link_click_waits(page_id, psid, status, updated_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_link_click_waits_source_status ON flow_link_click_waits(page_id, source_node_id, status, updated_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_link_click_waits_status_expires ON flow_link_click_waits(status, expires_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_flow_link_click_waits_flow_status ON flow_link_click_waits(flow_id, status, updated_at DESC)").run();
+
   return true;
 }
 
@@ -263,16 +294,141 @@ export async function consumeFlowResponseWait(env, pageId, psid) {
   return { ...wait, status: "consumed", consumedAt: now };
 }
 
+export async function scheduleFlowLinkClickWait(env, options = {}) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  if (!hasDb) return null;
+
+  await cleanupFlowLinkClickWaits(env);
+
+  const now = new Date().toISOString();
+  const pageId = normalizePageId(options.pageId);
+  const psid = String(options.psid || "").trim();
+  const flow = options.flow || {};
+  const waitNode = options.waitNode || {};
+  const resumeNodeId = String(options.resumeNodeId || "").trim();
+  const sourceNodeId = String(options.sourceNodeId || "").trim();
+  if (!psid || !resumeNodeId) return null;
+
+  const id = linkClickWaitId({ pageId, psid });
+  const expiresAt = normalizeIso(options.expiresAt) || linkClickWaitExpiresAt(waitNode);
+
+  await env.DB.prepare(`
+    INSERT INTO flow_link_click_waits (
+      id, page_id, psid, flow_id, flow_name, wait_node_id, resume_node_id, source_node_id,
+      source_link_urls_json, event_id, policy_expires_at, flow_json, context_json, contact_json,
+      wait_config_json, status, expires_at, last_error, created_at, updated_at, consumed_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, '', ?, ?, '')
+    ON CONFLICT(id) DO UPDATE SET
+      flow_id = excluded.flow_id,
+      flow_name = excluded.flow_name,
+      wait_node_id = excluded.wait_node_id,
+      resume_node_id = excluded.resume_node_id,
+      source_node_id = excluded.source_node_id,
+      source_link_urls_json = excluded.source_link_urls_json,
+      event_id = excluded.event_id,
+      policy_expires_at = excluded.policy_expires_at,
+      flow_json = excluded.flow_json,
+      context_json = excluded.context_json,
+      contact_json = excluded.contact_json,
+      wait_config_json = excluded.wait_config_json,
+      status = 'waiting',
+      expires_at = excluded.expires_at,
+      last_error = '',
+      updated_at = excluded.updated_at,
+      consumed_at = ''
+  `)
+    .bind(
+      id,
+      pageId,
+      psid,
+      String(flow.id || options.flowId || ""),
+      String(flow.name || options.flowName || ""),
+      String(waitNode.id || options.waitNodeId || ""),
+      resumeNodeId,
+      sourceNodeId,
+      JSON.stringify(Array.isArray(options.sourceLinkUrls) ? options.sourceLinkUrls : []),
+      String(options.eventId || ""),
+      normalizeIso(options.policyExpiresAt) || "",
+      JSON.stringify(flow || {}),
+      JSON.stringify(safeJsonObject(options.context)),
+      JSON.stringify(safeJsonObject(options.contact)),
+      JSON.stringify(safeJsonObject(waitNode)),
+      expiresAt,
+      now,
+      now
+    )
+    .run();
+
+  return {
+    id,
+    pageId,
+    psid,
+    flowId: String(flow.id || options.flowId || ""),
+    waitNodeId: String(waitNode.id || options.waitNodeId || ""),
+    resumeNodeId,
+    sourceNodeId,
+    sourceLinkUrls: Array.isArray(options.sourceLinkUrls) ? options.sourceLinkUrls : [],
+    policyExpiresAt: normalizeIso(options.policyExpiresAt) || "",
+    expiresAt
+  };
+}
+
+export async function consumeFlowLinkClickWait(env, event = {}) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  const pageId = normalizePageId(event.pageId);
+  const psid = String(event.contactPsid || event.psid || "").trim();
+  if (!hasDb || !psid) return null;
+
+  await cleanupFlowLinkClickWaits(env);
+
+  const rows = await env.DB.prepare(`
+    SELECT *
+    FROM flow_link_click_waits
+    WHERE page_id = ? AND psid = ? AND status = 'waiting'
+    ORDER BY datetime(updated_at) DESC
+    LIMIT 5
+  `)
+    .bind(pageId, psid)
+    .all();
+
+  for (const row of rows.results || []) {
+    const wait = rowToLinkClickWait(row);
+    if (wait.expiresAt && Date.parse(wait.expiresAt) < Date.now()) {
+      await markLinkClickWait(env, wait.id, "expired", { error: "Link click wait expired" });
+      continue;
+    }
+    if (!pixelEventMatchesLinkClickWait(event, wait)) continue;
+
+    const now = new Date().toISOString();
+    const result = await env.DB.prepare(`
+      UPDATE flow_link_click_waits
+      SET status = 'consumed', consumed_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'waiting'
+    `)
+      .bind(now, now, wait.id)
+      .run();
+
+    if (Number(result.meta?.changes || 0) > 0) {
+      return { ...wait, status: "consumed", consumedAt: now, pixelEvent: event };
+    }
+  }
+
+  return null;
+}
+
 export async function resetFlowRuntimeState(env, options = {}) {
   const hasDb = await ensureFlowContinuationSchema(env);
-  if (!hasDb) return { continuations: 0, responseWaits: 0 };
+  if (!hasDb) return { continuations: 0, responseWaits: 0, linkClickWaits: 0 };
 
   const pageIds = normalizePageIds(options.pageIds || options.pageId);
   const now = new Date().toISOString();
   const continuationParams = ["reset", "Flow runtime reset", now];
   const responseParams = ["reset", "Flow runtime reset", now];
+  const linkClickParams = ["reset", "Flow runtime reset", now];
   const continuationPageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
   const responsePageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
+  const linkClickPageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
 
   const continuationResult = await env.DB.prepare(`
     UPDATE flow_continuations
@@ -298,9 +454,22 @@ export async function resetFlowRuntimeState(env, options = {}) {
     .bind(...responseParams, now, ...pageIds)
     .run();
 
+  const linkClickWaitResult = await env.DB.prepare(`
+    UPDATE flow_link_click_waits
+    SET status = ?,
+        last_error = ?,
+        updated_at = ?,
+        consumed_at = COALESCE(NULLIF(consumed_at, ''), ?)
+    WHERE status = 'waiting'
+      ${linkClickPageFilter}
+  `)
+    .bind(...linkClickParams, now, ...pageIds)
+    .run();
+
   return {
     continuations: Number(continuationResult.meta?.changes || 0),
-    responseWaits: Number(responseWaitResult.meta?.changes || 0)
+    responseWaits: Number(responseWaitResult.meta?.changes || 0),
+    linkClickWaits: Number(linkClickWaitResult.meta?.changes || 0)
   };
 }
 
@@ -451,6 +620,30 @@ async function cleanupFlowResponseWaits(env) {
     .catch(() => null);
 }
 
+async function cleanupFlowLinkClickWaits(env) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    UPDATE flow_link_click_waits
+    SET status = 'expired', last_error = 'Link click wait expired', updated_at = ?
+    WHERE status = 'waiting'
+      AND expires_at <> ''
+      AND datetime(expires_at) < datetime(?)
+  `)
+    .bind(now, now)
+    .run()
+    .catch(() => null);
+
+  const before = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(`
+    DELETE FROM flow_link_click_waits
+    WHERE status IN ('consumed', 'expired', 'skipped', 'reset')
+      AND datetime(updated_at) < datetime(?)
+  `)
+    .bind(before)
+    .run()
+    .catch(() => null);
+}
+
 function rowToContinuation(row) {
   return {
     id: row.id,
@@ -499,6 +692,32 @@ function rowToResponseWait(row) {
   };
 }
 
+function rowToLinkClickWait(row) {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    psid: row.psid,
+    flowId: row.flow_id || "",
+    flowName: row.flow_name || "",
+    waitNodeId: row.wait_node_id || "",
+    resumeNodeId: row.resume_node_id || "",
+    sourceNodeId: row.source_node_id || "",
+    sourceLinkUrls: parseJsonArray(row.source_link_urls_json),
+    eventId: row.event_id || "",
+    policyExpiresAt: row.policy_expires_at || "",
+    flow: parseJson(row.flow_json),
+    context: parseJson(row.context_json),
+    contact: parseJson(row.contact_json),
+    waitNode: parseJson(row.wait_config_json),
+    status: row.status || "waiting",
+    expiresAt: row.expires_at || "",
+    lastError: row.last_error || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    consumedAt: row.consumed_at || ""
+  };
+}
+
 function continuationId(parts = {}) {
   return `fcont_${stableHash([
     normalizePageId(parts.pageId),
@@ -516,9 +735,27 @@ function responseWaitId(parts = {}) {
   ].join(":"))}`;
 }
 
+function linkClickWaitId(parts = {}) {
+  return `flink_${stableHash([
+    normalizePageId(parts.pageId),
+    parts.psid || ""
+  ].join(":"))}`;
+}
+
 async function markResponseWait(env, id, status, options = {}) {
   await env.DB.prepare(`
     UPDATE flow_response_waits
+    SET status = ?, last_error = ?, updated_at = ?
+    WHERE id = ?
+  `)
+    .bind(status, options.error || "", options.updatedAt || new Date().toISOString(), id)
+    .run()
+    .catch(() => null);
+}
+
+async function markLinkClickWait(env, id, status, options = {}) {
+  await env.DB.prepare(`
+    UPDATE flow_link_click_waits
     SET status = ?, last_error = ?, updated_at = ?
     WHERE id = ?
   `)
@@ -531,6 +768,53 @@ function responseWaitExpiresAt(waitNode = {}) {
   const minutes = Number(waitNode.timeoutMinutes || waitNode.timeout_minutes || 0);
   if (!Number.isFinite(minutes) || minutes <= 0) return "";
   return new Date(Date.now() + Math.floor(minutes) * 60 * 1000).toISOString();
+}
+
+function linkClickWaitExpiresAt(waitNode = {}) {
+  const minutes = Number(waitNode.timeoutMinutes || waitNode.timeout_minutes || 0);
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  return new Date(Date.now() + Math.floor(minutes) * 60 * 1000).toISOString();
+}
+
+function pixelEventMatchesLinkClickWait(event = {}, wait = {}) {
+  const eventType = String(event.eventType || "").trim();
+  if (!["page_view", "link_click"].includes(eventType)) return false;
+
+  const eventNodeId = pixelEventSourceNodeId(event);
+  if (wait.sourceNodeId && eventNodeId && eventNodeId !== wait.sourceNodeId) return false;
+  if (wait.sourceNodeId && !eventNodeId) return false;
+  if (wait.sourceNodeId && eventNodeId === wait.sourceNodeId) return true;
+
+  const urls = Array.isArray(wait.sourceLinkUrls) ? wait.sourceLinkUrls : [];
+  if (!urls.length) return true;
+
+  const eventUrls = [event.url, event.targetUrl].map(normalizeComparableUrl).filter(Boolean);
+  if (!eventUrls.length) return true;
+  return urls.map(normalizeComparableUrl).filter(Boolean).some((url) => eventUrls.some((eventUrl) => eventUrl === url || eventUrl.startsWith(`${url}?`) || eventUrl.startsWith(`${url}#`)));
+}
+
+function pixelEventSourceNodeId(event = {}) {
+  const data = event.data && typeof event.data === "object" ? event.data : {};
+  return String(data.contactNodeId || data.mlNodeId || queryParamFromUrl(event.url, "ml_node_id") || queryParamFromUrl(event.targetUrl, "ml_node_id") || "").trim();
+}
+
+function normalizeComparableUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    ["ml_contact", "ml_page_id", "ml_source", "ml_button", "ml_node_id", "ml_node_number", "ml_node_title", "ml_link_id"].forEach((param) => url.searchParams.delete(param));
+    url.hash = "";
+    return url.toString().replace(/\/$/g, "");
+  } catch {
+    return String(value || "").trim().replace(/\/$/g, "");
+  }
+}
+
+function queryParamFromUrl(value, key) {
+  try {
+    return new URL(String(value || "")).searchParams.get(key) || "";
+  } catch {
+    return "";
+  }
 }
 
 function stableHash(value) {
@@ -562,6 +846,15 @@ function parseJson(value) {
     return value ? JSON.parse(value) : {};
   } catch {
     return {};
+  }
+}
+
+function parseJsonArray(value) {
+  try {
+    const parsed = value ? JSON.parse(value) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }
 

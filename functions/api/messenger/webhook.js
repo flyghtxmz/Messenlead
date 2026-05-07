@@ -3,7 +3,14 @@ import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, getContact, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { createMessengerContactToken } from "../../_lib/pixel.js";
-import { consumeFlowResponseWait, processFlowContinuations, scheduleFlowContinuation, scheduleFlowResponseWait } from "../../_lib/flowContinuations.js";
+import {
+  consumeFlowLinkClickWait,
+  consumeFlowResponseWait,
+  processFlowContinuations,
+  scheduleFlowContinuation,
+  scheduleFlowLinkClickWait,
+  scheduleFlowResponseWait
+} from "../../_lib/flowContinuations.js";
 import { enqueueMessengerReplies, messengerEventDedupId, processMessengerSendQueue, reserveMessengerEvent } from "../../_lib/messengerDelivery.js";
 
 export async function onRequestGet({ request, env }) {
@@ -177,7 +184,7 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
   const execution =
     (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
     (await buildReplies(flowContext, env, pageId, contact, log));
-  const { replies, actions, flow, continuation, responseWait } = execution;
+  const { replies, actions, flow, continuation, responseWait, linkClickWait } = execution;
   if (actions.length) {
     await applyContactActions(env, pageId, psid, actions, {
       psid,
@@ -197,6 +204,16 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
     }, flow);
   }
 
+  if (linkClickWait) {
+    await log("info", "flow_waiting_for_link_click", "Fluxo pausado ate o contato clicar no link anterior.", {
+      linkClickWaitId: linkClickWait.id,
+      waitNodeId: linkClickWait.waitNodeId,
+      resumeNodeId: linkClickWait.resumeNodeId,
+      sourceNodeId: linkClickWait.sourceNodeId || "",
+      expiresAt: linkClickWait.expiresAt || ""
+    }, flow);
+  }
+
   if (!replies.length) {
     if (continuation) {
       await log("info", "flow_waiting", "Fluxo pausado até o bloco de espera vencer.", {
@@ -207,6 +224,9 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
       return;
     }
     if (responseWait) {
+      return;
+    }
+    if (linkClickWait) {
       return;
     }
     await log("warn", "no_replies", "O fluxo terminou sem resposta para enviar.", { actions }, flow);
@@ -336,15 +356,165 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       }, activeFlow);
     }
 
-    if (!result.replies.length && !result.continuation && !result.responseWait) {
+    if (result.linkClickWait) {
+      await log("info", "flow_waiting_for_link_click", "Fluxo pausado ate o contato clicar no link apos a retomada.", {
+        linkClickWaitId: result.linkClickWait.id,
+        waitNodeId: result.linkClickWait.waitNodeId,
+        resumeNodeId: result.linkClickWait.resumeNodeId,
+        sourceNodeId: result.linkClickWait.sourceNodeId || "",
+        expiresAt: result.linkClickWait.expiresAt || ""
+      }, activeFlow);
+    }
+
+    if (!result.replies.length && !result.continuation && !result.responseWait && !result.linkClickWait) {
       await log("warn", "no_replies", "Retomada do fluxo terminou sem resposta para enviar.", {
         continuationId: continuation.id,
         actions: result.actions
       }, activeFlow);
     }
 
-    return { status: "processed", continuation: result.continuation, responseWait: result.responseWait };
+    return { status: "processed", continuation: result.continuation, responseWait: result.responseWait, linkClickWait: result.linkClickWait };
   }, options);
+}
+
+export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
+  const wait = await consumeFlowLinkClickWait(env, pixelEvent);
+  if (!wait) return { processed: false, skipped: true };
+
+  const pageId = wait.pageId;
+  const psid = wait.psid;
+  const log = flowEventLogger(env, pageId, psid);
+  const activeFlow = await activeFlowById(env, pageId, wait.flowId);
+
+  if (!activeFlow) {
+    await log("warn", "link_click_wait_inactive_flow", "Clique recebido, mas o fluxo que aguardava nao esta mais ativo.", {
+      linkClickWaitId: wait.id,
+      flowId: wait.flowId,
+      waitNodeId: wait.waitNodeId,
+      resumeNodeId: wait.resumeNodeId
+    }, wait.flow);
+    return { processed: false, skipped: true, reason: "Flow is not active" };
+  }
+
+  const start = activeFlow.nodes?.find((node) => node.id === wait.resumeNodeId);
+  if (!start || start.type === "trigger" || start.type === "comment") {
+    await log("warn", "link_click_wait_missing_node", "Clique recebido, mas o proximo bloco da espera nao existe mais.", {
+      linkClickWaitId: wait.id,
+      flowId: wait.flowId,
+      waitNodeId: wait.waitNodeId,
+      resumeNodeId: wait.resumeNodeId
+    }, activeFlow);
+    return { processed: false, skipped: true, reason: "Resume node not found" };
+  }
+
+  const contact = (await getContact(env, pageId, psid)) || wait.contact || { psid, pageId };
+  await log("info", "link_click_wait_resuming", "Retomando fluxo apos clique no link.", {
+    linkClickWaitId: wait.id,
+    waitNodeId: wait.waitNodeId,
+    resumeNodeId: wait.resumeNodeId,
+    sourceNodeId: wait.sourceNodeId || "",
+    pixelEventId: pixelEvent.id || "",
+    eventType: pixelEvent.eventType || "",
+    targetUrl: pixelEvent.targetUrl || pixelEvent.url || ""
+  }, activeFlow);
+
+  const eventId = linkClickRuntimeEventId(wait, pixelEvent);
+  const result = await executeFlowFromNode({
+    context: {
+      ...serializableFlowContext(wait.context),
+      eventId,
+      policyExpiresAt: wait.policyExpiresAt || wait.context?.policyExpiresAt || "",
+      eventType: "pixel_link_click",
+      resumedFromLinkClick: true,
+      linkClickEventId: pixelEvent.id || ""
+    },
+    env,
+    pageId,
+    contact,
+    log,
+    flow: activeFlow,
+    start
+  });
+
+  if (result.actions.length) {
+    await applyContactActions(env, pageId, psid, result.actions, {
+      psid,
+      status: contact.status || "open",
+      source: "Messenger link click",
+      lastSeen: contact.lastSeen || new Date().toISOString()
+    });
+    await log("info", "actions_applied", "Acoes da retomada por clique foram aplicadas no contato.", {
+      actions: result.actions
+    }, activeFlow);
+  }
+
+  if (result.replies.length) {
+    const queued = await enqueueMessengerReplies(env, {
+      pageId,
+      psid,
+      replies: result.replies.slice(0, 5),
+      flow: activeFlow,
+      eventId,
+      policyExpiresAt: wait.policyExpiresAt || wait.context?.policyExpiresAt || ""
+    });
+    await log("info", "replies_queued", "Respostas apos clique enfileiradas para envio.", {
+      queuedCount: queued.length,
+      queueIds: queued,
+      policyExpiresAt: wait.policyExpiresAt || wait.context?.policyExpiresAt || ""
+    }, activeFlow);
+
+    const hasLocalQueued = queued.some((id) => !isExternalRelayQueueId(id));
+    if (hasLocalQueued) {
+      const drain = await processMessengerSendQueue(env, {
+        pageId,
+        limit: Number(env.MESSENLEAD_LINK_CLICK_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5)
+      });
+      await log("info", "queue_drain_finished", "Fila processada apos retomada por clique.", drain, activeFlow);
+    }
+  }
+
+  if (result.continuation) {
+    await log("info", "flow_waiting", "Fluxo pausado ate o bloco de espera vencer apos clique.", {
+      continuationId: result.continuation.id,
+      dueAt: result.continuation.dueAt,
+      resumeNodeId: result.continuation.resumeNodeId
+    }, activeFlow);
+  }
+
+  if (result.responseWait) {
+    await log("info", "flow_waiting_for_response", "Fluxo pausado ate o contato responder apos clique.", {
+      responseWaitId: result.responseWait.id,
+      waitNodeId: result.responseWait.waitNodeId,
+      resumeNodeId: result.responseWait.resumeNodeId,
+      expiresAt: result.responseWait.expiresAt || ""
+    }, activeFlow);
+  }
+
+  if (result.linkClickWait) {
+    await log("info", "flow_waiting_for_link_click", "Fluxo pausado ate outro clique no link.", {
+      linkClickWaitId: result.linkClickWait.id,
+      waitNodeId: result.linkClickWait.waitNodeId,
+      resumeNodeId: result.linkClickWait.resumeNodeId,
+      sourceNodeId: result.linkClickWait.sourceNodeId || "",
+      expiresAt: result.linkClickWait.expiresAt || ""
+    }, activeFlow);
+  }
+
+  if (!result.replies.length && !result.continuation && !result.responseWait && !result.linkClickWait) {
+    await log("warn", "no_replies", "Retomada por clique terminou sem resposta para enviar.", {
+      linkClickWaitId: wait.id,
+      actions: result.actions
+    }, activeFlow);
+  }
+
+  return {
+    processed: true,
+    replies: result.replies.length,
+    actions: result.actions.length,
+    continuation: result.continuation || null,
+    responseWait: result.responseWait || null,
+    linkClickWait: result.linkClickWait || null
+  };
 }
 
 async function buildReplies(context, env, pageId, contact = null, log = null) {
@@ -410,6 +580,8 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const runtimeContact = runtimeContactFrom(contact);
   let current = start;
   let guard = 0;
+  let previousNode = null;
+  let lastMessageLinkNode = null;
 
   while (current && guard < 12) {
     if (Date.now() > deadline) {
@@ -570,6 +742,8 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
   const runtimeContact = runtimeContactFrom(contact);
   let current = start;
   let guard = 0;
+  let previousNode = null;
+  let lastMessageLinkNode = null;
 
   while (current && guard < 12) {
     if (Date.now() > deadline) {
@@ -610,6 +784,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
           resumeNodeId: next.id,
           dueAt
         }, flow);
+        previousNode = current;
         current = next;
         continue;
       }
@@ -635,7 +810,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
         policyExpiresAt: context.policyExpiresAt || ""
       }, flow);
 
-      return { replies, actions, flow, continuation };
+      return { replies, actions, flow, continuation, responseWait: null, linkClickWait: null };
     }
 
     if (current.type === "user_input") {
@@ -669,12 +844,63 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
         expiresAt: responseWait?.expiresAt || ""
       }, flow);
 
-      return { replies, actions, flow, continuation: null, responseWait };
+      return { replies, actions, flow, continuation: null, responseWait, linkClickWait: null };
+    }
+
+    if (current.type === "link_click_wait") {
+      const targetId = nextExecutableTargetId(current, stepContext);
+      const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
+      if (!next || next.type === "trigger" || next.type === "comment") {
+        await log?.("warn", "next_node", "Bloco de aguardar clique sem proximo passo executavel.", {
+          fromNodeId: current.id,
+          targetId: targetId || ""
+        }, flow);
+        current = null;
+        break;
+      }
+
+      const sourceNode = previousNode?.type === "message" ? previousNode : lastMessageLinkNode;
+      const sourceLinkUrls = messageNodeTrackedLinks(sourceNode);
+      if (!sourceNode || !sourceLinkUrls.length) {
+        await log?.("warn", "link_click_wait_without_source", "Aguardar clique no link precisa vir depois de uma mensagem com botao de URL rastreado.", {
+          waitNodeId: current.id,
+          resumeNodeId: next.id,
+          previousNodeId: previousNode?.id || "",
+          previousNodeType: previousNode?.type || ""
+        }, flow);
+        return { replies, actions, flow, continuation: null, responseWait: null, linkClickWait: null };
+      }
+
+      const linkClickWait = await scheduleFlowLinkClickWait(env, {
+        pageId,
+        psid: runtimeContact.psid || contact?.psid || "",
+        flow,
+        waitNode: current,
+        resumeNodeId: next.id,
+        sourceNodeId: sourceNode?.id || "",
+        sourceLinkUrls,
+        context: serializableFlowContext(context),
+        contact: runtimeContact,
+        eventId: context.eventId || "",
+        policyExpiresAt: context.policyExpiresAt || ""
+      });
+
+      await log?.("info", "link_click_wait_scheduled", "Fluxo pausado para aguardar clique no link.", {
+        linkClickWaitId: linkClickWait?.id || "",
+        waitNodeId: current.id,
+        resumeNodeId: next.id,
+        sourceNodeId: sourceNode?.id || "",
+        sourceLinkCount: sourceLinkUrls.length,
+        expiresAt: linkClickWait?.expiresAt || ""
+      }, flow);
+
+      return { replies, actions, flow, continuation: null, responseWait: null, linkClickWait };
     }
 
     if (current.type === "message") {
       const nodeReplies = repliesForMessageNode(current, stepContext);
       replies.push(...nodeReplies);
+      if (messageNodeTrackedLinks(current).length) lastMessageLinkNode = current;
       await log?.("info", "message_prepared", "Mensagem preparada para envio.", {
         nodeId: current.id,
         replyCount: nodeReplies.length,
@@ -713,6 +939,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
       nextNodeId: next?.id || "",
       nextNodeType: next?.type || ""
     }, flow);
+    previousNode = current;
     current = next && next.type !== "trigger" && next.type !== "comment" ? next : null;
   }
 
@@ -727,7 +954,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
     actionCount: actions.length
   }, flow);
 
-  return { replies, actions, flow, continuation: null, responseWait: null };
+  return { replies, actions, flow, continuation: null, responseWait: null, linkClickWait: null };
 }
 
 function flowEventLogger(env, pageId, psid) {
@@ -783,6 +1010,15 @@ function continuationRuntimeEventId(continuation = {}) {
   ].join(":");
 }
 
+function linkClickRuntimeEventId(wait = {}, event = {}) {
+  return [
+    "link_click",
+    wait.id || "",
+    wait.resumeNodeId || "",
+    event.id || event.createdAt || ""
+  ].join(":");
+}
+
 function serializableFlowContext(context = {}) {
   return {
     text: context.text || "",
@@ -795,6 +1031,8 @@ function serializableFlowContext(context = {}) {
     policyExpiresAt: context.policyExpiresAt || "",
     resumedFromDelay: Boolean(context.resumedFromDelay),
     resumedFromUserInput: Boolean(context.resumedFromUserInput),
+    resumedFromLinkClick: Boolean(context.resumedFromLinkClick),
+    linkClickEventId: context.linkClickEventId || "",
     responseText: context.responseText || ""
   };
 }
@@ -1108,6 +1346,9 @@ function normalizeNodeShape(node) {
     node.responseField = String(node.responseField || "").trim();
     node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
   }
+  if (node.type === "link_click_wait") {
+    node.timeoutMinutes = Math.max(0, Number(node.timeoutMinutes) || 0);
+  }
 }
 
 function normalizeMessageOptions(options, prefix) {
@@ -1396,6 +1637,25 @@ function messageNodeTracking(flow, node) {
     nodeNumber: index >= 0 ? index + 1 : "",
     nodeTitle: node.title || node.name || ""
   };
+}
+
+function messageNodeTrackedLinks(node = {}) {
+  if (!node || node.type !== "message") return [];
+  normalizeNodeShape(node);
+  const urls = [];
+  const pushUrl = (option = {}) => {
+    const type = String(option.type || "").trim();
+    const url = String(option.url || "").trim();
+    if (!url || !["url", "web_url"].includes(type)) return;
+    urls.push(url);
+  };
+
+  (node.buttons || []).forEach(pushUrl);
+  (node.contentBlocks || []).forEach((block) => {
+    (block.buttons || []).forEach(pushUrl);
+  });
+
+  return [...new Set(urls)];
 }
 
 async function sendMessengerReply(psid, reply, env, pageId, log = null, flow = null) {

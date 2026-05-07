@@ -1,4 +1,5 @@
 import { addPixelEvent } from "../../_lib/pixel.js";
+import { processMessengerLinkClickWait } from "../messenger/webhook.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -23,6 +24,7 @@ export async function onRequestPost({ request, env }) {
 
   try {
     const event = await addPixelEvent(env, body || {}, request);
+    await processMessengerLinkClickWait(env, event).catch(() => null);
     return pixelJson({ ok: true, id: event?.id || "" });
   } catch (error) {
     return pixelJson({ error: error.message || "Could not collect event" }, 400);
@@ -67,7 +69,8 @@ export async function onRequestGet({ request, env }) {
     }
   };
 
-  await addPixelEvent(env, event, request).catch(() => null);
+  const savedEvent = await addPixelEvent(env, event, request).catch(() => null);
+  if (savedEvent) await processMessengerLinkClickWait(env, savedEvent).catch(() => null);
   return url.searchParams.get("format") === "json" ? pixelJson({ ok: true }) : transparentGif();
 }
 
