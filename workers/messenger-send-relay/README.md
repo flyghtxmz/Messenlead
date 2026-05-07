@@ -4,6 +4,18 @@ Worker auxiliar para subir em outra conta Cloudflare. Ele recebe itens de envio 
 
 O Messenlead principal continua sendo o cerebro: paginas, fluxos, contatos e tags continuam no D1 principal. Este relay cuida apenas de envio/fila/retry.
 
+## Contas Cloudflare
+
+Use esta secao para lembrar onde cada parte esta hospedada.
+
+```txt
+Conta principal do dashboard: aprovadoblog
+Conta secundaria relay 1: Vinteedois.13@gmail.com
+Worker relay 1: https://messenlead-messenger-send-relay.vinteedois-13.workers.dev
+D1 relay 1: messenlead-relay-db
+D1 relay 1 ID: ef0f4f6a-e932-46fe-b1a9-954ad009d80f
+```
+
 ## Criar D1 na conta secundaria
 
 Crie um D1 com o nome:
