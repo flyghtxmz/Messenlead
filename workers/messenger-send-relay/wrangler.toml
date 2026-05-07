@@ -2,7 +2,20 @@ name = "messenlead-messenger-send-relay"
 main = "src/index.js"
 compatibility_date = "2026-05-01"
 
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "RELAY_DB"
+database_name = "messenlead-relay-db"
+database_id = "COLOQUE_O_DATABASE_ID_AQUI"
+
 [vars]
 # Configure this as a secret in production:
 # wrangler secret put MESSENLEAD_SEND_RELAY_SECRET
-MESSENLEAD_SEND_RELAY_SECRET = ""
+MESSENLEAD_RELAY_SENDS_PER_MINUTE = "50"
+MESSENLEAD_RELAY_DRAIN_LIMIT = "8"
+MESSENLEAD_RELAY_CRON_DRAIN_LIMIT = "20"
+MESSENLEAD_RELAY_MAX_ATTEMPTS = "4"
+MESSENLEAD_RELAY_DAILY_SEND_SOFT_LIMIT = "15000"
+MESSENLEAD_RELAY_MAX_QUEUED = "5000"

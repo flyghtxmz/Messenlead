@@ -100,9 +100,46 @@ export async function reserveMessengerEvent(env, event = {}) {
 }
 
 export async function enqueueMessengerReplies(env, options = {}) {
-  const hasDb = await ensureMessengerDeliverySchema(env);
-  if (!hasDb) return [];
+  const pageId = normalizePageId(options.pageId);
+  const psid = String(options.psid || "").trim();
+  const replies = Array.isArray(options.replies) ? options.replies.slice(0, 10) : [];
+  const policyExpiresAt = options.policyExpiresAt || new Date(Date.now() + RESPONSE_WINDOW_MS).toISOString();
 
+  if (!psid || !replies.length) return [];
+
+  const relayResult = shouldUseExternalRelayQueue(env)
+    ? await enqueueMessengerRepliesViaRelay(env, {
+      ...options,
+      pageId,
+      psid,
+      replies,
+      policyExpiresAt
+    })
+    : null;
+
+  if (relayResult?.handled) {
+    const localQueued = relayResult.localFallbackReplies?.length
+      ? await enqueueMessengerRepliesLocal(env, {
+        ...options,
+        pageId,
+        psid,
+        replies: relayResult.localFallbackReplies,
+        policyExpiresAt
+      })
+      : [];
+    return [...relayResult.queued, ...localQueued];
+  }
+
+  return enqueueMessengerRepliesLocal(env, {
+    ...options,
+    pageId,
+    psid,
+    replies,
+    policyExpiresAt
+  });
+}
+
+async function enqueueMessengerRepliesLocal(env, options = {}) {
   const now = new Date().toISOString();
   const pageId = normalizePageId(options.pageId);
   const psid = String(options.psid || "").trim();
@@ -113,6 +150,9 @@ export async function enqueueMessengerReplies(env, options = {}) {
   const queued = [];
 
   if (!psid || !replies.length) return queued;
+
+  const hasDb = await ensureMessengerDeliverySchema(env);
+  if (!hasDb) return [];
 
   for (const reply of replies.slice(0, 10)) {
     const id = `msg_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
@@ -173,6 +213,160 @@ export async function processMessengerSendQueue(env, options = {}) {
     stats[result] = (stats[result] || 0) + 1;
   }
   return stats;
+}
+
+async function enqueueMessengerRepliesViaRelay(env, options = {}) {
+  const relays = parseRelayTargets(env);
+  if (!relays.length) return null;
+
+  const pageId = normalizePageId(options.pageId);
+  const psid = String(options.psid || "").trim();
+  const replies = Array.isArray(options.replies) ? options.replies.slice(0, 10) : [];
+  const pageAccessToken = (pageId ? await getStoredPageAccessToken(env, pageId) : "") || env.MESSENGER_PAGE_ACCESS_TOKEN || "";
+  if (!pageAccessToken) {
+    await logRelayQueueIssue(env, options, "error", "relay_enqueue_failed", "Relay nao recebeu o envio: token da Pagina nao encontrado.", {
+      pageId,
+      psid
+    });
+    return null;
+  }
+
+  const queued = [];
+  const localFallbackReplies = [];
+  const errors = [];
+  for (let index = 0; index < replies.length; index += 1) {
+    const reply = replies[index];
+    const queueId = externalRelayQueueId(options.eventId, index);
+    const relayOrder = orderedRelayTargets(relays, `${pageId}:${psid}:${queueId}`);
+
+    try {
+      const message = await messengerMessagePayload(reply, env, pageId, psid);
+      let accepted = false;
+      let lastError = null;
+
+      for (let relayIndex = 0; relayIndex < relayOrder.length; relayIndex += 1) {
+        const relay = relayOrder[relayIndex];
+        const result = await enqueueReplyOnRelay(relay, {
+          pageId,
+          psid,
+          queueId,
+          pageAccessToken,
+          messagingType: options.messagingType || "RESPONSE",
+          graphApiUrl: env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages",
+          policyExpiresAt: options.policyExpiresAt || "",
+          maxAttempts: env.MESSENLEAD_SEND_MAX_ATTEMPTS || DEFAULT_MAX_ATTEMPTS,
+          message
+        });
+
+        if (result.ok) {
+          queued.push(result.relayQueueId || queueId);
+          accepted = true;
+          break;
+        }
+
+        lastError = result.error;
+        errors.push(result.error);
+        if (!shouldTryNextRelay(env, result, relayIndex, relayOrder.length)) break;
+      }
+
+      if (!accepted && shouldUseLocalRelayFallback(env, lastError)) {
+        localFallbackReplies.push(reply);
+      }
+    } catch (error) {
+      const relayError = { queueId, ambiguous: true, retryable: true, error: error.message || "relay_enqueue_failed" };
+      errors.push(relayError);
+      if (shouldUseLocalRelayFallback(env, relayError)) localFallbackReplies.push(reply);
+    }
+  }
+
+  if (errors.length) {
+    await logRelayQueueIssue(env, options, queued.length || localFallbackReplies.length ? "warn" : "error", queued.length || localFallbackReplies.length ? "relay_enqueue_partial_failed" : "relay_enqueue_failed", queued.length || localFallbackReplies.length ? "Parte das respostas foi aceita pelo relay ou enviada para fallback local." : "Relay nao aceitou as respostas e o fallback local foi bloqueado.", {
+      queuedCount: queued.length,
+      localFallbackCount: localFallbackReplies.length,
+      errorCount: errors.length,
+      errors: errors.slice(0, 5)
+    });
+  }
+
+  return {
+    handled: true,
+    queued,
+    localFallbackReplies,
+    policyExpiresAt: options.policyExpiresAt || ""
+  };
+}
+
+async function enqueueReplyOnRelay(relay, payload) {
+  try {
+    const response = await fetch(relay.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Messenlead-Relay-Secret": relay.secret || ""
+      },
+      body: JSON.stringify(payload)
+    });
+    const text = await response.text().catch(() => "");
+    const body = parseJson(text);
+    const accepted = response.ok && body.ok !== false && (body.accepted || body.relayQueued || body.direct);
+
+    if (accepted) {
+      return {
+        ok: true,
+        relayQueueId: body.relayQueueId || payload.queueId,
+        status: response.status,
+        relayUrl: relay.url
+      };
+    }
+
+    const retryable = Boolean(body.retryable || body.capacityFull || response.status === 429 || response.status === 401 || response.status >= 500);
+    return {
+      ok: false,
+      retryable,
+      ambiguous: false,
+      error: {
+        queueId: payload.queueId,
+        retryable,
+        ambiguous: false,
+        status: response.status,
+        relayUrl: relay.url,
+        capacityFull: Boolean(body.capacityFull),
+        reason: body.reason || body.status || "",
+        body: (body.body || body.error || text).slice(0, 500)
+      }
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      retryable: true,
+      ambiguous: true,
+      error: {
+        queueId: payload.queueId,
+        retryable: true,
+        ambiguous: true,
+        relayUrl: relay.url,
+        error: error.message || "relay_fetch_failed"
+      }
+    };
+  }
+}
+
+function shouldTryNextRelay(env, result, relayIndex, relayCount) {
+  if (relayIndex >= relayCount - 1) return false;
+
+  const mode = String(env.MESSENLEAD_SEND_RELAY_FAILOVER || "safe").trim().toLowerCase();
+  if (["off", "false", "none"].includes(mode)) return false;
+  if (["aggressive", "all"].includes(mode)) return Boolean(result.retryable);
+  return Boolean(result.retryable && !result.ambiguous);
+}
+
+function shouldUseLocalRelayFallback(env, error = null) {
+  if (String(env.MESSENLEAD_RELAY_DISABLE_LOCAL_FALLBACK || "").toLowerCase() === "true") return false;
+
+  const mode = String(env.MESSENLEAD_RELAY_LOCAL_FALLBACK || "explicit").trim().toLowerCase();
+  if (["off", "false", "none"].includes(mode)) return false;
+  if (["aggressive", "all"].includes(mode)) return true;
+  return !error?.ambiguous;
 }
 
 async function cleanupMessengerDelivery(env) {
@@ -273,7 +467,8 @@ async function processQueueRow(env, row, options = {}) {
       pageAccessToken,
       messagingType: row.messaging_type || "RESPONSE",
       message,
-      queueId: row.id
+      queueId: row.id,
+      policyExpiresAt: row.policy_expires_at || ""
     });
 
     if (!sendResult.ok) {
@@ -355,6 +550,7 @@ async function sendMessengerApiRelay(env, relay, payload) {
       pageAccessToken: payload.pageAccessToken,
       messagingType: payload.messagingType || "RESPONSE",
       graphApiUrl: env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages",
+      policyExpiresAt: payload.policyExpiresAt || "",
       message: payload.message
     })
   });
@@ -466,6 +662,19 @@ function queueLogger(env, row) {
       data
     });
   };
+}
+
+async function logRelayQueueIssue(env, options = {}, level, event, message, data = {}) {
+  await safeAddFlowLog(env, {
+    pageId: options.pageId,
+    psid: options.psid,
+    flowId: options.flow?.id || "",
+    flowName: options.flow?.name || "",
+    level,
+    event,
+    message,
+    data
+  });
 }
 
 function retryDelayMs(attempts) {
@@ -601,15 +810,36 @@ function parseRelayTargets(env) {
     .filter((item) => item.url);
 }
 
+function shouldUseExternalRelayQueue(env) {
+  const mode = String(env.MESSENLEAD_SEND_RELAY_MODE || "external").trim().toLowerCase();
+  if (["local", "direct-only", "off", "false"].includes(mode)) return false;
+  return parseRelayTargets(env).length > 0;
+}
+
 function normalizeRelayUrl(value) {
   const url = String(value || "").trim();
   if (!url) return "";
   return url.endsWith("/send") ? url : `${url.replace(/\/+$/g, "")}/send`;
 }
 
+function externalRelayQueueId(eventId, index) {
+  const stable = String(eventId || "").trim();
+  if (stable) return `ext_${stableHash(stable)}_${index}`;
+  return `ext_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`;
+}
+
 function pickRelayTarget(targets, key) {
-  if (!targets.length) return null;
-  return targets[stableHash(key) % targets.length];
+  return orderedRelayTargets(targets, key)[0] || null;
+}
+
+function orderedRelayTargets(targets, key) {
+  return [...targets]
+    .map((target, index) => ({
+      ...target,
+      index,
+      score: stableHash(`${key}:${target.url}:${index}`)
+    }))
+    .sort((left, right) => right.score - left.score);
 }
 
 function stableHash(value) {

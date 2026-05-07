@@ -202,11 +202,18 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
     policyExpiresAt
   }, flow);
 
-  const drain = await processMessengerSendQueue(env, {
-    pageId,
-    limit: Number(env.MESSENLEAD_WEBHOOK_SEND_DRAIN_LIMIT || 5)
-  });
+  const hasLocalQueued = queued.some((id) => !isExternalRelayQueueId(id));
+  const drain = hasLocalQueued
+    ? await processMessengerSendQueue(env, {
+      pageId,
+      limit: Number(env.MESSENLEAD_WEBHOOK_SEND_DRAIN_LIMIT || 5)
+    })
+    : { processed: 0, sent: 0, retried: 0, skipped: 0, failed: 0, externalRelay: queued.some(isExternalRelayQueueId) };
   await log("info", "queue_drain_finished", "Processamento imediato da fila finalizado.", drain, flow);
+}
+
+function isExternalRelayQueueId(value) {
+  return String(value || "").startsWith("relay_") || String(value || "").startsWith("ext_");
 }
 
 async function buildReplies(context, env, pageId, contact = null, log = null) {

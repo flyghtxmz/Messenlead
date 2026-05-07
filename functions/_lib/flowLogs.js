@@ -163,6 +163,7 @@ const COMPACT_WARN_EVENTS = new Set([
   "send_retry_scheduled",
   "send_policy_skipped",
   "send_rate_limited",
+  "relay_enqueue_partial_failed",
   "page_token_invalid",
   "app_webhook_subscription_check_failed",
   "webhook_subscription_check_failed",
