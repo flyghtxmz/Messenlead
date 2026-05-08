@@ -1168,7 +1168,7 @@ svg {
 
 .canvas-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 12px;
@@ -1225,6 +1225,11 @@ svg {
 .canvas-actions .icon-button {
   width: 34px;
   height: 34px;
+}
+
+.publish-flow-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .canvas-panel-controls svg,

@@ -967,7 +967,66 @@ function stampFlowPage(flow, pageId) {
 function normalizeFlowStructure(flow) {
   if (!Array.isArray(flow?.nodes)) return flow;
   flow.nodes.forEach(normalizeNodeStructure);
+  if (Array.isArray(flow.publishedNodes)) {
+    flow.publishedNodes.forEach(normalizeNodeStructure);
+  } else {
+    flow.publishedNodes = null;
+  }
+  if (!flow.publishedMeta || typeof flow.publishedMeta !== "object" || Array.isArray(flow.publishedMeta)) {
+    flow.publishedMeta = null;
+  }
+  flow.hasDraftChanges = Boolean(flow.hasDraftChanges);
+  if (flow.status === "active" && !Array.isArray(flow.publishedNodes)) {
+    flow.publishedNodes = cloneFlowNodes(flow.nodes);
+    flow.publishedMeta = flowPublicationMeta(flow);
+    flow.hasDraftChanges = false;
+    flow.publishedAt = flow.publishedAt || flow.updatedAt || new Date().toISOString();
+  }
+  if (flow.status === "active" && Array.isArray(flow.publishedNodes) && !flow.publishedMeta) {
+    flow.publishedMeta = flowPublicationMeta(flow);
+  }
+  if (Array.isArray(flow.publishedNodes) && !flow.hasDraftChanges) {
+    flow.hasDraftChanges = !flowDraftMatchesPublication(flow);
+  }
   return flow;
+}
+
+function cloneFlowNodes(nodes) {
+  return JSON.parse(JSON.stringify(Array.isArray(nodes) ? nodes : []));
+}
+
+function flowDraftMatchesPublication(flow) {
+  if (!Array.isArray(flow?.publishedNodes)) return false;
+  return JSON.stringify(flow.nodes || []) === JSON.stringify(flow.publishedNodes || []) &&
+    JSON.stringify(flowPublicationMeta(flow)) === JSON.stringify(flow.publishedMeta || {});
+}
+
+function flowPublicationMeta(flow) {
+  return {
+    name: String(flow?.name || ""),
+    trigger: String(flow?.trigger || ""),
+    goal: String(flow?.goal || "")
+  };
+}
+
+function markCurrentFlowDraftChange() {
+  if (activeView !== "flows" || !flowCanvasOpen) return;
+  const flow = selectedFlow();
+  if (!flow) return;
+
+  normalizeFlowStructure(flow);
+  flow.updatedAt = flow.updatedAt || new Date().toISOString();
+  if (Array.isArray(flow.publishedNodes)) {
+    flow.hasDraftChanges = true;
+    return;
+  }
+
+  flow.hasDraftChanges = true;
+  if (flow.status !== "active" && flow.status !== "paused") flow.status = "draft";
+}
+
+function hasPublishedFlow(flow) {
+  return Array.isArray(flow?.publishedNodes);
 }
 
 function normalizeNodeStructure(node) {
@@ -1122,8 +1181,10 @@ function flowBelongsToPage(flow, pageId, options = {}) {
   return normalizeFlowPageId(flow.pageId) === normalizeFlowPageId(pageId);
 }
 
-function saveState() {
+function saveState(options = {}) {
+  if (options.markFlowDraft !== false) markCurrentFlowDraftChange();
   persistLocalState();
+  updateFlowStatusPill();
   scheduleFlowSave();
 }
 
@@ -1358,7 +1419,7 @@ function renderDashboard() {
                         <strong>${escapeHtml(flow.name)}</strong>
                         <span>${escapeHtml(flow.goal)}</span>
                       </div>
-                      ${statusBadge(flow.status)}
+                      ${statusBadge(flow)}
                     </div>
                     <div class="progress" aria-hidden="true"><span style="width:${flow.status === "active" ? 100 : 42}%"></span></div>
                     <span>${flow.nodes.length} blocos · gatilho: ${escapeHtml(flow.trigger)}</span>
@@ -1648,11 +1709,13 @@ function renderFlows() {
             <input class="field-input" data-flow-field="name" value="${attr(flow.name)}" aria-label="Nome do fluxo" />
             <span class="muted">${escapeHtml(flow.goal)}</span>
           </div>
+          ${statusBadge(flow, "flow-status-pill")}
           <span class="sync-pill ${flowStore.serverAvailable ? "synced" : "local"}">${escapeHtml(flowStore.loading ? "Carregando D1" : flowStore.status)}</span>
           <div class="canvas-panel-controls" aria-label="Painéis do canvas">
             <button class="secondary-button" type="button" data-action="back-to-flows">${icons.workflow}<span>Fluxos</span></button>
           </div>
           <div class="canvas-actions">
+            <button class="primary-button publish-flow-button" type="button" data-action="publish-flow">${icons.upload}<span>Publicar</span></button>
             <button class="icon-button canvas-file-button" type="button" data-action="export-flow-json" title="Exportar fluxo JSON" aria-label="Exportar fluxo JSON">${icons.upload}</button>
             <button class="icon-button canvas-file-button" type="button" data-action="import-flow-json" title="Importar fluxo JSON" aria-label="Importar fluxo JSON">${icons.download}</button>
             <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
@@ -1769,7 +1832,7 @@ function renderFlowCard(flow) {
             <strong>${escapeHtml(flow.name)}</strong>
             <span>${escapeHtml(flow.trigger || "sem gatilho")}</span>
           </span>
-          ${statusBadge(flow.status)}
+          ${statusBadge(flow)}
         </span>
         <span class="flow-card-goal">${escapeHtml(flow.goal || "Sem descricao")}</span>
         <span class="flow-card-meta">
@@ -3631,7 +3694,7 @@ function scheduleFlowSave() {
 
 async function syncFlowToServer(flow) {
   const pageId = currentFlowPageId();
-  if (flowStore.serverAvailable === false && flowStore.pageId === pageId) return;
+  if (flowStore.serverAvailable === false && flowStore.pageId === pageId) return false;
 
   try {
     flow.pageId = pageId;
@@ -3640,10 +3703,12 @@ async function syncFlowToServer(flow) {
     flowStore.pageId = pageId;
     flowStore.status = "Salvo no D1";
     updateSyncPill();
+    return true;
   } catch (error) {
     flowStore.serverAvailable = false;
     flowStore.status = flowStoreStatusFromError(error);
     updateSyncPill();
+    return false;
   }
 }
 
@@ -5178,6 +5243,7 @@ function handleWorkspaceClick(event) {
   if (action === "delete-node-by-id") return deleteNodeById(id);
   if (action === "set-flow-status") return setFlowStatus(button.dataset.status);
   if (action === "toggle-flow-active") return toggleFlowActive(id);
+  if (action === "publish-flow") return publishSelectedFlow();
   if (action === "duplicate-flow") return duplicateFlow();
   if (action === "duplicate-flow-card") return duplicateFlow(id, { openCanvas: false });
   if (action === "export-flow-json") return exportSelectedFlowJson();
@@ -5754,10 +5820,36 @@ function buildNode(type, x, y) {
 function setFlowStatus(status) {
   const flow = selectedFlow();
   if (!flow) return;
+  if (status === "active" && !hasPublishedFlow(flow)) {
+    toastMessage("Publique o fluxo antes de ligar.");
+    return;
+  }
   flow.status = status;
   flow.updatedAt = new Date().toISOString();
-  saveState();
+  saveState({ markFlowDraft: false });
   toastMessage(`Fluxo marcado como ${statusLabel(status).toLowerCase()}.`);
+  render();
+}
+
+async function publishSelectedFlow() {
+  const flow = selectedFlow();
+  if (!flow) return;
+
+  normalizeFlowStructure(flow);
+  const now = new Date().toISOString();
+  flow.status = "active";
+  flow.publishedNodes = cloneFlowNodes(flow.nodes);
+  flow.publishedMeta = flowPublicationMeta(flow);
+  flow.hasDraftChanges = false;
+  flow.publishedAt = now;
+  flow.updatedAt = now;
+  persistLocalState();
+  flowStore.status = "Publicando";
+  updateSyncPill();
+  render();
+
+  const synced = flowStore.loading ? false : await syncFlowToServer(flow);
+  toastMessage(synced ? "Fluxo publicado." : `Fluxo publicado localmente: ${flowStore.status}`);
   render();
 }
 
@@ -5765,11 +5857,16 @@ function toggleFlowActive(flowId = selectedFlowId) {
   const flow = state.flows.find((item) => item.id === flowId);
   if (!flow) return;
 
+  if (flow.status !== "active" && !hasPublishedFlow(flow)) {
+    toastMessage("Publique o fluxo antes de ligar.");
+    return;
+  }
+
   flow.status = flow.status === "active" ? "paused" : "active";
   flow.updatedAt = new Date().toISOString();
   persistLocalState();
   if (!flowStore.loading) syncFlowToServer(flow);
-  toastMessage(`Fluxo ${flow.status === "active" ? "ligado" : "desligado"}.`);
+  toastMessage(`Fluxo ${flow.status === "active" ? "ligado pela ultima publicacao" : "desligado"}.`);
   render();
 }
 
@@ -5780,6 +5877,10 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
   const idMap = new Map();
   copy.id = makeId("flow");
   copy.pageId = currentFlowPageId();
+  copy.publishedNodes = null;
+  copy.publishedMeta = null;
+  copy.hasDraftChanges = true;
+  copy.publishedAt = "";
   copy.name = `${flow.name} cópia`;
   copy.status = "draft";
   copy.updatedAt = new Date().toISOString();
@@ -5892,6 +5993,10 @@ function prepareImportedFlow(flow, pageId) {
   const idMap = new Map();
   copy.id = makeId("flow");
   copy.pageId = normalizeFlowPageId(pageId);
+  copy.publishedNodes = null;
+  copy.publishedMeta = null;
+  copy.hasDraftChanges = true;
+  copy.publishedAt = "";
   copy.name = copy.name ? `${copy.name} importado` : "Fluxo importado";
   copy.status = "draft";
   copy.createdAt = now;
@@ -8354,6 +8459,7 @@ function pruneInvalidFlowConnections(flow) {
 
   if (changed) {
     flow.updatedAt = new Date().toISOString();
+    markCurrentFlowDraftChange();
     persistLocalState();
     if (!flowStore.loading) syncFlowToServer(flow);
   }
@@ -9484,8 +9590,23 @@ function statusLabel(status) {
   }[status] || status;
 }
 
-function statusBadge(status) {
-  return `<span class="badge ${status}">${statusLabel(status)}</span>`;
+function statusBadge(statusOrFlow, extraClass = "") {
+  const isFlow = statusOrFlow && typeof statusOrFlow === "object";
+  const status = isFlow ? statusOrFlow.status : statusOrFlow;
+  const badgeStatus = isFlow && statusOrFlow.hasDraftChanges ? "draft" : status;
+  const label = isFlow && statusOrFlow.hasDraftChanges ? "Rascunho" : statusLabel(status);
+  const classes = ["badge", badgeStatus, extraClass].filter(Boolean).join(" ");
+  return `<span class="${classes}">${label}</span>`;
+}
+
+function updateFlowStatusPill() {
+  const pill = document.querySelector(".flow-status-pill");
+  const flow = selectedFlow();
+  if (!pill || !flow) return;
+
+  const status = flow.hasDraftChanges ? "draft" : flow.status;
+  pill.className = ["badge", status, "flow-status-pill"].join(" ");
+  pill.textContent = flow.hasDraftChanges ? "Rascunho" : statusLabel(flow.status);
 }
 
 function tag(value) {
