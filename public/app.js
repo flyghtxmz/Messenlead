@@ -288,6 +288,7 @@ let flowCanvasOpen = false;
 let showFlowList = false;
 let showInspector = false;
 let canvasScrollState = null;
+let inspectorScrollState = null;
 let triggerPickerNodeId = "";
 let nextStepPickerNodeId = "";
 let actionPickerNodeId = "";
@@ -1213,6 +1214,7 @@ function oauthErrorFromHash() {
 
 function render() {
   if (activeView === "flows" && flowCanvasOpen) rememberCanvasScroll();
+  if (activeView === "flows" && flowCanvasOpen && showInspector) rememberInspectorScroll();
   renderNav();
   renderPageSwitcher();
   appShell?.classList.toggle("canvas-mode", activeView === "flows" && flowCanvasOpen);
@@ -1237,6 +1239,7 @@ function render() {
   };
 
   renderers[activeView]();
+  if (activeView === "flows" && flowCanvasOpen && showInspector) restoreInspectorScroll();
 }
 
 function renderNav() {
@@ -1695,7 +1698,7 @@ function renderFlows() {
           <strong>${escapeHtml(node?.title || "Bloco")}</strong>
           <button class="icon-button" type="button" data-action="peek-inspector" title="Fechar configurações">&times;</button>
         </div>
-        <div class="panel-body stack">
+        <div class="panel-body stack" data-inspector-scroll data-inspector-node-id="${attr(node?.id || "")}">
           ${node ? renderInspector(flow, node) : ""}
         </div>
       </aside>
@@ -1717,6 +1720,7 @@ function renderFlows() {
   } else {
     requestAnimationFrame(() => {
       restoreCanvasScroll();
+      updateLiveConnections(flow);
       updateMiniMapViewport();
     });
   }
@@ -8067,6 +8071,25 @@ function restoreCanvasScroll() {
   canvas.scrollTop = canvasScrollState.y * zoom;
 }
 
+function rememberInspectorScroll() {
+  const scroller = document.querySelector("[data-inspector-scroll]");
+  if (!scroller) return;
+  inspectorScrollState = {
+    nodeId: scroller.dataset.inspectorNodeId || "",
+    scrollTop: scroller.scrollTop
+  };
+}
+
+function restoreInspectorScroll() {
+  const snapshot = inspectorScrollState;
+  if (!snapshot) return;
+  window.requestAnimationFrame(() => {
+    const scroller = document.querySelector("[data-inspector-scroll]");
+    if (!scroller || scroller.dataset.inspectorNodeId !== snapshot.nodeId) return;
+    scroller.scrollTop = Math.min(snapshot.scrollTop, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+  });
+}
+
 function updateLiveConnections(flow) {
   const layer = document.querySelector(".connection-layer");
   if (!layer) return;
@@ -8403,6 +8426,9 @@ function messageOutputY(node, output = {}) {
 }
 
 function nodeOutputPoint(node, output = {}) {
+  const portPoint = nodePortDomPoint(node, output);
+  if (portPoint) return portPoint;
+
   const outputY =
     node.type === "condition"
       ? conditionOutputY(output.field)
@@ -8415,6 +8441,42 @@ function nodeOutputPoint(node, output = {}) {
     x: canvasNodeLeft(node) + NODE_WIDTH,
     y: canvasNodeTop(node) + outputY
   };
+}
+
+function nodePortDomPoint(node, output = {}) {
+  const canvas = document.querySelector("#flowCanvas");
+  if (!canvas || !node?.id) return null;
+  const port = Array.from(document.querySelectorAll(".node-port")).find((item) => {
+    if (item.dataset.portSource !== node.id) return false;
+    return portMatchesOutput(item, output);
+  });
+  if (!port) return null;
+
+  const canvasRect = canvas.getBoundingClientRect();
+  const portRect = port.getBoundingClientRect();
+  const zoom = canvasZoom || 1;
+  return {
+    x: (canvas.scrollLeft + portRect.left + portRect.width / 2 - canvasRect.left) / zoom,
+    y: (canvas.scrollTop + portRect.top + portRect.height / 2 - canvasRect.top) / zoom
+  };
+}
+
+function portMatchesOutput(port, output = {}) {
+  const field = output.field || "";
+  const kind = output.kind || "";
+  const optionId = output.optionId || "";
+  const blockId = output.blockId || "";
+
+  if (field && (port.dataset.portField || "") !== field) return false;
+  if (kind && (port.dataset.portKind || "") !== kind) return false;
+  if (optionId && (port.dataset.portOptionId || "") !== optionId) return false;
+  if (blockId && (port.dataset.portBlockId || "") !== blockId) return false;
+
+  if (!field && !kind && !optionId && !blockId) {
+    return !(port.dataset.portField || port.dataset.portKind || port.dataset.portOptionId || port.dataset.portBlockId);
+  }
+
+  return true;
 }
 
 function conditionOutputY(field) {
@@ -8784,7 +8846,6 @@ function renderMessageOutputPorts(node) {
               <span>${escapeHtml(item.label)}</span>
               <button
                 class="node-port message-node-port"
-                style="top:${messageOutputY(node, item) - 7}px"
                 type="button"
                 data-port-source="${attr(node.id)}"
                 data-port-field="${attr(item.field || "")}"

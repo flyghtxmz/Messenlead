@@ -1937,11 +1937,12 @@ svg {
 }
 
 .message-node-output-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   min-height: 26px;
-  padding: 5px 14px 5px 8px;
+  padding: 5px 22px 5px 8px;
   border: 1px solid #edf1f5;
   border-radius: 7px;
   background: #fbfdff;
@@ -1964,7 +1965,9 @@ svg {
 }
 
 .message-node-port {
-  top: auto;
+  top: 50%;
+  right: -18px;
+  transform: translateY(-50%);
   border-color: #9fb2c3;
 }
 
