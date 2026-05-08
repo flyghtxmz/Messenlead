@@ -357,6 +357,7 @@ let metaState = {
   selectedConversationId: "",
   messages: null,
   pixelEvents: null,
+  unreadAnchorId: "",
   loadingMessages: false,
   error: oauthErrorFromHash()
 };
@@ -372,6 +373,7 @@ mainNav.addEventListener("click", (event) => {
     metaState.selectedConversationId = "";
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.unreadAnchorId = "";
   }
   if (activeView === "flows") {
     flowCanvasOpen = false;
@@ -1501,6 +1503,7 @@ function renderPages() {
     metaState.selectedConversationId = "";
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.unreadAnchorId = "";
   }
 
   if (selectedPage && selectedConversation && !metaState.messages) {
@@ -1587,7 +1590,7 @@ function renderPages() {
                         <div class="conversation" data-conversation-scroll>
                           ${
                             metaState.messages
-                              ? renderMetaConversationMessages(metaState.messages, selectedPage.id, metaState.pixelEvents || [])
+                              ? renderMetaConversationMessages(metaState.messages, selectedPage.id, metaState.pixelEvents || [], metaState.unreadAnchorId)
                               : `<div class="empty-state">${icons.inbox}<span>Carregando mensagens...</span></div>`
                           }
                         </div>
@@ -3132,6 +3135,7 @@ async function loadMetaConversations(pageId) {
     metaState.selectedConversationId = conversations.find((conversation) => conversation.id === previousConversationId)?.id || "";
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.unreadAnchorId = "";
   } catch (error) {
     metaState.conversations = [];
     metaState.error = error.message;
@@ -3199,9 +3203,12 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
   if (metaState.loadingMessages && options.silent) return;
   metaState.loadingMessages = true;
   let shouldRenderAfterLoad = true;
+  let scrollToUnreadAfterRender = false;
   try {
     const conversation = metaState.conversations?.find((item) => item.id === conversationId);
     const psid = conversation ? recipientIdFromConversation(conversation, pageId) : "";
+    const readBeforeOpen = conversationReadState[conversationReadKey(pageId, conversationId)] || null;
+    const unreadCountBeforeOpen = conversationUnreadCount(conversation);
     const [result, pixelResult] = await Promise.all([
       apiGet(`/api/meta/messages?pageId=${encodeURIComponent(pageId)}&conversationId=${encodeURIComponent(conversationId)}`),
       psid
@@ -3214,6 +3221,8 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
     }
     metaState.messages = result.messages || [];
     metaState.pixelEvents = pixelResult.events || [];
+    metaState.unreadAnchorId = options.silent ? metaState.unreadAnchorId : unreadAnchorForConversation(metaState.messages, pageId, readBeforeOpen, unreadCountBeforeOpen);
+    scrollToUnreadAfterRender = !options.silent;
     metaState.error = "";
     markMetaConversationRead(pageId, conversationId);
   } catch (error) {
@@ -3223,6 +3232,7 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
     }
     metaState.messages = [];
     metaState.pixelEvents = [];
+    metaState.unreadAnchorId = "";
     metaState.error = error.message;
     toastMessage(error.message);
   } finally {
@@ -3231,6 +3241,7 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
       const scrollSnapshot = options.silent && activeView === "pages" ? captureMetaConversationScroll() : null;
       render();
       if (scrollSnapshot) restoreMetaConversationScroll(scrollSnapshot);
+      else if (scrollToUnreadAfterRender) scrollMetaConversationToUnread();
     }
   }
 }
@@ -3256,6 +3267,44 @@ function restoreMetaConversationScroll(snapshot) {
     }
     scroller.scrollTop = Math.min(snapshot.scrollTop, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
   });
+}
+
+function scrollMetaConversationToUnread() {
+  window.requestAnimationFrame(() => {
+    const scroller = document.querySelector("[data-conversation-scroll]");
+    if (!scroller) return;
+    const anchor = scroller.querySelector("[data-unread-anchor]");
+    if (anchor) {
+      scroller.scrollTop = Math.max(0, anchor.offsetTop - 14);
+      return;
+    }
+    scroller.scrollTop = scroller.scrollHeight;
+  });
+}
+
+function unreadAnchorForConversation(messages = [], pageId, readBefore = null, unreadCount = 0) {
+  const inboundMessages = [...messages]
+    .filter((message) => message?.from?.id !== pageId)
+    .sort((left, right) => Date.parse(messageTimeValue(left) || "") - Date.parse(messageTimeValue(right) || ""));
+
+  if (!inboundMessages.length) return "";
+
+  const lastReadTime = Date.parse(readBefore?.readAt || readBefore?.updatedTime || "");
+  if (Number.isFinite(lastReadTime)) {
+    const firstUnread = inboundMessages.find((message) => {
+      const timestamp = Date.parse(messageTimeValue(message) || "");
+      return Number.isFinite(timestamp) && timestamp > lastReadTime + 1000;
+    });
+    if (firstUnread) return messageAnchorId(firstUnread);
+  }
+
+  const count = Math.max(0, Number(unreadCount) || 0);
+  if (count > 0) {
+    const index = Math.max(0, inboundMessages.length - count);
+    return messageAnchorId(inboundMessages[index]);
+  }
+
+  return "";
 }
 
 function shouldLoadContactsForCurrentPage() {
@@ -3416,6 +3465,7 @@ function selectMetaPage(pageId) {
   metaState.selectedConversationId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
+  metaState.unreadAnchorId = "";
 
   if (page) {
     state.settings.pageId = page.id;
@@ -3443,6 +3493,7 @@ function selectSidebarPage(pageId) {
   metaState.selectedConversationId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
+  metaState.unreadAnchorId = "";
   state.settings.pageId = page.id;
   state.settings.pageName = page.name;
   subscriberTagFilter = "";
@@ -3465,6 +3516,7 @@ function refreshMetaConversations() {
   metaState.conversations = null;
   metaState.messages = null;
   metaState.pixelEvents = null;
+  metaState.unreadAnchorId = "";
   render();
 }
 
@@ -3473,7 +3525,7 @@ function selectMetaConversation(conversationId) {
   metaState.selectedConversationId = conversationId;
   metaState.messages = null;
   metaState.pixelEvents = null;
-  markMetaConversationRead(pageId, conversationId);
+  metaState.unreadAnchorId = "";
   render();
 }
 
@@ -3495,6 +3547,7 @@ async function sendMetaMessage() {
     textarea.value = "";
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.unreadAnchorId = "";
     toastMessage("Mensagem enviada pelo Messenger.");
     render();
   } catch (error) {
@@ -8871,7 +8924,7 @@ function selectedContact() {
   return pageContacts.find((contact) => contact.id === selectedContactId) || pageContacts[0];
 }
 
-function renderMetaConversationMessages(messages, pageId, pixelEvents = []) {
+function renderMetaConversationMessages(messages, pageId, pixelEvents = [], unreadAnchorId = "") {
   const normalizedPixelEvents = conversationPixelTimelineEvents(pixelEvents);
   const timeline = [
     ...messages.map((message) => ({ kind: "message", at: messageTimeValue(message), message })),
@@ -8886,13 +8939,16 @@ function renderMetaConversationMessages(messages, pageId, pixelEvents = []) {
 
       const message = item.message;
       const direction = message.from?.id === pageId ? "outbound" : "inbound";
-      return renderConversationBubble({
+      const marker = unreadAnchorId && messageAnchorId(message) === unreadAnchorId
+        ? `<div class="unread-divider" data-unread-anchor>Mensagens novas</div>`
+        : "";
+      return `${marker}${renderConversationBubble({
         direction,
         content: renderMessageContent(message),
         sender: message.from?.name || "",
         time: messageTimeValue(message),
         showTime: shouldShowBubbleTime(item, timeline[index - 1])
-      });
+      })}`;
     })
     .join("");
 }
@@ -9098,6 +9154,10 @@ function shouldShowBubbleTime(message, previousMessage) {
 
 function messageTimeValue(message) {
   return message?.created_time || message?.at || message?.timestamp || "";
+}
+
+function messageAnchorId(message = {}) {
+  return String(message.id || message.mid || `${messageTimeValue(message)}:${message.from?.id || ""}`).replace(/[^a-zA-Z0-9_-]+/g, "_");
 }
 
 function messageHourKey(value) {

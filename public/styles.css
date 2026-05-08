@@ -2106,6 +2106,24 @@ svg {
   color: #27372d;
 }
 
+.unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  color: #0f7d5d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.unread-divider::before,
+.unread-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #bfe4d8;
+}
+
 .pixel-chat-event {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
