@@ -56,12 +56,15 @@ export async function ensureMessengerDeliverySchema(env) {
 
 export function messengerEventDedupId(pageId, event = {}) {
   const psid = event.sender?.id || "";
-  const type = event.message?.quick_reply ? "quick_reply" : event.message ? "message" : event.postback ? "postback" : event.optin ? "optin" : "unknown";
+  const type = event.message?.quick_reply ? "quick_reply" : event.message ? "message" : event.postback ? "postback" : event.optin ? "optin" : event.referral ? "referral" : "unknown";
   const stableId =
     event.message?.mid ||
     event.postback?.mid ||
     event.postback?.payload ||
     event.optin?.ref ||
+    event.referral?.ref ||
+    event.referral?.ad_id ||
+    event.referral?.ads_context_data?.ad_id ||
     event.message?.quick_reply?.payload ||
     event.message?.text ||
     "event";

@@ -159,10 +159,14 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
   await log("info", "event_received", "Mensagem recebida pelo webhook.", {
     eventId,
     eventType: context.eventType,
+    sourceLabel: context.sourceLabel,
     text: context.text,
     hasReferral: context.hasReferral,
+    hasAdReferral: context.hasAdReferral,
     referralRef: context.referralRef,
-    referralSource: context.referralSource
+    referralSource: context.referralSource,
+    adId: context.adId,
+    adTitle: context.adTitle
   });
 
   const profile = await fetchMessengerUserProfile(env, pageId, psid, log);
@@ -1591,14 +1595,56 @@ function flowMatchesInput(flow, context) {
 
 function eventContext(event) {
   const referral = event.referral || event.message?.referral || event.postback?.referral || {};
+  const adsContext = referral.ads_context_data || referral.ad_context || {};
   const inputText = event.message?.quick_reply?.payload || event.message?.text || event.postback?.payload || event.optin?.ref || referral.ref || "";
+  const referralSource = normalize(referral.source || referral.type || "");
+  const referralRef = normalize(referral.ref || event.optin?.ref || "");
+  const adId = String(referral.ad_id || adsContext.ad_id || adsContext.adgroup_id || "").trim();
+  const adTitle = String(adsContext.ad_title || adsContext.post_title || adsContext.video_title || "").trim();
+  const adSignal = normalize([
+    referral.source,
+    referral.type,
+    referral.ref,
+    referral.ad_id,
+    adsContext.ad_id,
+    adsContext.ad_title,
+    adsContext.post_title,
+    adsContext.product_id,
+    adsContext.flow_id
+  ].filter(Boolean).join(" "));
+  const hasAdReferral = Boolean(
+    adId ||
+    referral.ads_context_data ||
+    referral.ad_context ||
+    adSignal.includes(" ad") ||
+    adSignal.startsWith("ad") ||
+    adSignal.includes("ads") ||
+    adSignal.includes("anuncio") ||
+    adSignal.includes("advert")
+  );
+  const eventType = event.message?.quick_reply
+    ? "quick_reply"
+    : event.message
+      ? "message"
+      : event.postback
+        ? "postback"
+        : event.optin
+          ? "optin"
+          : event.referral
+            ? "referral"
+            : "unknown";
+
   return {
     text: inputText,
     normalizedInput: normalize(inputText),
-    eventType: event.message?.quick_reply ? "quick_reply" : event.message ? "message" : event.postback ? "postback" : event.optin ? "optin" : "unknown",
-    referralRef: normalize(referral.ref || event.optin?.ref || ""),
-    referralSource: normalize(referral.source || referral.type || ""),
-    hasReferral: Boolean(referral.ref || referral.source || referral.type || event.optin?.ref)
+    eventType,
+    referralRef,
+    referralSource,
+    hasReferral: Boolean(referral.ref || referral.source || referral.type || event.optin?.ref || hasAdReferral),
+    hasAdReferral,
+    adId,
+    adTitle,
+    sourceLabel: hasAdReferral ? "facebook_ad" : eventType
   };
 }
 
@@ -1614,7 +1660,7 @@ function triggerMatchesEvent(node, flow, context) {
 
 function triggerEventMatches(trigger, context) {
   if (trigger === "messenger_message") return ["message", "quick_reply", "postback", "optin"].includes(context.eventType);
-  if (trigger === "facebook_ad") return context.referralSource.includes("ad") || context.referralSource.includes("ads");
+  if (trigger === "facebook_ad") return context.hasAdReferral;
   if (trigger === "facebook_comment") return context.referralSource.includes("comment");
   if (trigger === "referral_link") return context.hasReferral;
   if (trigger === "qr_code") return context.referralRef.includes("qr") || context.referralSource.includes("qr");
@@ -1627,12 +1673,12 @@ function triggerEventMatches(trigger, context) {
 }
 
 function triggerKeywordMatches(trigger, node, flow, context) {
-  const rawKeywords = node.keyword || flow.trigger || "";
+  const rawKeywords = triggerKeywords(node, flow);
   if (trigger === "messenger_message") {
     return true;
   }
   if (trigger === "facebook_ad" || trigger === "facebook_comment" || trigger === "facebook_shop_message") {
-    return !rawKeywords || keywordMatches(rawKeywords, `${context.normalizedInput} ${context.referralRef} ${context.referralSource}`);
+    return true;
   }
   if (trigger === "referral_link" || trigger === "qr_code") {
     return !rawKeywords || keywordMatches(rawKeywords, context.referralRef || context.normalizedInput);
@@ -1650,6 +1696,13 @@ function triggerKeywordMatches(trigger, node, flow, context) {
     return keywordMatches(rawKeywords, context.normalizedInput);
   }
   return keywordMatches(rawKeywords, context.normalizedInput);
+}
+
+function triggerKeywords(node, flow) {
+  const nodeKeywords = String(node?.keyword || "").trim();
+  if (nodeKeywords) return nodeKeywords;
+  const hasStructuredTriggers = Array.isArray(node?.triggerEvents) && node.triggerEvents.length;
+  return hasStructuredTriggers ? "" : String(flow?.trigger || "");
 }
 
 function keywordMatches(keywords, normalizedInput) {
