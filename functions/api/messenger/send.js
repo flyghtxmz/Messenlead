@@ -1,4 +1,4 @@
-import { messengerPolicyStatus } from "../../_lib/messengerDelivery.js";
+import { isBlockedDefaultGreetingText, messengerPolicyStatus } from "../../_lib/messengerDelivery.js";
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
@@ -25,6 +25,10 @@ export async function onRequestPost({ request, env }) {
 
   if (!psid || !text) {
     return json({ error: "psid and text are required" }, 400);
+  }
+
+  if (isBlockedDefaultGreetingText(text)) {
+    return json({ error: "Default Meta greeting is blocked by Messenlead" }, 409);
   }
 
   if (!env.MESSENGER_PAGE_ACCESS_TOKEN) {

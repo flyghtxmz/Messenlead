@@ -166,7 +166,7 @@ export async function resetExternalRelayQueues(env, options = {}) {
 export async function enqueueMessengerReplies(env, options = {}) {
   const pageId = normalizePageId(options.pageId);
   const psid = String(options.psid || "").trim();
-  const replies = Array.isArray(options.replies) ? options.replies.slice(0, 10) : [];
+  const replies = Array.isArray(options.replies) ? options.replies.slice(0, 10).filter((reply) => !isBlockedDefaultGreetingReply(reply)) : [];
   const policyExpiresAt = options.policyExpiresAt || new Date(Date.now() + RESPONSE_WINDOW_MS).toISOString();
 
   if (!psid || !replies.length) return [];
@@ -524,6 +524,16 @@ async function processQueueRow(env, row, options = {}) {
 
   try {
     const reply = parseJson(row.reply_json);
+    if (isBlockedDefaultGreetingReply(reply)) {
+      await markQueueRow(env, row.id, "skipped", {
+        response: "Blocked default Meta greeting",
+        updatedAt: new Date().toISOString()
+      });
+      await log("warn", "default_greeting_blocked", "Envio bloqueado porque parece a saudacao padrao da Meta.", {
+        queueId: row.id
+      });
+      return "skipped";
+    }
     const message = await messengerMessagePayload(reply, env, row.page_id, row.psid);
     const sendResult = await sendMessengerApi(env, {
       pageId: row.page_id,
@@ -558,6 +568,29 @@ async function processQueueRow(env, row, options = {}) {
   } catch (error) {
     return retryOrFail(env, row, error.message || "Messenger send failed", log);
   }
+}
+
+export function isBlockedDefaultGreetingText(value) {
+  const normalizedText = normalizeText(String(value || ""))
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = normalizedText.split(" ").filter(Boolean);
+  if (words[0] !== "hola") return false;
+  if (words.length < 5 || words.length > 8) return false;
+  return normalizedText.endsWith(" como podemos ayudarte") || normalizedText.endsWith(" en que podemos ayudarte");
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function isBlockedDefaultGreetingReply(reply = {}) {
+  if (!reply || typeof reply !== "object") return false;
+  return isBlockedDefaultGreetingText(reply.text);
 }
 
 async function sendMessengerApi(env, payload) {

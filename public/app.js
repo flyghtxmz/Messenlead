@@ -1634,7 +1634,7 @@ function renderPages() {
                                   <strong>${escapeHtml(conversationTitle(conversation, selectedPage.name))}</strong>
                                   ${renderConversationUnreadBadge(conversation, selectedPage.id)}
                                 </span>
-                                <span class="conversation-snippet">${escapeHtml(conversation.snippet || "Sem previa")}</span>
+                                <span class="conversation-snippet">${escapeHtml(displayConversationSnippet(conversation))}</span>
                                 <span>${formatDate(conversation.updated_time)}</span>
                               </button>
                             `
@@ -9092,9 +9092,10 @@ function selectedContact() {
 }
 
 function renderMetaConversationMessages(messages, pageId, pixelEvents = [], unreadAnchorId = "") {
+  const visibleMessages = messages.filter((message) => !isMetaDefaultGreetingMessage(message, pageId));
   const normalizedPixelEvents = conversationPixelTimelineEvents(pixelEvents);
   const timeline = [
-    ...messages.map((message) => ({ kind: "message", at: messageTimeValue(message), message })),
+    ...visibleMessages.map((message) => ({ kind: "message", at: messageTimeValue(message), message })),
     ...normalizedPixelEvents.map((event) => ({ kind: "pixel", at: event.createdAt || "", event }))
   ].sort((left, right) => Date.parse(left.at || "") - Date.parse(right.at || ""));
 
@@ -9118,6 +9119,27 @@ function renderMetaConversationMessages(messages, pageId, pixelEvents = [], unre
       })}`;
     })
     .join("");
+}
+
+function displayConversationSnippet(conversation = {}) {
+  const snippet = String(conversation.snippet || "").trim();
+  return isMetaDefaultGreetingText(snippet) ? "Saudacao padrao da Meta ocultada" : snippet || "Sem previa";
+}
+
+function isMetaDefaultGreetingMessage(message = {}, pageId = "") {
+  if (String(message.from?.id || "") !== String(pageId || "")) return false;
+  return isMetaDefaultGreetingText(message.message);
+}
+
+function isMetaDefaultGreetingText(value) {
+  const normalizedText = normalize(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = normalizedText.split(" ").filter(Boolean);
+  if (words[0] !== "hola") return false;
+  if (words.length < 5 || words.length > 8) return false;
+  return normalizedText.endsWith(" como podemos ayudarte") || normalizedText.endsWith(" en que podemos ayudarte");
 }
 
 function conversationPixelTimelineEvents(events = []) {

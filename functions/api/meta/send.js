@@ -1,5 +1,5 @@
 import { getMetaConfig, getPageAccessToken, graphFetch, json } from "../../_lib/meta.js";
-import { messengerPolicyStatus } from "../../_lib/messengerDelivery.js";
+import { isBlockedDefaultGreetingText, messengerPolicyStatus } from "../../_lib/messengerDelivery.js";
 
 export async function onRequestPost({ request, env }) {
   let body;
@@ -15,6 +15,10 @@ export async function onRequestPost({ request, env }) {
 
   if (!pageId || !psid || !text) {
     return json({ error: "pageId, psid and text are required" }, 400);
+  }
+
+  if (isBlockedDefaultGreetingText(text)) {
+    return json({ error: "Default Meta greeting is blocked by Messenlead" }, 409);
   }
 
   const pageAccessToken = await getPageAccessToken(request, env, pageId);
