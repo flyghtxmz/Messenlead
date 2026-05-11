@@ -2681,6 +2681,9 @@ function renderVideoOutputCard(output) {
 
 function renderSetup() {
   const flowJson = JSON.stringify({ flows: state.flows }, null, 2);
+  const pageId = currentFlowPageId();
+  const currentPage = metaState.pages.find((page) => page.id === pageId);
+  const pageName = currentPage?.name || state.settings.pageName || state.settings.pageId || "Pagina atual";
 
   workspace.innerHTML = `
     <div class="settings-grid">
@@ -2700,6 +2703,22 @@ function renderSetup() {
             ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins, messaging_referrals, message_echoes, messaging_handovers, standby", "copy-fields")}
             ${integrationCard("Verify token", "Use o mesmo valor em MESSENGER_VERIFY_TOKEN.", state.settings.verifyToken, "copy-verify")}
             ${integrationCard("Endpoint de envio", "Envio serverless protegido por token.", `${location.origin}/api/messenger/send`, "copy-send")}
+          </div>
+
+          <div class="panel flat">
+            <div class="panel-header">
+              <div>
+                <h3>Botao Comecar</h3>
+                <span>Configura o Get Started da ${escapeHtml(pageName)} sem abrir a Meta.</span>
+              </div>
+            </div>
+            <div class="panel-body stack">
+              <p class="muted">Use isso com o gatilho "Botao Comecar" no node Quando. O payload aplicado sera GET_STARTED.</p>
+              <div class="button-row">
+                <button class="primary-button" type="button" data-action="setup-get-started">${icons.play}<span>Ativar Comecar</span></button>
+                <button class="secondary-button" type="button" data-action="check-get-started">${icons.refresh}<span>Verificar</span></button>
+              </div>
+            </div>
           </div>
 
           <div class="panel flat">
@@ -3863,6 +3882,37 @@ async function subscribePageWebhook() {
   }
 
   if (activeView === "settings") render();
+}
+
+async function setupGetStartedButton() {
+  const pageId = currentFlowPageId();
+  if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID) {
+    toastMessage("Selecione uma Pagina antes de ativar Comecar.");
+    return;
+  }
+
+  try {
+    const data = await apiPost("/api/meta/messenger-profile", { pageId, payload: "GET_STARTED" });
+    toastMessage(data?.ok ? "Botao Comecar ativado com GET_STARTED." : "Solicitacao enviada para a Meta.");
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel ativar Comecar.");
+  }
+}
+
+async function checkGetStartedButton() {
+  const pageId = currentFlowPageId();
+  if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID) {
+    toastMessage("Selecione uma Pagina para verificar Comecar.");
+    return;
+  }
+
+  try {
+    const data = await apiGet(`/api/meta/messenger-profile?pageId=${encodeURIComponent(pageId)}`);
+    const payload = data?.profile?.get_started?.payload || "";
+    toastMessage(payload ? `Comecar ativo: ${payload}` : "Comecar ainda nao esta configurado.");
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel verificar Comecar.");
+  }
 }
 
 async function clearFlowLogs() {
@@ -5283,6 +5333,8 @@ function handleWorkspaceClick(event) {
   if (action === "test-flow-log") return testFlowLog();
   if (action === "check-webhook-subscription") return checkWebhookSubscription();
   if (action === "subscribe-page-webhook") return subscribePageWebhook();
+  if (action === "setup-get-started") return setupGetStartedButton();
+  if (action === "check-get-started") return checkGetStartedButton();
   if (action === "clear-flow-logs") return clearFlowLogs();
   if (action === "refresh-pixel-events") return loadPixelEventsForPage(currentFlowPageId());
   if (action === "copy-pixel-snippet") return copyText(pixelInstallSnippet(currentFlowPageId()), "Pixel copiado.");
