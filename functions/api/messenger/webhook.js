@@ -646,8 +646,12 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     activeFlows[0];
 
   if (!flow) {
+    const allFlows = pageId ? await listFlows(env, pageId) : [];
     await log?.("warn", "no_active_flow", "Nenhum fluxo ativo foi encontrado para esta Página.", {
-      activeFlowCount: activeFlows.length
+      activeFlowCount: activeFlows.length,
+      totalFlowCount: allFlows.length,
+      statusCounts: flowStatusCounts(allFlows),
+      publishedFlowCount: allFlows.filter((item) => Array.isArray(item.publishedNodes)).length
     });
     return { replies: [], actions: [], flow: null };
   }
@@ -1586,6 +1590,14 @@ function parseFlows(rawJson) {
   } catch {
     return [];
   }
+}
+
+function flowStatusCounts(flows = []) {
+  return flows.reduce((counts, flow) => {
+    const status = String(flow?.status || "unknown");
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
 }
 
 function flowMatchesInput(flow, context) {

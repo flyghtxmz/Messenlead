@@ -3711,9 +3711,9 @@ function scheduleFlowSave() {
   }, 650);
 }
 
-async function syncFlowToServer(flow) {
+async function syncFlowToServer(flow, options = {}) {
   const pageId = currentFlowPageId();
-  if (flowStore.serverAvailable === false && flowStore.pageId === pageId) return false;
+  if (!options.force && flowStore.serverAvailable === false && flowStore.pageId === pageId) return false;
 
   try {
     flow.pageId = pageId;
@@ -5900,7 +5900,7 @@ async function publishSelectedFlow() {
   updateSyncPill();
   render();
 
-  const synced = flowStore.loading ? false : await syncFlowToServer(flow);
+  const synced = flowStore.loading ? false : await syncFlowToServer(flow, { force: true });
   toastMessage(synced ? "Fluxo publicado." : `Fluxo publicado localmente: ${flowStore.status}`);
   render();
 }
@@ -5917,7 +5917,7 @@ function toggleFlowActive(flowId = selectedFlowId) {
   flow.status = flow.status === "active" ? "paused" : "active";
   flow.updatedAt = new Date().toISOString();
   persistLocalState();
-  if (!flowStore.loading) syncFlowToServer(flow);
+  if (!flowStore.loading) syncFlowToServer(flow, { force: true });
   toastMessage(`Fluxo ${flow.status === "active" ? "ligado pela ultima publicacao" : "desligado"}.`);
   render();
 }
