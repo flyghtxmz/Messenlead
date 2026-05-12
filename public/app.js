@@ -4,6 +4,7 @@ const DEFAULT_FLOW_PAGE_ID = "__global__";
 const CONVERSATION_READ_KEY = "messenlead.messenger.conversation.read.v1";
 const DEFAULT_TAG_FOLDER_ID = "default";
 const DEFAULT_TAG_FOLDER_NAME = "Tags";
+const AD_TEST_CONTACT_TAG = "tester";
 const PIXEL_HEARTBEAT_STALE_MS = 90000;
 const META_THREAD_REFRESH_MS = 15000;
 
@@ -331,7 +332,7 @@ let flowAdTestState = {
   loading: false,
   channel: "",
   psid: "",
-  tag: "tester",
+  tag: "",
   tagMode: "has",
   result: null,
   logs: [],
@@ -2880,51 +2881,50 @@ function renderAdFlowTestPanel(pageId) {
   const logs = flowAdTestState.logs || [];
   const status = adFlowTestStatus(logs, flowAdTestState.error);
   const pageContacts = contactsForPage(pageId);
+  const testerContacts = adTestContactsWithTesterTag(pageContacts);
   const availableTags = adTestTagOptions(pageId, pageContacts);
   const selectedTag = currentAdTestTag(pageId, pageContacts);
   const tagMode = currentAdTestTagMode();
-  const filteredContacts = adTestContactsForTag(pageContacts, selectedTag, tagMode);
   const selectedPsid = currentAdTestContactPsid(pageId);
-  const allowTemporaryContact = tagMode === "missing";
-  const selectedOptionValue = allowTemporaryContact && flowAdTestState.psid === "__temp__" ? "__temp__" : selectedPsid;
-  const selectedContactForTest = filteredContacts.find((contact) => contact.psid === selectedPsid);
+  const selectedOptionValue = selectedPsid;
+  const selectedContactForTest = testerContacts.find((contact) => contact.psid === selectedPsid);
   const selectedTags = contactTags(selectedContactForTest);
+  const simulatedTags = selectedContactForTest ? adTestSimulatedTags(selectedTags, selectedTag, tagMode) : [];
   return `
     <div class="ad-flow-test">
       <div class="ad-flow-test-config">
         <label>
-          <span>Tag para filtrar</span>
+          <span>Tag que sera testada</span>
           <select data-ad-test-tag="true" ${flowAdTestState.loading ? "disabled" : ""}>
-            ${availableTags.map((tagName) => `
-              <option value="${attr(tagName)}" ${normalizeTagKey(tagName) === normalizeTagKey(selectedTag) ? "selected" : ""}>${escapeHtml(tagName)}</option>
-            `).join("")}
+            ${
+              availableTags.length
+                ? availableTags.map((tagName) => `
+                  <option value="${attr(tagName)}" ${normalizeTagKey(tagName) === normalizeTagKey(selectedTag) ? "selected" : ""}>${escapeHtml(tagName)}</option>
+                `).join("")
+                : `<option value="" selected disabled>Nenhuma tag alem de ${escapeHtml(AD_TEST_CONTACT_TAG)}</option>`
+            }
           </select>
-          <small>O teste usa esse filtro para escolher um contato com ou sem a tag.</small>
+          <small>${escapeHtml(AD_TEST_CONTACT_TAG)} fica apenas como filtro dos contatos de teste.</small>
         </label>
         <label>
-          <span>Condição do contato</span>
+          <span>Estado simulado</span>
           <select data-ad-test-tag-mode="true" ${flowAdTestState.loading ? "disabled" : ""}>
             <option value="has" ${tagMode === "has" ? "selected" : ""}>Com essa tag</option>
             <option value="missing" ${tagMode === "missing" ? "selected" : ""}>Sem essa tag</option>
           </select>
-          <small>${filteredContacts.length} contato${filteredContacts.length === 1 ? "" : "s"} encontrado${filteredContacts.length === 1 ? "" : "s"} nesse filtro.</small>
+          <small>O dry-run adiciona ou remove essa tag somente durante o teste.</small>
         </label>
         <label>
           <span>Contato do teste</span>
           <select data-ad-test-contact="true" ${flowAdTestState.loading ? "disabled" : ""}>
-            ${
-              allowTemporaryContact
-                ? `<option value="__temp__" ${selectedOptionValue === "__temp__" || !selectedOptionValue ? "selected" : ""}>Contato temporario sem tags</option>`
-                : ""
-            }
-            ${!allowTemporaryContact && !filteredContacts.length ? `<option value="" selected disabled>Nenhum contato com essa tag</option>` : ""}
-            ${filteredContacts.map((contact) => `
+            ${!testerContacts.length ? `<option value="" selected disabled>Nenhum contato com ${escapeHtml(AD_TEST_CONTACT_TAG)}</option>` : ""}
+            ${testerContacts.map((contact) => `
               <option value="${attr(contact.psid)}" ${contact.psid === selectedOptionValue ? "selected" : ""}>
                 ${escapeHtml(contactDisplayName(contact.name, contact.psid))}
               </option>
             `).join("")}
           </select>
-          <small>${selectedPsid ? `Tags usadas no teste: ${escapeHtml(selectedTags.join(", ") || "sem tags")}` : "Use um contato real quando o fluxo depende de tags ou campos do assinante."}</small>
+          <small>${selectedPsid ? `Tags reais: ${escapeHtml(selectedTags.join(", ") || "sem tags")} · No teste: ${escapeHtml(simulatedTags.join(", ") || "sem tags")}` : `Apenas contatos com a tag ${escapeHtml(AD_TEST_CONTACT_TAG)} aparecem aqui.`}</small>
         </label>
       </div>
       <div class="ad-flow-test-actions">
@@ -2958,21 +2958,19 @@ function renderAdFlowTestPanel(pageId) {
 function currentAdTestContactPsid(pageId = currentFlowPageId()) {
   const normalizedPageId = normalizeFlowPageId(pageId);
   const pageContacts = contactsForPage(normalizedPageId);
-  const selectedTag = currentAdTestTag(normalizedPageId, pageContacts);
-  const filteredContacts = adTestContactsForTag(pageContacts, selectedTag, currentAdTestTagMode());
+  const testerContacts = adTestContactsWithTesterTag(pageContacts);
   const storedPsid = String(flowAdTestState.psid || "").trim();
-  if (storedPsid === "__temp__") return "";
-  if (storedPsid && filteredContacts.some((contact) => contact.psid === storedPsid)) return storedPsid;
+  if (storedPsid && testerContacts.some((contact) => contact.psid === storedPsid)) return storedPsid;
   const current = selectedContact();
-  if (current && normalizeFlowPageId(current.pageId) === normalizedPageId && adTestContactMatchesTag(current, selectedTag, currentAdTestTagMode())) return current.psid;
-  return filteredContacts[0]?.psid || "";
+  if (current && normalizeFlowPageId(current.pageId) === normalizedPageId && adTestContactHasTesterTag(current)) return current.psid;
+  return testerContacts[0]?.psid || "";
 }
 
 function currentAdTestTag(pageId = currentFlowPageId(), pageContacts = contactsForPage(pageId)) {
   const options = adTestTagOptions(pageId, pageContacts);
-  const stored = normalizeTagName(flowAdTestState.tag || "tester");
+  const stored = normalizeTagName(flowAdTestState.tag || "");
   const match = options.find((tagName) => normalizeTagKey(tagName) === normalizeTagKey(stored));
-  return match || options[0] || "tester";
+  return match || options[0] || "";
 }
 
 function currentAdTestTagMode() {
@@ -2981,29 +2979,33 @@ function currentAdTestTagMode() {
 
 function adTestTagOptions(pageId = currentFlowPageId(), pageContacts = contactsForPage(pageId)) {
   const tagNames = [
-    "tester",
     ...tagRecordsForPage(pageId).map((tag) => tag.name),
     ...allContactTags(pageContacts),
     flowAdTestState.tag
   ];
-  return unique(tagNames.map(normalizeTagName).filter(Boolean)).sort((a, b) => {
-    if (normalizeTagKey(a) === "tester") return -1;
-    if (normalizeTagKey(b) === "tester") return 1;
-    return a.localeCompare(b);
-  });
+  return unique(
+    tagNames
+      .map(normalizeTagName)
+      .filter((tagName) => tagName && normalizeTagKey(tagName) !== normalizeTagKey(AD_TEST_CONTACT_TAG))
+  ).sort((a, b) => a.localeCompare(b));
 }
 
-function adTestContactsForTag(contacts = [], tagName = "", tagMode = "has") {
-  const target = normalizeTagKey(tagName);
-  if (!target) return contacts;
-  return contacts.filter((contact) => adTestContactMatchesTag(contact, tagName, tagMode));
+function adTestContactsWithTesterTag(contacts = []) {
+  return contacts.filter(adTestContactHasTesterTag);
 }
 
-function adTestContactMatchesTag(contact, tagName = "", tagMode = "has") {
-  const target = normalizeTagKey(tagName);
-  if (!target) return true;
-  const hasTag = contactTags(contact).some((tag) => normalizeTagKey(tag) === target);
-  return tagMode === "missing" ? !hasTag : hasTag;
+function adTestContactHasTesterTag(contact) {
+  const target = normalizeTagKey(AD_TEST_CONTACT_TAG);
+  return contactTags(contact).some((tag) => normalizeTagKey(tag) === target);
+}
+
+function adTestSimulatedTags(tags = [], tagName = "", tagMode = "has") {
+  const normalizedTags = normalizeTags(tags);
+  const tag = normalizeTagName(tagName);
+  if (!tag) return normalizedTags;
+  const target = normalizeTagKey(tag);
+  const withoutTag = normalizedTags.filter((item) => normalizeTagKey(item) !== target);
+  return tagMode === "missing" ? withoutTag : normalizeTags([...withoutTag, tag]);
 }
 
 function adFlowTestStep(label, ok, description) {
@@ -4042,15 +4044,19 @@ async function testFlowLog() {
 async function testAdFlow(channel = "messaging") {
   const pageId = currentFlowPageId();
   const psid = currentAdTestContactPsid(pageId);
-  const selectedAdTestValue = flowAdTestState.psid === "__temp__" ? "__temp__" : psid;
+  const selectedAdTestValue = psid;
   const selectedTag = currentAdTestTag(pageId);
   const tagMode = currentAdTestTagMode();
   if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID) {
     toastMessage("Selecione uma Pagina antes de simular anuncio.");
     return;
   }
-  if (!psid && selectedTag && tagMode === "has") {
-    toastMessage(`Nenhum contato com a tag ${selectedTag} para testar.`);
+  if (!psid) {
+    toastMessage(`Nenhum contato com a tag ${AD_TEST_CONTACT_TAG} para testar.`);
+    return;
+  }
+  if (!selectedTag) {
+    toastMessage(`Escolha uma tag diferente de ${AD_TEST_CONTACT_TAG} para testar.`);
     return;
   }
 
@@ -4068,6 +4074,8 @@ async function testAdFlow(channel = "messaging") {
     const result = await apiPost("/api/flow-runtime/test-ad", {
       pageId,
       psid,
+      testTag: selectedTag,
+      testTagMode: tagMode,
       channel,
       text: "Hola"
     });
@@ -5781,7 +5789,6 @@ function handleWorkspaceChange(event) {
     flowAdTestState = {
       ...flowAdTestState,
       tag: target.value,
-      psid: "",
       result: null,
       logs: [],
       error: ""
@@ -5793,7 +5800,6 @@ function handleWorkspaceChange(event) {
     flowAdTestState = {
       ...flowAdTestState,
       tagMode: target.value === "missing" ? "missing" : "has",
-      psid: "",
       result: null,
       logs: [],
       error: ""

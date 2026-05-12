@@ -192,7 +192,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
   const profile = isDryRun
     ? { name: dryRunStoredContact?.name || "Teste Anuncio" }
     : await fetchMessengerUserProfile(env, pageId, psid, log);
-  const contact = isDryRun
+  let contact = isDryRun
     ? dryRunStoredContact || {
         psid,
         pageId,
@@ -210,11 +210,16 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
         source: "Messenger webhook",
         lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
       });
+  if (isDryRun && options.testTag) {
+    contact = dryRunContactWithTestTag(contact, options.testTag, options.testTagMode);
+  }
 
   await log("info", "contact_loaded", "Contato carregado para avaliar o fluxo.", {
     name: contact.name || "",
     tags: contact.tags || [],
-    status: contact.status || ""
+    status: contact.status || "",
+    dryRunTestTag: isDryRun ? options.testTag || "" : "",
+    dryRunTestTagMode: isDryRun ? options.testTagMode || "" : ""
   });
 
   const policyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -1425,6 +1430,18 @@ function runtimeContactFrom(contact = {}) {
     ...(contact || {}),
     tags: normalizeTags(contact?.tags || contact?.tag),
     customFields
+  };
+}
+
+function dryRunContactWithTestTag(contact = {}, tagName = "", tagMode = "has") {
+  const tag = cleanText(tagName);
+  if (!tag) return runtimeContactFrom(contact);
+  const target = normalizeTagKey(tag);
+  const base = runtimeContactFrom(contact);
+  const withoutTag = normalizeTags(base.tags).filter((item) => normalizeTagKey(item) !== target);
+  return {
+    ...base,
+    tags: tagMode === "missing" ? withoutTag : normalizeTags([...withoutTag, tag])
   };
 }
 

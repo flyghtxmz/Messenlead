@@ -17,6 +17,8 @@ export async function onRequestPost({ request, env }) {
   const psid = requestedPsid || `test_ad_${Date.now()}`;
   const text = String(body.text || "Hola").trim() || "Hola";
   const channel = body.channel === "standby" ? "standby" : "messaging";
+  const testTag = String(body.testTag || "").replace(/\s+/g, " ").trim();
+  const testTagMode = body.testTagMode === "missing" ? "missing" : "has";
   if (!pageId) return json({ error: "pageId is required" }, 400);
 
   const timestamp = Date.now();
@@ -45,7 +47,9 @@ export async function onRequestPost({ request, env }) {
     simulated: true,
     dryRun: true,
     forceLogs: true,
-    testContactPsid: requestedPsid
+    testContactPsid: requestedPsid,
+    testTag,
+    testTagMode
   });
   return json({
     ok: true,
@@ -55,6 +59,8 @@ export async function onRequestPost({ request, env }) {
     text,
     dryRun: true,
     storedContact: Boolean(requestedPsid),
+    testTag,
+    testTagMode,
     message: "Evento de anuncio simulado em modo dry-run. Veja o painel visual e os logs para confirmar event_received e flow_started."
   });
 }
