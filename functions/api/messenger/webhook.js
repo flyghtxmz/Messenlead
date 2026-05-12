@@ -223,7 +223,13 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
   });
 
   const policyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const flowContext = { ...context, eventId, policyExpiresAt, dryRun: isDryRun };
+  const flowContext = {
+    ...context,
+    eventId,
+    policyExpiresAt,
+    dryRun: isDryRun,
+    testFlowId: isDryRun ? String(options.testFlowId || "").trim() : ""
+  };
   const execution =
     (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
     (await buildReplies(flowContext, env, pageId, contact, log));
@@ -691,16 +697,19 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const startedAt = Date.now();
   const timeoutMs = flowTimeoutMs(env);
   const deadline = startedAt + timeoutMs;
-  const dbFlows = pageId ? await listFlows(env, pageId, { status: "active" }) : [];
+  const testFlowId = context.dryRun ? String(context.testFlowId || "").trim() : "";
+  const dbFlows = pageId ? await listFlows(env, pageId, testFlowId ? {} : { status: "active" }) : [];
   const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
-  const activeFlows = flows.filter((flow) => flow.status === "active");
-  await log?.("info", "active_flows_loaded", "Fluxos ativos carregados para a Página.", {
+  const activeFlows = testFlowId ? flows.filter((flow) => flow.id === testFlowId) : flows.filter((flow) => flow.status === "active");
+  await log?.("info", "active_flows_loaded", testFlowId ? "Fluxo selecionado carregado para teste." : "Fluxos ativos carregados para a Página.", {
     activeFlowCount: activeFlows.length,
-    source: dbFlows.length ? "D1" : "MESSENLEAD_FLOW_JSON"
+    source: dbFlows.length ? "D1" : "MESSENLEAD_FLOW_JSON",
+    testFlowId
   });
   const flow =
-    activeFlows.find((item) => flowMatchesInput(item, context)) ||
-    activeFlows[0];
+    testFlowId
+      ? activeFlows[0]
+      : activeFlows.find((item) => flowMatchesInput(item, context)) || activeFlows[0];
 
   if (!flow) {
     const allFlows = pageId ? await listFlows(env, pageId) : [];
@@ -708,7 +717,8 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
       activeFlowCount: activeFlows.length,
       totalFlowCount: allFlows.length,
       statusCounts: flowStatusCounts(allFlows),
-      publishedFlowCount: allFlows.filter((item) => Array.isArray(item.publishedNodes)).length
+      publishedFlowCount: allFlows.filter((item) => Array.isArray(item.publishedNodes)).length,
+      testFlowId
     });
     return { replies: [], actions: [], flow: null };
   }

@@ -331,6 +331,7 @@ let flowLogState = {
 let flowAdTestState = {
   loading: false,
   channel: "",
+  flowId: "",
   psid: "",
   tag: "",
   tagMode: "has",
@@ -2802,6 +2803,9 @@ function renderSettings() {
   const connectedPageCount = connectedPagesForTagCleanup().length;
   const logPageId = flowLogState.scope === "all" ? "__all__" : pageId;
   if (shouldLoadContactsForCurrentPage()) loadContactsForPage(pageId);
+  if (flowStore.pageId !== pageId && !flowStore.loading) {
+    loadFlowsForPage(pageId);
+  }
   if (flowLogState.pageId !== logPageId && !flowLogState.loading) {
     loadFlowLogsForPage(logPageId, { silent: true });
   }
@@ -2880,6 +2884,8 @@ function renderAdFlowTestPanel(pageId) {
   const result = flowAdTestState.result;
   const logs = flowAdTestState.logs || [];
   const status = adFlowTestStatus(logs, flowAdTestState.error);
+  const availableFlows = adTestFlowsForPage(pageId);
+  const selectedFlowForTestId = currentAdTestFlowId(pageId);
   const pageContacts = contactsForPage(pageId);
   const testerContacts = adTestContactsWithTesterTag(pageContacts);
   const availableTags = adTestTagOptions(pageId, pageContacts);
@@ -2893,6 +2899,18 @@ function renderAdFlowTestPanel(pageId) {
   return `
     <div class="ad-flow-test">
       <div class="ad-flow-test-config">
+        <label>
+          <span>Fluxo do teste</span>
+          <select data-ad-test-flow="true" ${flowAdTestState.loading ? "disabled" : ""}>
+            ${!availableFlows.length ? `<option value="" selected disabled>Nenhum fluxo salvo nesta Pagina</option>` : ""}
+            ${availableFlows.map((flow) => `
+              <option value="${attr(flow.id)}" ${flow.id === selectedFlowForTestId ? "selected" : ""}>
+                ${escapeHtml(flow.name || "Fluxo sem nome")} - ${escapeHtml(statusLabel(flow.hasDraftChanges ? "draft" : flow.status))}
+              </option>
+            `).join("")}
+          </select>
+          <small>O dry-run executa exatamente este fluxo, sem escolher outro automaticamente.</small>
+        </label>
         <label>
           <span>Tag que sera testada</span>
           <select data-ad-test-tag="true" ${flowAdTestState.loading ? "disabled" : ""}>
@@ -2964,6 +2982,21 @@ function currentAdTestContactPsid(pageId = currentFlowPageId()) {
   const current = selectedContact();
   if (current && normalizeFlowPageId(current.pageId) === normalizedPageId && adTestContactHasTesterTag(current)) return current.psid;
   return testerContacts[0]?.psid || "";
+}
+
+function currentAdTestFlowId(pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const flows = adTestFlowsForPage(normalizedPageId);
+  const storedFlowId = String(flowAdTestState.flowId || "").trim();
+  if (storedFlowId && flows.some((flow) => flow.id === storedFlowId)) return storedFlowId;
+  const current = selectedFlow();
+  if (current && flows.some((flow) => flow.id === current.id)) return current.id;
+  return flows[0]?.id || "";
+}
+
+function adTestFlowsForPage(pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  return state.flows.filter((flow) => normalizeFlowPageId(flow.pageId || normalizedPageId) === normalizedPageId);
 }
 
 function currentAdTestTag(pageId = currentFlowPageId(), pageContacts = contactsForPage(pageId)) {
@@ -3883,7 +3916,7 @@ async function loadFlowsForPage(pageId) {
   } finally {
     if (currentFlowPageId() === normalizedPageId) {
       flowStore.loading = false;
-      if (activeView === "flows") render();
+      if (activeView === "flows" || activeView === "settings") render();
     }
   }
 }
@@ -4043,12 +4076,17 @@ async function testFlowLog() {
 
 async function testAdFlow(channel = "messaging") {
   const pageId = currentFlowPageId();
+  const flowId = currentAdTestFlowId(pageId);
   const psid = currentAdTestContactPsid(pageId);
   const selectedAdTestValue = psid;
   const selectedTag = currentAdTestTag(pageId);
   const tagMode = currentAdTestTagMode();
   if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID) {
     toastMessage("Selecione uma Pagina antes de simular anuncio.");
+    return;
+  }
+  if (!flowId) {
+    toastMessage("Escolha um fluxo salvo para testar.");
     return;
   }
   if (!psid) {
@@ -4063,6 +4101,7 @@ async function testAdFlow(channel = "messaging") {
   flowAdTestState = {
     loading: true,
     channel,
+    flowId,
     psid: selectedAdTestValue,
     result: null,
     logs: [],
@@ -4073,6 +4112,7 @@ async function testAdFlow(channel = "messaging") {
   try {
     const result = await apiPost("/api/flow-runtime/test-ad", {
       pageId,
+      flowId,
       psid,
       testTag: selectedTag,
       testTagMode: tagMode,
@@ -4084,6 +4124,7 @@ async function testAdFlow(channel = "messaging") {
     flowAdTestState = {
       loading: false,
       channel,
+      flowId,
       psid: selectedAdTestValue,
       result,
       logs,
@@ -4101,6 +4142,7 @@ async function testAdFlow(channel = "messaging") {
     flowAdTestState = {
       loading: false,
       channel,
+      flowId,
       psid: selectedAdTestValue,
       result: null,
       logs: [],
@@ -5778,6 +5820,17 @@ function handleWorkspaceChange(event) {
     flowAdTestState = {
       ...flowAdTestState,
       psid: target.value,
+      result: null,
+      logs: [],
+      error: ""
+    };
+    render();
+    return;
+  }
+  if (target.dataset.adTestFlow) {
+    flowAdTestState = {
+      ...flowAdTestState,
+      flowId: target.value,
       result: null,
       logs: [],
       error: ""

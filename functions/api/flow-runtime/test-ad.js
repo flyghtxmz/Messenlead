@@ -13,6 +13,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   const pageId = String(body.pageId || "").trim();
+  const flowId = String(body.flowId || "").trim();
   const requestedPsid = String(body.psid || "").trim();
   const psid = requestedPsid || `test_ad_${Date.now()}`;
   const text = String(body.text || "Hola").trim() || "Hola";
@@ -20,6 +21,7 @@ export async function onRequestPost({ request, env }) {
   const testTag = String(body.testTag || "").replace(/\s+/g, " ").trim();
   const testTagMode = body.testTagMode === "missing" ? "missing" : "has";
   if (!pageId) return json({ error: "pageId is required" }, 400);
+  if (!flowId) return json({ error: "flowId is required" }, 400);
 
   const timestamp = Date.now();
   const event = {
@@ -47,6 +49,7 @@ export async function onRequestPost({ request, env }) {
     simulated: true,
     dryRun: true,
     forceLogs: true,
+    testFlowId: flowId,
     testContactPsid: requestedPsid,
     testTag,
     testTagMode
@@ -54,6 +57,7 @@ export async function onRequestPost({ request, env }) {
   return json({
     ok: true,
     pageId,
+    flowId,
     psid,
     channel,
     text,
