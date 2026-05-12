@@ -113,6 +113,20 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
         note: "Configure este app como Primary Receiver na Meta para executar automações e responder."
       }
     });
+  }
+
+  if (!isProcessableMessengerEvent(event)) {
+    await safeAddFlowLog(env, {
+      pageId,
+      psid: event.sender?.id || "",
+      level: "info",
+      event: "non_message_event_ignored",
+      message: "Evento ignorado porque nao e mensagem, postback, opt-in ou referral.",
+      data: {
+        channel: options.channel || "messaging",
+        eventKeys: Object.keys(event || {})
+      }
+    });
     return;
   }
 
@@ -140,7 +154,7 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
     return;
   }
 
-  const context = eventContext(event);
+  const context = eventContext(event, { channel: options.channel || "messaging" });
   const log = flowEventLogger(env, pageId, psid);
   const eventId = messengerEventDedupId(pageId, event);
   const dedup = await reserveMessengerEvent(env, {
@@ -159,6 +173,7 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
   await log("info", "event_received", "Mensagem recebida pelo webhook.", {
     eventId,
     eventType: context.eventType,
+    channel: context.channel,
     sourceLabel: context.sourceLabel,
     text: context.text,
     hasReferral: context.hasReferral,
@@ -260,6 +275,10 @@ async function handleMessengerEvent(event, env, pageId, options = {}) {
     })
     : { processed: 0, sent: 0, retried: 0, skipped: 0, failed: 0, externalRelay: queued.some(isExternalRelayQueueId) };
   await log("info", "queue_drain_finished", "Processamento imediato da fila finalizado.", drain, flow);
+}
+
+function isProcessableMessengerEvent(event = {}) {
+  return Boolean(event.message || event.postback || event.optin || event.referral);
 }
 
 function isExternalRelayQueueId(value) {
@@ -1605,7 +1624,7 @@ function flowMatchesInput(flow, context) {
   return triggerMatchesEvent(triggerNode, flow, context);
 }
 
-function eventContext(event) {
+function eventContext(event, options = {}) {
   const referral = event.referral || event.message?.referral || event.postback?.referral || {};
   const adsContext = referral.ads_context_data || referral.ad_context || {};
   const inputText = event.message?.quick_reply?.payload || event.message?.text || event.postback?.payload || event.optin?.ref || referral.ref || "";
@@ -1649,6 +1668,7 @@ function eventContext(event) {
   return {
     text: inputText,
     normalizedInput: normalize(inputText),
+    channel: options.channel || "messaging",
     eventType,
     referralRef,
     referralSource,
