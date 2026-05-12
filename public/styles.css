@@ -2678,8 +2678,9 @@ svg {
 
 .ad-flow-test-config {
   display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(150px, 0.7fr) minmax(220px, 1.2fr);
   gap: 6px;
-  max-width: 520px;
+  align-items: start;
 }
 
 .ad-flow-test-config label {
@@ -2820,12 +2821,14 @@ svg {
 }
 
 @media (max-width: 900px) {
+  .ad-flow-test-config,
   .ad-flow-test-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 560px) {
+  .ad-flow-test-config,
   .ad-flow-test-grid,
   .ad-flow-test-log article {
     grid-template-columns: 1fr;
