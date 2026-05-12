@@ -1226,9 +1226,9 @@ function flowTimeoutMs(env) {
 }
 
 function dryRunFlowTimeoutMs(env) {
-  const value = Number(env.MESSENLEAD_FLOW_TEST_TIMEOUT_MS || env.MESSENLEAD_FLOW_TIMEOUT_MS || 12000);
-  if (!Number.isFinite(value)) return 12000;
-  return Math.max(3000, Math.min(20000, Math.floor(value)));
+  const value = Number(env.MESSENLEAD_FLOW_TEST_TIMEOUT_MS || env.MESSENLEAD_FLOW_TIMEOUT_MS || 20000);
+  if (!Number.isFinite(value)) return 20000;
+  return Math.max(3000, Math.min(30000, Math.floor(value)));
 }
 
 async function activeFlowById(env, pageId, flowId) {

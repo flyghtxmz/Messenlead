@@ -2960,7 +2960,7 @@ function renderAdFlowTestPanel(pageId) {
         <span>${escapeHtml(status.message)}</span>
         ${
           result
-            ? `<small>PSID de teste: ${escapeHtml(result.psid || "")} · canal: ${escapeHtml(result.channel || "")} · pagina: ${escapeHtml(pageId || "")}</small>`
+            ? `<small>PSID de teste: ${escapeHtml(result.psid || "")} · canal: ${escapeHtml(result.channel || "")} · modo usado: ${escapeHtml(result.testTagMode === "missing" ? "sem essa tag" : "com essa tag")} ${escapeHtml(result.testTag || "")} · pagina: ${escapeHtml(pageId || "")}</small>`
             : ""
         }
       </div>
@@ -4130,6 +4130,8 @@ async function testAdFlow(channel = "messaging") {
     channel,
     flowId,
     psid: selectedAdTestValue,
+    tag: selectedTag,
+    tagMode,
     result: null,
     logs: [],
     error: ""
@@ -4153,6 +4155,8 @@ async function testAdFlow(channel = "messaging") {
       channel,
       flowId,
       psid: selectedAdTestValue,
+      tag: selectedTag,
+      tagMode,
       result,
       logs,
       error: ""
@@ -4171,6 +4175,8 @@ async function testAdFlow(channel = "messaging") {
       channel,
       flowId,
       psid: selectedAdTestValue,
+      tag: selectedTag,
+      tagMode,
       result: null,
       logs: [],
       error: error.message || "Nao foi possivel simular anuncio."
