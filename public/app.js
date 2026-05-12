@@ -330,6 +330,7 @@ let flowLogState = {
 let flowAdTestState = {
   loading: false,
   channel: "",
+  psid: "",
   result: null,
   logs: [],
   error: ""
@@ -2876,8 +2877,27 @@ function renderAdFlowTestPanel(pageId) {
   const result = flowAdTestState.result;
   const logs = flowAdTestState.logs || [];
   const status = adFlowTestStatus(logs, flowAdTestState.error);
+  const pageContacts = contactsForPage(pageId);
+  const selectedPsid = currentAdTestContactPsid(pageId);
+  const selectedOptionValue = flowAdTestState.psid === "__temp__" ? "__temp__" : selectedPsid;
+  const selectedContactForTest = pageContacts.find((contact) => contact.psid === selectedPsid);
+  const selectedTags = contactTags(selectedContactForTest);
   return `
     <div class="ad-flow-test">
+      <div class="ad-flow-test-config">
+        <label>
+          <span>Contato do teste</span>
+          <select data-ad-test-contact="true" ${flowAdTestState.loading ? "disabled" : ""}>
+            <option value="__temp__" ${selectedOptionValue === "__temp__" || !selectedOptionValue ? "selected" : ""}>Contato temporario sem tags</option>
+            ${pageContacts.map((contact) => `
+              <option value="${attr(contact.psid)}" ${contact.psid === selectedOptionValue ? "selected" : ""}>
+                ${escapeHtml(contactDisplayName(contact.name, contact.psid))}
+              </option>
+            `).join("")}
+          </select>
+          <small>${selectedPsid ? `Tags usadas no teste: ${escapeHtml(selectedTags.join(", ") || "sem tags")}` : "Use um contato real quando o fluxo depende de tags ou campos do assinante."}</small>
+        </label>
+      </div>
       <div class="ad-flow-test-actions">
         <button class="primary-button" type="button" data-action="test-ad-flow" ${flowAdTestState.loading ? "disabled" : ""}>${icons.send}<span>Testar anuncio normal</span></button>
         <button class="secondary-button" type="button" data-action="test-ad-flow-standby" ${flowAdTestState.loading ? "disabled" : ""}>${icons.send}<span>Testar anuncio em standby</span></button>
@@ -2886,7 +2906,7 @@ function renderAdFlowTestPanel(pageId) {
         ${adFlowTestStep("Evento recebido", logs.some((log) => log.event === "event_received"), "Webhook reconheceu o evento simulado de anuncio.")}
         ${adFlowTestStep("Fluxos carregados", logs.some((log) => log.event === "active_flows_loaded"), "Runtime consultou os fluxos publicados no D1.")}
         ${adFlowTestStep("Fluxo iniciado", logs.some((log) => log.event === "flow_started"), "Algum fluxo publicado aceitou o gatilho de anuncio.")}
-        ${adFlowTestStep("Resposta preparada", logs.some((log) => ["test_replies_prepared", "flow_waiting", "flow_waiting_for_response", "flow_waiting_for_link_click"].includes(log.event)), "O teste chegou em uma resposta ou em um bloco de espera.")}
+        ${adFlowTestStep("Saida preparada", logs.some((log) => ["test_replies_prepared", "test_wait_prepared", "flow_waiting", "flow_waiting_for_response", "flow_waiting_for_link_click"].includes(log.event)), "O teste chegou em uma resposta ou em um bloco de espera.")}
       </div>
       <div class="ad-flow-test-result ${attr(status.kind)}">
         <strong>${escapeHtml(status.title)}</strong>
@@ -2906,6 +2926,17 @@ function renderAdFlowTestPanel(pageId) {
   `;
 }
 
+function currentAdTestContactPsid(pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const pageContacts = contactsForPage(normalizedPageId);
+  const storedPsid = String(flowAdTestState.psid || "").trim();
+  if (storedPsid === "__temp__") return "";
+  if (storedPsid && pageContacts.some((contact) => contact.psid === storedPsid)) return storedPsid;
+  const current = selectedContact();
+  if (current && normalizeFlowPageId(current.pageId) === normalizedPageId) return current.psid;
+  return pageContacts[0]?.psid || "";
+}
+
 function adFlowTestStep(label, ok, description) {
   return `
     <div class="ad-flow-test-step ${ok ? "ok" : ""}">
@@ -2921,6 +2952,7 @@ function adFlowTestStatus(logs, error) {
   if (error) return { kind: "error", title: "Teste falhou", message: error };
   if (!logs.length) return { kind: "idle", title: "Nenhum teste executado", message: "Use um dos botões acima para simular entrada por anúncio." };
   if (logs.some((log) => log.event === "test_replies_prepared")) return { kind: "ok", title: "Fluxo respondeu no teste", message: "O runtime preparou uma resposta, mas não enviou nada real para o Messenger." };
+  if (logs.some((log) => log.event === "test_wait_prepared")) return { kind: "ok", title: "Fluxo chegou em uma espera", message: "O runtime iniciou o fluxo e parou antes de criar uma espera real no teste." };
   if (logs.some((log) => log.event === "flow_started")) return { kind: "warn", title: "Fluxo iniciou, mas não preparou resposta", message: "Verifique se o próximo bloco é mensagem ou se o fluxo parou em condição/espera." };
   if (logs.some((log) => log.event === "no_active_flow")) return { kind: "error", title: "Nenhum fluxo ativo publicado", message: "Publique o fluxo e confirme que ele pertence à página selecionada." };
   if (logs.some((log) => log.event === "event_received")) return { kind: "warn", title: "Evento recebido, mas fluxo não iniciou", message: "O gatilho de anúncio pode não estar ativo no node Quando." };
@@ -3940,21 +3972,60 @@ async function testFlowLog() {
 
 async function testAdFlow(channel = "messaging") {
   const pageId = currentFlowPageId();
+  const psid = currentAdTestContactPsid(pageId);
+  const selectedAdTestValue = flowAdTestState.psid === "__temp__" ? "__temp__" : psid;
   if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID) {
     toastMessage("Selecione uma Pagina antes de simular anuncio.");
     return;
   }
 
+  flowAdTestState = {
+    loading: true,
+    channel,
+    psid: selectedAdTestValue,
+    result: null,
+    logs: [],
+    error: ""
+  };
+  if (activeView === "settings") render();
+
   try {
     const result = await apiPost("/api/flow-runtime/test-ad", {
       pageId,
+      psid,
       channel,
       text: "Hola"
     });
-    toastMessage(result.ok ? `Anuncio simulado em ${channel}. Atualizando logs.` : "Simulacao enviada.");
-    await loadFlowLogsForPage(currentFlowLogPageId());
+    const logsResult = await apiGet(`/api/flow-logs?pageId=${encodeURIComponent(pageId)}&limit=160`);
+    const logs = Array.isArray(logsResult.logs) ? logsResult.logs.filter((log) => log.psid === result.psid) : [];
+    flowAdTestState = {
+      loading: false,
+      channel,
+      psid: selectedAdTestValue,
+      result,
+      logs,
+      error: ""
+    };
+    flowLogState = {
+      ...flowLogState,
+      pageId,
+      loading: false,
+      logs: Array.isArray(logsResult.logs) ? logsResult.logs : [],
+      error: ""
+    };
+    toastMessage(result.ok ? "Teste de anuncio concluido." : "Simulacao enviada.");
   } catch (error) {
+    flowAdTestState = {
+      loading: false,
+      channel,
+      psid: selectedAdTestValue,
+      result: null,
+      logs: [],
+      error: error.message || "Nao foi possivel simular anuncio."
+    };
     toastMessage(error.message || "Nao foi possivel simular anuncio.");
+  } finally {
+    if (activeView === "settings") render();
   }
 }
 
@@ -5617,6 +5688,17 @@ function handleWorkspaceChange(event) {
   }
   if (target.id === "subscriberTagFilter") {
     subscriberTagFilter = target.value;
+    render();
+    return;
+  }
+  if (target.dataset.adTestContact) {
+    flowAdTestState = {
+      ...flowAdTestState,
+      psid: target.value,
+      result: null,
+      logs: [],
+      error: ""
+    };
     render();
     return;
   }

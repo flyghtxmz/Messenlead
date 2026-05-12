@@ -13,7 +13,8 @@ export async function onRequestPost({ request, env }) {
   }
 
   const pageId = String(body.pageId || "").trim();
-  const psid = String(body.psid || `test_ad_${Date.now()}`).trim();
+  const requestedPsid = String(body.psid || "").trim();
+  const psid = requestedPsid || `test_ad_${Date.now()}`;
   const text = String(body.text || "Hola").trim() || "Hola";
   const channel = body.channel === "standby" ? "standby" : "messaging";
   if (!pageId) return json({ error: "pageId is required" }, 400);
@@ -39,7 +40,13 @@ export async function onRequestPost({ request, env }) {
     }
   };
 
-  await handleMessengerEvent(event, env, pageId, { channel, simulated: true, dryRun: true, forceLogs: true });
+  await handleMessengerEvent(event, env, pageId, {
+    channel,
+    simulated: true,
+    dryRun: true,
+    forceLogs: true,
+    testContactPsid: requestedPsid
+  });
   return json({
     ok: true,
     pageId,
@@ -47,6 +54,7 @@ export async function onRequestPost({ request, env }) {
     channel,
     text,
     dryRun: true,
+    storedContact: Boolean(requestedPsid),
     message: "Evento de anuncio simulado em modo dry-run. Veja o painel visual e os logs para confirmar event_received e flow_started."
   });
 }

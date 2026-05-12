@@ -188,12 +188,17 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     adTitle: context.adTitle
   });
 
-  const profile = isDryRun ? { name: "Teste Anuncio" } : await fetchMessengerUserProfile(env, pageId, psid, log);
+  const dryRunStoredContact = isDryRun && options.testContactPsid ? await getContact(env, pageId, psid) : null;
+  const profile = isDryRun
+    ? { name: dryRunStoredContact?.name || "Teste Anuncio" }
+    : await fetchMessengerUserProfile(env, pageId, psid, log);
   const contact = isDryRun
-    ? {
+    ? dryRunStoredContact || {
         psid,
+        pageId,
         name: profile.name,
         tags: [],
+        customFields: {},
         status: "open",
         source: "Simulacao de anuncio",
         lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
@@ -213,7 +218,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
   });
 
   const policyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const flowContext = { ...context, eventId, policyExpiresAt };
+  const flowContext = { ...context, eventId, policyExpiresAt, dryRun: isDryRun };
   const execution =
     (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
     (await buildReplies(flowContext, env, pageId, contact, log));
@@ -826,6 +831,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
 }
 
 async function buildRepliesFromResponseWait(context, env, pageId, contact = null, log = null) {
+  if (context.dryRun) return null;
   const psid = String(contact?.psid || "").trim();
   if (!psid) return null;
 
@@ -953,6 +959,16 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
         continue;
       }
 
+      if (context.dryRun) {
+        await log?.("info", "test_wait_prepared", "Teste encontrou um bloco de espera e nao agendou continuacao real.", {
+          waitType: "delay",
+          delayNodeId: current.id,
+          resumeNodeId: next.id,
+          dueAt
+        }, flow);
+        return { replies, actions, flow, continuation: null, responseWait: null, linkClickWait: null };
+      }
+
       const continuation = await scheduleFlowContinuation(env, {
         pageId,
         psid: runtimeContact.psid || contact?.psid || "",
@@ -989,6 +1005,16 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
         break;
       }
 
+      if (context.dryRun) {
+        await log?.("info", "test_wait_prepared", "Teste encontrou um bloco de aguardar resposta e nao criou espera real.", {
+          waitType: "user_input",
+          waitNodeId: current.id,
+          resumeNodeId: next.id,
+          responseField: current.responseField || ""
+        }, flow);
+        return { replies, actions, flow, continuation: null, responseWait: null, linkClickWait: null };
+      }
+
       const responseWait = await scheduleFlowResponseWait(env, {
         pageId,
         psid: runtimeContact.psid || contact?.psid || "",
@@ -1021,6 +1047,16 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
         }, flow);
         current = null;
         break;
+      }
+
+      if (context.dryRun) {
+        await log?.("info", "test_wait_prepared", "Teste encontrou um bloco de aguardar clique e nao criou espera real.", {
+          waitType: "link_click_wait",
+          waitNodeId: current.id,
+          resumeNodeId: next.id,
+          timeoutResumeNodeId: current.noClickNext || ""
+        }, flow);
+        return { replies, actions, flow, continuation: null, responseWait: null, linkClickWait: null };
       }
 
       const sourceNode = (previousNode?.type === "message" && messageNodeTrackedLinks(previousNode).length)
