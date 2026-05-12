@@ -327,6 +327,13 @@ let flowLogState = {
   logs: [],
   error: ""
 };
+let flowAdTestState = {
+  loading: false,
+  channel: "",
+  result: null,
+  logs: [],
+  error: ""
+};
 let webhookDiagState = {
   pageId: "",
   loading: false,
@@ -2831,6 +2838,18 @@ function renderSettings() {
       <section class="panel settings-wide-panel">
         <div class="panel-header">
           <div>
+            <h2>Teste de entrada por anuncio</h2>
+            <span>Simula um lead vindo de Click-to-Messenger sem enviar mensagem real.</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          ${renderAdFlowTestPanel(pageId)}
+        </div>
+      </section>
+
+      <section class="panel settings-wide-panel">
+        <div class="panel-header">
+          <div>
             <h2>Logs do fluxo</h2>
             <span>${flowLogState.scope === "all" ? "Todas as Páginas conectadas" : `Diagnóstico real do webhook para ${escapeHtml(pageName)}`}</span>
           </div>
@@ -2839,8 +2858,6 @@ function renderSettings() {
             <button class="secondary-button ${flowLogState.scope === "all" ? "active" : ""}" type="button" data-action="set-flow-log-scope" data-scope="all"><span>Todas</span></button>
             <button class="secondary-button" type="button" data-action="refresh-flow-logs">${icons.refresh}<span>Atualizar</span></button>
             <button class="secondary-button" type="button" data-action="test-flow-log">${icons.play}<span>Testar D1</span></button>
-            <button class="secondary-button" type="button" data-action="test-ad-flow">${icons.send}<span>Simular anuncio</span></button>
-            <button class="secondary-button" type="button" data-action="test-ad-flow-standby">${icons.send}<span>Simular standby</span></button>
             <button class="secondary-button" type="button" data-action="check-webhook-subscription">${icons.plug}<span>Verificar webhook</span></button>
             <button class="secondary-button" type="button" data-action="subscribe-page-webhook">${icons.workflow}<span>Inscrever app/Página</span></button>
             <button class="secondary-button danger" type="button" data-action="clear-flow-logs">${icons.trash}<span>Limpar</span></button>
@@ -2852,6 +2869,74 @@ function renderSettings() {
         </div>
       </section>
     </div>
+  `;
+}
+
+function renderAdFlowTestPanel(pageId) {
+  const result = flowAdTestState.result;
+  const logs = flowAdTestState.logs || [];
+  const status = adFlowTestStatus(logs, flowAdTestState.error);
+  return `
+    <div class="ad-flow-test">
+      <div class="ad-flow-test-actions">
+        <button class="primary-button" type="button" data-action="test-ad-flow" ${flowAdTestState.loading ? "disabled" : ""}>${icons.send}<span>Testar anuncio normal</span></button>
+        <button class="secondary-button" type="button" data-action="test-ad-flow-standby" ${flowAdTestState.loading ? "disabled" : ""}>${icons.send}<span>Testar anuncio em standby</span></button>
+      </div>
+      <div class="ad-flow-test-grid">
+        ${adFlowTestStep("Evento recebido", logs.some((log) => log.event === "event_received"), "Webhook reconheceu o evento simulado de anuncio.")}
+        ${adFlowTestStep("Fluxos carregados", logs.some((log) => log.event === "active_flows_loaded"), "Runtime consultou os fluxos publicados no D1.")}
+        ${adFlowTestStep("Fluxo iniciado", logs.some((log) => log.event === "flow_started"), "Algum fluxo publicado aceitou o gatilho de anuncio.")}
+        ${adFlowTestStep("Resposta preparada", logs.some((log) => ["test_replies_prepared", "flow_waiting", "flow_waiting_for_response", "flow_waiting_for_link_click"].includes(log.event)), "O teste chegou em uma resposta ou em um bloco de espera.")}
+      </div>
+      <div class="ad-flow-test-result ${attr(status.kind)}">
+        <strong>${escapeHtml(status.title)}</strong>
+        <span>${escapeHtml(status.message)}</span>
+        ${
+          result
+            ? `<small>PSID de teste: ${escapeHtml(result.psid || "")} · canal: ${escapeHtml(result.channel || "")} · pagina: ${escapeHtml(pageId || "")}</small>`
+            : ""
+        }
+      </div>
+      ${
+        logs.length
+          ? `<div class="ad-flow-test-log">${logs.slice(0, 8).map(renderAdFlowTestLogItem).join("")}</div>`
+          : `<div class="empty-state compact">${flowAdTestState.loading ? "Executando teste..." : "Execute um teste para ver o caminho do evento aqui."}</div>`
+      }
+    </div>
+  `;
+}
+
+function adFlowTestStep(label, ok, description) {
+  return `
+    <div class="ad-flow-test-step ${ok ? "ok" : ""}">
+      <span>${ok ? "OK" : "-"}</span>
+      <strong>${escapeHtml(label)}</strong>
+      <small>${escapeHtml(description)}</small>
+    </div>
+  `;
+}
+
+function adFlowTestStatus(logs, error) {
+  if (flowAdTestState.loading) return { kind: "loading", title: "Teste em andamento", message: "Simulando evento e buscando logs." };
+  if (error) return { kind: "error", title: "Teste falhou", message: error };
+  if (!logs.length) return { kind: "idle", title: "Nenhum teste executado", message: "Use um dos botões acima para simular entrada por anúncio." };
+  if (logs.some((log) => log.event === "test_replies_prepared")) return { kind: "ok", title: "Fluxo respondeu no teste", message: "O runtime preparou uma resposta, mas não enviou nada real para o Messenger." };
+  if (logs.some((log) => log.event === "flow_started")) return { kind: "warn", title: "Fluxo iniciou, mas não preparou resposta", message: "Verifique se o próximo bloco é mensagem ou se o fluxo parou em condição/espera." };
+  if (logs.some((log) => log.event === "no_active_flow")) return { kind: "error", title: "Nenhum fluxo ativo publicado", message: "Publique o fluxo e confirme que ele pertence à página selecionada." };
+  if (logs.some((log) => log.event === "event_received")) return { kind: "warn", title: "Evento recebido, mas fluxo não iniciou", message: "O gatilho de anúncio pode não estar ativo no node Quando." };
+  return { kind: "warn", title: "Logs incompletos", message: "O teste rodou, mas não encontrou os eventos esperados." };
+}
+
+function renderAdFlowTestLogItem(log) {
+  return `
+    <article>
+      <span class="flow-log-level">${escapeHtml(log.level || "info")}</span>
+      <div>
+        <strong>${escapeHtml(log.event || "evento")}</strong>
+        <small>${escapeHtml(log.message || "")}</small>
+      </div>
+      <time>${escapeHtml(formatDate(log.createdAt) || "")}</time>
+    </article>
   `;
 }
 

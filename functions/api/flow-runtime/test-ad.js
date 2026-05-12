@@ -39,14 +39,15 @@ export async function onRequestPost({ request, env }) {
     }
   };
 
-  await handleMessengerEvent(event, env, pageId, { channel, simulated: true });
+  await handleMessengerEvent(event, env, pageId, { channel, simulated: true, dryRun: true, forceLogs: true });
   return json({
     ok: true,
     pageId,
     psid,
     channel,
     text,
-    message: "Evento de anuncio simulado. Veja os logs do fluxo para confirmar event_received e flow_started."
+    dryRun: true,
+    message: "Evento de anuncio simulado em modo dry-run. Veja o painel visual e os logs para confirmar event_received e flow_started."
   });
 }
 

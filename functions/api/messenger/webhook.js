@@ -100,6 +100,8 @@ export async function onRequestPost({ request, env }) {
 }
 
 export async function handleMessengerEvent(event, env, pageId, options = {}) {
+  const isDryRun = Boolean(options.dryRun || options.simulated);
+  const forceLog = Boolean(options.forceLogs);
   if (options.channel === "standby") {
     await safeAddFlowLog(env, {
       pageId,
@@ -111,7 +113,8 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
         eventType: event.message ? "message" : event.postback ? "postback" : "unknown",
         text: event.message?.text || event.postback?.payload || "",
         note: "Configure este app como Primary Receiver na Meta para executar automações e responder."
-      }
+      },
+      force: forceLog
     });
   }
 
@@ -125,7 +128,8 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
       data: {
         channel: options.channel || "messaging",
         eventKeys: Object.keys(event || {})
-      }
+      },
+      force: forceLog
     });
     return;
   }
@@ -155,7 +159,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
   }
 
   const context = eventContext(event, { channel: options.channel || "messaging" });
-  const log = flowEventLogger(env, pageId, psid);
+  const log = flowEventLogger(env, pageId, psid, { force: forceLog });
   const eventId = messengerEventDedupId(pageId, event);
   const dedup = await reserveMessengerEvent(env, {
     id: eventId,
@@ -184,14 +188,23 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     adTitle: context.adTitle
   });
 
-  const profile = await fetchMessengerUserProfile(env, pageId, psid, log);
-  const contact = await upsertContact(env, pageId, {
-    psid,
-    name: profile?.name || "",
-    status: "open",
-    source: "Messenger webhook",
-    lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
-  });
+  const profile = isDryRun ? { name: "Teste Anuncio" } : await fetchMessengerUserProfile(env, pageId, psid, log);
+  const contact = isDryRun
+    ? {
+        psid,
+        name: profile.name,
+        tags: [],
+        status: "open",
+        source: "Simulacao de anuncio",
+        lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
+      }
+    : await upsertContact(env, pageId, {
+        psid,
+        name: profile?.name || "",
+        status: "open",
+        source: "Messenger webhook",
+        lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
+      });
 
   await log("info", "contact_loaded", "Contato carregado para avaliar o fluxo.", {
     name: contact.name || "",
@@ -205,7 +218,9 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
     (await buildReplies(flowContext, env, pageId, contact, log));
   const { replies, actions, flow, continuation, responseWait, linkClickWait } = execution;
-  if (actions.length) {
+  if (actions.length && isDryRun) {
+    await log("info", "test_actions_prepared", "Teste preparou acoes, mas nao alterou o contato real.", { actions }, flow);
+  } else if (actions.length) {
     await applyContactActions(env, pageId, psid, actions, {
       psid,
       status: "open",
@@ -250,6 +265,19 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
       return;
     }
     await log("warn", "no_replies", "O fluxo terminou sem resposta para enviar.", { actions }, flow);
+    return;
+  }
+
+  if (isDryRun) {
+    await log("info", "test_replies_prepared", "Teste preparou respostas sem enviar para o Messenger.", {
+      replyCount: replies.length,
+      replies: replies.map((reply) => ({
+        type: reply.type || "text",
+        text: String(reply.text || "").slice(0, 240),
+        quickReplyCount: Array.isArray(reply.quickReplies) ? reply.quickReplies.length : 0,
+        buttonCount: Array.isArray(reply.buttons) ? reply.buttons.length : 0
+      }))
+    }, flow);
     return;
   }
 
@@ -1096,7 +1124,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
   return { replies, actions, flow, continuation: null, responseWait: null, linkClickWait: null };
 }
 
-function flowEventLogger(env, pageId, psid) {
+function flowEventLogger(env, pageId, psid, options = {}) {
   return async (level, event, message, data = {}, flow = null) => {
     await safeAddFlowLog(env, {
       pageId,
@@ -1106,7 +1134,8 @@ function flowEventLogger(env, pageId, psid) {
       level,
       event,
       message,
-      data
+      data,
+      force: Boolean(options.force)
     });
   };
 }
