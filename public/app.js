@@ -3057,10 +3057,37 @@ function adFlowTestStatus(logs, error) {
   if (!logs.length) return { kind: "idle", title: "Nenhum teste executado", message: "Use um dos botões acima para simular entrada por anúncio." };
   if (logs.some((log) => log.event === "test_replies_prepared")) return { kind: "ok", title: "Fluxo respondeu no teste", message: "O runtime preparou uma resposta, mas não enviou nada real para o Messenger." };
   if (logs.some((log) => log.event === "test_wait_prepared")) return { kind: "ok", title: "Fluxo chegou em uma espera", message: "O runtime iniciou o fluxo e parou antes de criar uma espera real no teste." };
+  const routingIssue = adFlowTestRoutingIssue(logs);
+  if (routingIssue) return routingIssue;
   if (logs.some((log) => log.event === "flow_started")) return { kind: "warn", title: "Fluxo iniciou, mas não preparou resposta", message: "Verifique se o próximo bloco é mensagem ou se o fluxo parou em condição/espera." };
   if (logs.some((log) => log.event === "no_active_flow")) return { kind: "error", title: "Nenhum fluxo ativo publicado", message: "Publique o fluxo e confirme que ele pertence à página selecionada." };
   if (logs.some((log) => log.event === "event_received")) return { kind: "warn", title: "Evento recebido, mas fluxo não iniciou", message: "O gatilho de anúncio pode não estar ativo no node Quando." };
   return { kind: "warn", title: "Logs incompletos", message: "O teste rodou, mas não encontrou os eventos esperados." };
+}
+
+function adFlowTestRoutingIssue(logs = []) {
+  const noNext = logs.find((log) => log.event === "next_node" && !log.data?.targetId && !log.data?.nextNodeId);
+  if (!noNext) return null;
+
+  const condition = logs.find((log) => log.event === "condition_result" && log.data?.nodeId === noNext.data?.fromNodeId);
+  if (condition) {
+    const matched = condition.data?.result === "yes";
+    const label = matched ? "Sim" : "Nao";
+    const nextField = matched ? "yesNext" : "noNext";
+    if (!condition.data?.[nextField]) {
+      return {
+        kind: "warn",
+        title: `Saida ${label} da condicao sem proximo passo`,
+        message: `A condicao ${matched ? "correspondeu" : "nao correspondeu"}, mas a saida ${label} nao esta conectada a nenhum bloco. Conecte essa saida a uma mensagem, acao ou espera.`
+      };
+    }
+  }
+
+  return {
+    kind: "warn",
+    title: "Bloco sem proximo passo",
+    message: "O fluxo chegou em um bloco que nao aponta para nenhum proximo passo executavel."
+  };
 }
 
 function renderAdFlowTestLogItem(log) {
