@@ -695,7 +695,7 @@ export async function processMessengerLinkClickTimeouts(env, options = {}) {
 
 async function buildReplies(context, env, pageId, contact = null, log = null) {
   const startedAt = Date.now();
-  const timeoutMs = flowTimeoutMs(env);
+  const timeoutMs = context.dryRun ? dryRunFlowTimeoutMs(env) : flowTimeoutMs(env);
   const deadline = startedAt + timeoutMs;
   const testFlowId = context.dryRun ? String(context.testFlowId || "").trim() : "";
   const dbFlows = pageId ? await listFlows(env, pageId, testFlowId ? {} : { status: "active" }) : [];
@@ -741,10 +741,22 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     return { replies: [], actions: [], flow };
   }
 
+  const executableStart = executableStartNode(flow, start, { ...context, contact: runtimeContactFrom(contact), flow });
   await log?.("info", "start_node_selected", `Bloco inicial: ${nodeLogName(start)}.`, {
     nodeId: start.id,
-    nodeType: start.type
+    nodeType: start.type,
+    executableNodeId: executableStart?.id || "",
+    executableNodeType: executableStart?.type || ""
   }, flow);
+
+  if (!executableStart) {
+    await log?.("warn", "no_executable_start_node", "O gatilho inicial nao aponta para um bloco executavel.", {
+      startNodeId: start.id,
+      startNodeType: start.type,
+      targetId: nextExecutableTargetId(start, { ...context, contact: runtimeContactFrom(contact), flow }) || ""
+    }, flow);
+    return { replies: [], actions: [], flow };
+  }
 
   return executeFlowFromNode({
     context,
@@ -753,7 +765,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     contact,
     log,
     flow,
-    start,
+    start: executableStart,
     startedAt,
     deadline,
     timeoutMs
@@ -1213,6 +1225,12 @@ function flowTimeoutMs(env) {
   return Math.max(500, Math.min(12000, Math.floor(value)));
 }
 
+function dryRunFlowTimeoutMs(env) {
+  const value = Number(env.MESSENLEAD_FLOW_TEST_TIMEOUT_MS || env.MESSENLEAD_FLOW_TIMEOUT_MS || 12000);
+  if (!Number.isFinite(value)) return 12000;
+  return Math.max(3000, Math.min(20000, Math.floor(value)));
+}
+
 async function activeFlowById(env, pageId, flowId) {
   const id = String(flowId || "").trim();
   if (!id) return null;
@@ -1498,6 +1516,12 @@ function nextExecutableNode(flow, node, context = {}) {
   const targetId = nextExecutableTargetId(node, context);
   const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
   return next && next.type !== "trigger" && next.type !== "comment" ? next : null;
+}
+
+function executableStartNode(flow, start, context = {}) {
+  if (!start) return null;
+  if (start.type !== "trigger" && start.type !== "comment") return start;
+  return nextExecutableNode(flow, start, context);
 }
 
 function nextExecutableTargetId(node, context = {}) {
