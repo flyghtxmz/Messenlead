@@ -99,7 +99,7 @@ export async function onRequestPost({ request, env }) {
   return new Response("EVENT_RECEIVED", { status: 200 });
 }
 
-async function handleMessengerEvent(event, env, pageId, options = {}) {
+export async function handleMessengerEvent(event, env, pageId, options = {}) {
   if (options.channel === "standby") {
     await safeAddFlowLog(env, {
       pageId,

@@ -2839,6 +2839,8 @@ function renderSettings() {
             <button class="secondary-button ${flowLogState.scope === "all" ? "active" : ""}" type="button" data-action="set-flow-log-scope" data-scope="all"><span>Todas</span></button>
             <button class="secondary-button" type="button" data-action="refresh-flow-logs">${icons.refresh}<span>Atualizar</span></button>
             <button class="secondary-button" type="button" data-action="test-flow-log">${icons.play}<span>Testar D1</span></button>
+            <button class="secondary-button" type="button" data-action="test-ad-flow">${icons.send}<span>Simular anuncio</span></button>
+            <button class="secondary-button" type="button" data-action="test-ad-flow-standby">${icons.send}<span>Simular standby</span></button>
             <button class="secondary-button" type="button" data-action="check-webhook-subscription">${icons.plug}<span>Verificar webhook</span></button>
             <button class="secondary-button" type="button" data-action="subscribe-page-webhook">${icons.workflow}<span>Inscrever app/Página</span></button>
             <button class="secondary-button danger" type="button" data-action="clear-flow-logs">${icons.trash}<span>Limpar</span></button>
@@ -3848,6 +3850,26 @@ async function testFlowLog() {
     await loadFlowLogsForPage(pageId);
   } catch (error) {
     toastMessage(error.message || "Não foi possível criar log de teste.");
+  }
+}
+
+async function testAdFlow(channel = "messaging") {
+  const pageId = currentFlowPageId();
+  if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID) {
+    toastMessage("Selecione uma Pagina antes de simular anuncio.");
+    return;
+  }
+
+  try {
+    const result = await apiPost("/api/flow-runtime/test-ad", {
+      pageId,
+      channel,
+      text: "Hola"
+    });
+    toastMessage(result.ok ? `Anuncio simulado em ${channel}. Atualizando logs.` : "Simulacao enviada.");
+    await loadFlowLogsForPage(currentFlowLogPageId());
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel simular anuncio.");
   }
 }
 
@@ -5331,6 +5353,8 @@ function handleWorkspaceClick(event) {
   if (action === "set-flow-log-scope") return setFlowLogScope(button.dataset.scope);
   if (action === "refresh-flow-logs") return refreshFlowLogs();
   if (action === "test-flow-log") return testFlowLog();
+  if (action === "test-ad-flow") return testAdFlow("messaging");
+  if (action === "test-ad-flow-standby") return testAdFlow("standby");
   if (action === "check-webhook-subscription") return checkWebhookSubscription();
   if (action === "subscribe-page-webhook") return subscribePageWebhook();
   if (action === "setup-get-started") return setupGetStartedButton();
