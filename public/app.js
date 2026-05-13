@@ -332,6 +332,7 @@ let flowAdTestState = {
   loading: false,
   channel: "",
   flowId: "",
+  testVersion: "published",
   psid: "",
   tag: "",
   tagMode: "has",
@@ -1569,6 +1570,10 @@ function renderPages() {
     loadMetaConversations(selectedPage.id);
   }
 
+  if (selectedPage && flowStore.pageId !== normalizeFlowPageId(selectedPage.id) && !flowStore.loading) {
+    loadFlowsForPage(selectedPage.id);
+  }
+
   const conversations = sortMetaConversations(metaState.conversations || [], selectedPage?.id);
   const unreadSummary = selectedPage ? metaUnreadSummary(conversations, selectedPage.id) : null;
   const selectedConversation = metaState.selectedConversationId
@@ -1630,6 +1635,7 @@ function renderPages() {
                   </div>
                   <div class="button-row">
                     <button class="secondary-button" type="button" data-action="refresh-meta-conversations">${icons.inbox}<span>Atualizar</span></button>
+                    ${renderMetaConversationFlowLauncher(selectedPage, selectedConversation)}
                     <button class="primary-button" type="button" data-action="open-page-flow">${icons.workflow}<span>Ver fluxos</span></button>
                   </div>
                 </div>
@@ -1685,6 +1691,34 @@ function renderPages() {
       </section>
     </div>
   `;
+}
+
+function renderMetaConversationFlowLauncher(selectedPage, selectedConversation) {
+  if (!selectedPage || !selectedConversation) return "";
+
+  const flows = metaConversationRunnableFlows(selectedPage.id);
+  const disabled = flows.length ? "" : "disabled";
+  return `
+    <span class="meta-flow-launcher">
+      <select id="metaConversationFlowSelect" class="meta-flow-select" ${disabled}>
+        ${
+          flows.length
+            ? flows
+                .map((flow) => `<option value="${attr(flow.id)}">${escapeHtml(flow.name || "Fluxo sem nome")}</option>`)
+                .join("")
+            : `<option value="">Nenhum fluxo ativo</option>`
+        }
+      </select>
+      <button class="secondary-button" type="button" data-action="run-meta-flow" ${disabled}>${icons.play}<span>Disparar</span></button>
+    </span>
+  `;
+}
+
+function metaConversationRunnableFlows(pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  return state.flows
+    .filter((flow) => normalizeFlowPageId(flow.pageId || normalizedPageId) === normalizedPageId)
+    .filter((flow) => flow.status === "active" && hasPublishedFlow(flow));
 }
 
 function renderFlows() {
@@ -2886,6 +2920,8 @@ function renderAdFlowTestPanel(pageId) {
   const status = adFlowTestStatus(logs, flowAdTestState.error);
   const availableFlows = adTestFlowsForPage(pageId);
   const selectedFlowForTestId = currentAdTestFlowId(pageId);
+  const selectedFlowForTest = availableFlows.find((flow) => flow.id === selectedFlowForTestId);
+  const testVersion = currentAdTestVersion();
   const pageContacts = contactsForPage(pageId);
   const testerContacts = adTestContactsWithTesterTag(pageContacts);
   const availableTags = adTestTagOptions(pageId, pageContacts);
@@ -2910,6 +2946,14 @@ function renderAdFlowTestPanel(pageId) {
             `).join("")}
           </select>
           <small>O dry-run executa exatamente este fluxo, sem escolher outro automaticamente.</small>
+        </label>
+        <label>
+          <span>Versao testada</span>
+          <select data-ad-test-version="true" ${flowAdTestState.loading ? "disabled" : ""}>
+            <option value="published" ${testVersion === "published" ? "selected" : ""}>Publicada igual ao real</option>
+            <option value="draft" ${testVersion === "draft" ? "selected" : ""}>Rascunho salvo</option>
+          </select>
+          <small>${selectedFlowForTest?.hasDraftChanges ? "Este fluxo tem alteracoes que ainda nao foram publicadas." : "O Messenger real usa a versao publicada."}</small>
         </label>
         <label>
           <span>Tag que sera testada</span>
@@ -2992,6 +3036,10 @@ function currentAdTestFlowId(pageId = currentFlowPageId()) {
   const current = selectedFlow();
   if (current && flows.some((flow) => flow.id === current.id)) return current.id;
   return flows[0]?.id || "";
+}
+
+function currentAdTestVersion() {
+  return flowAdTestState.testVersion === "draft" ? "draft" : "published";
 }
 
 function adTestFlowsForPage(pageId = currentFlowPageId()) {
@@ -3891,6 +3939,46 @@ async function sendMetaMessage() {
   }
 }
 
+async function runMetaConversationFlow() {
+  const page = metaState.pages?.find((item) => item.id === metaState.selectedPageId);
+  const conversation = metaState.conversations?.find((item) => item.id === metaState.selectedConversationId);
+  const select = document.querySelector("#metaConversationFlowSelect");
+  const flowId = String(select?.value || "").trim();
+  const psid = conversation ? recipientIdFromConversation(conversation, page?.id) : "";
+
+  if (!page || !conversation || !flowId) {
+    toastMessage("Selecione uma conversa e um fluxo ativo.");
+    return;
+  }
+  if (!psid) {
+    toastMessage("Nao encontrei o PSID do destinatario nesta conversa.");
+    return;
+  }
+
+  const button = document.querySelector('[data-action="run-meta-flow"]');
+  if (button) button.disabled = true;
+
+  try {
+    const result = await apiPost("/api/flow-runtime/run", {
+      pageId: page.id,
+      psid,
+      flowId,
+      lastSeen: conversation.updated_time || "",
+      conversationId: conversation.id || "",
+      contactName: conversationTitle(conversation, page.name)
+    });
+    metaState.messages = null;
+    metaState.pixelEvents = null;
+    metaState.unreadAnchorId = "";
+    toastMessage(result.message || "Fluxo disparado para esta conversa.");
+    render();
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel disparar o fluxo.");
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 function openPageFlow() {
   cacheCurrentPageFlows();
   const page = metaState.pages?.find((item) => item.id === metaState.selectedPageId);
@@ -3943,7 +4031,7 @@ async function loadFlowsForPage(pageId) {
   } finally {
     if (currentFlowPageId() === normalizedPageId) {
       flowStore.loading = false;
-      if (activeView === "flows" || activeView === "settings") render();
+      if (activeView === "flows" || activeView === "settings" || activeView === "pages") render();
     }
   }
 }
@@ -4104,6 +4192,7 @@ async function testFlowLog() {
 async function testAdFlow(channel = "messaging") {
   const pageId = currentFlowPageId();
   const flowId = currentAdTestFlowId(pageId);
+  const testVersion = currentAdTestVersion();
   const psid = currentAdTestContactPsid(pageId);
   const selectedAdTestValue = psid;
   const selectedTag = currentAdTestTag(pageId);
@@ -4129,6 +4218,7 @@ async function testAdFlow(channel = "messaging") {
     loading: true,
     channel,
     flowId,
+    testVersion,
     psid: selectedAdTestValue,
     tag: selectedTag,
     tagMode,
@@ -4142,6 +4232,7 @@ async function testAdFlow(channel = "messaging") {
     const result = await apiPost("/api/flow-runtime/test-ad", {
       pageId,
       flowId,
+      testVersion,
       psid,
       testTag: selectedTag,
       testTagMode: tagMode,
@@ -4154,6 +4245,7 @@ async function testAdFlow(channel = "messaging") {
       loading: false,
       channel,
       flowId,
+      testVersion,
       psid: selectedAdTestValue,
       tag: selectedTag,
       tagMode,
@@ -4174,6 +4266,7 @@ async function testAdFlow(channel = "messaging") {
       loading: false,
       channel,
       flowId,
+      testVersion,
       psid: selectedAdTestValue,
       tag: selectedTag,
       tagMode,
@@ -5573,6 +5666,7 @@ function handleWorkspaceClick(event) {
   if (action === "refresh-meta-conversations") return refreshMetaConversations();
   if (action === "select-meta-conversation") return selectMetaConversation(id);
   if (action === "send-meta-message") return sendMetaMessage();
+  if (action === "run-meta-flow") return runMetaConversationFlow();
   if (action === "open-page-flow") return openPageFlow();
   if (action === "open-contact") {
     selectedContactId = id;

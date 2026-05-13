@@ -2054,6 +2054,25 @@ svg {
   gap: 8px;
 }
 
+.meta-flow-launcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.meta-flow-select {
+  width: min(240px, 34vw);
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .simulator {
   display: grid;
   grid-template-rows: auto 1fr auto;

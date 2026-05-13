@@ -101,6 +101,7 @@ export async function onRequestPost({ request, env }) {
 
 export async function handleMessengerEvent(event, env, pageId, options = {}) {
   const isDryRun = Boolean(options.dryRun || options.simulated);
+  const isManualRun = !isDryRun && Boolean(String(options.manualFlowId || "").trim());
   const forceLog = Boolean(options.forceLogs);
   if (options.channel === "standby") {
     await safeAddFlowLog(env, {
@@ -207,8 +208,8 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
         psid,
         name: profile?.name || "",
         status: "open",
-        source: "Messenger webhook",
-        lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
+        source: isManualRun ? "Disparo manual de fluxo" : "Messenger webhook",
+        lastSeen: options.lastSeen || (event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString())
       });
   if (isDryRun && options.testTag) {
     contact = dryRunContactWithTestTag(contact, options.testTag, options.testTagMode);
@@ -222,17 +223,20 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     dryRunTestTagMode: isDryRun ? options.testTagMode || "" : ""
   });
 
-  const policyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const policyExpiresAt = options.policyExpiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const flowContext = {
     ...context,
     eventId,
     policyExpiresAt,
     dryRun: isDryRun,
-    testFlowId: isDryRun ? String(options.testFlowId || "").trim() : ""
+    testFlowId: isDryRun ? String(options.testFlowId || "").trim() : "",
+    testVersion: isDryRun ? String(options.testVersion || "published").trim() : "",
+    manualFlowId: isManualRun ? String(options.manualFlowId || "").trim() : ""
   };
-  const execution =
-    (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
-    (await buildReplies(flowContext, env, pageId, contact, log));
+  const execution = isManualRun
+    ? await buildReplies(flowContext, env, pageId, contact, log)
+    : (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
+      (await buildReplies(flowContext, env, pageId, contact, log));
   const { replies, actions, flow, continuation, responseWait, linkClickWait } = execution;
   if (actions.length && isDryRun) {
     await log("info", "test_actions_prepared", "Teste preparou acoes, mas nao alterou o contato real.", { actions }, flow);
@@ -240,8 +244,8 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     await applyContactActions(env, pageId, psid, actions, {
       psid,
       status: "open",
-      source: "Messenger webhook",
-      lastSeen: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
+      source: isManualRun ? "Disparo manual de fluxo" : "Messenger webhook",
+      lastSeen: options.lastSeen || (event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString())
     });
     await log("info", "actions_applied", "Ações do fluxo foram aplicadas no contato.", { actions }, flow);
   }
@@ -698,16 +702,24 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const timeoutMs = context.dryRun ? dryRunFlowTimeoutMs(env) : flowTimeoutMs(env);
   const deadline = startedAt + timeoutMs;
   const testFlowId = context.dryRun ? String(context.testFlowId || "").trim() : "";
-  const dbFlows = pageId ? await listFlows(env, pageId, testFlowId ? {} : { status: "active" }) : [];
+  const manualFlowId = !context.dryRun ? String(context.manualFlowId || "").trim() : "";
+  const selectedFlowId = testFlowId || manualFlowId;
+  const useDraftForTest = context.dryRun && selectedFlowId && context.testVersion === "draft";
+  const dbFlows = pageId ? await listFlows(env, pageId, useDraftForTest ? {} : { status: "active" }) : [];
   const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
-  const activeFlows = testFlowId ? flows.filter((flow) => flow.id === testFlowId) : flows.filter((flow) => flow.status === "active");
+  const activeFlows = selectedFlowId
+    ? flows.filter((flow) => flow.id === selectedFlowId && (useDraftForTest || flow.status === "active"))
+    : flows.filter((flow) => flow.status === "active");
   await log?.("info", "active_flows_loaded", testFlowId ? "Fluxo selecionado carregado para teste." : "Fluxos ativos carregados para a Página.", {
     activeFlowCount: activeFlows.length,
     source: dbFlows.length ? "D1" : "MESSENLEAD_FLOW_JSON",
-    testFlowId
+    selectedFlowId,
+    testFlowId,
+    manualFlowId,
+    testVersion: context.testVersion || ""
   });
   const flow =
-    testFlowId
+    selectedFlowId
       ? activeFlows[0]
       : activeFlows.find((item) => flowMatchesInput(item, context)) || activeFlows[0];
 
@@ -718,7 +730,9 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
       totalFlowCount: allFlows.length,
       statusCounts: flowStatusCounts(allFlows),
       publishedFlowCount: allFlows.filter((item) => Array.isArray(item.publishedNodes)).length,
-      testFlowId
+      selectedFlowId,
+      testFlowId,
+      manualFlowId
     });
     return { replies: [], actions: [], flow: null };
   }
@@ -730,11 +744,12 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     nodeCount: flow.nodes?.length || 0
   }, flow);
 
-  const start =
-    interactiveStartNode(flow, context) ||
-    flow.nodes?.find((node) => node.type === "trigger" && triggerMatchesEvent(node, flow, context)) ||
-    flow.nodes?.find((node) => node.type === "trigger") ||
-    flow.nodes?.[0];
+  const start = manualFlowId
+    ? flow.nodes?.find((node) => node.type === "trigger") || flow.nodes?.[0]
+    : interactiveStartNode(flow, context) ||
+      flow.nodes?.find((node) => node.type === "trigger" && triggerMatchesEvent(node, flow, context)) ||
+      flow.nodes?.find((node) => node.type === "trigger") ||
+      flow.nodes?.[0];
 
   if (!start) {
     await log?.("warn", "no_start_node", "O fluxo selecionado não possui bloco inicial.", {}, flow);
