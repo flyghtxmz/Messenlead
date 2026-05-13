@@ -3205,8 +3205,33 @@ function renderWebhookDiagnostic(pageId) {
       ${fields.length ? `<span>Campos da Página: ${escapeHtml(fields.join(", "))}</span>` : ""}
       ${appFields.length ? `<span>Campos do app/page: ${escapeHtml(appFields.join(", "))}</span>` : ""}
       ${appWebhook.callbackUrl ? `<span>Callback do app: ${escapeHtml(appWebhook.callbackUrl)}</span>` : ""}
+      ${renderWebhookDeliveryProbe(data.deliveryProbe)}
       ${data.error ? `<pre>${escapeHtml(data.error)}</pre>` : ""}
       ${appWebhook.error ? `<pre>${escapeHtml(appWebhook.error)}</pre>` : ""}
+    </div>
+  `;
+}
+
+function renderWebhookDeliveryProbe(probe) {
+  if (!probe) return "";
+  if (!probe.ok) {
+    return `<span>Teste de entrega: nao foi possivel comparar Graph API e logs (${escapeHtml(probe.error || "erro")}).</span>`;
+  }
+
+  const inbound = probe.latestInbound;
+  if (!inbound) {
+    return `<span>Teste de entrega: nenhuma mensagem recente de usuario encontrada nas ultimas conversas da Graph API.</span>`;
+  }
+
+  const status = inbound.hasWebhookLog
+    ? `Webhook registrou ${inbound.webhookLog?.event || "evento"} em ${formatDate(inbound.webhookLog?.createdAt) || inbound.webhookLog?.createdAt || ""}.`
+    : "Graph API viu mensagem recente, mas nao existe event_received/standby_received nos logs para esse PSID.";
+  return `
+    <div class="webhook-delivery-probe ${inbound.hasWebhookLog ? "ok" : "warn"}">
+      <span class="badge ${inbound.hasWebhookLog ? "active" : "paused"}">${inbound.hasWebhookLog ? "Webhook encontrado" : "Sem webhook real"}</span>
+      <strong>${escapeHtml(status)}</strong>
+      <span>Ultima mensagem Graph: ${escapeHtml(inbound.name || inbound.psid || "Contato")} - ${escapeHtml(formatDate(inbound.createdAt) || inbound.createdAt || "")}</span>
+      <span>${escapeHtml(inbound.message || "Mensagem sem texto")}</span>
     </div>
   `;
 }

@@ -2959,6 +2959,29 @@ svg {
   font-size: 11px;
 }
 
+.webhook-delivery-probe {
+  display: grid;
+  flex-basis: 100%;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 9px;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.webhook-delivery-probe.warn {
+  border-color: #facc15;
+}
+
+.webhook-delivery-probe.ok {
+  border-color: #86efac;
+}
+
+.webhook-delivery-probe strong {
+  font-size: 12px;
+}
+
 .flow-log-row {
   display: grid;
   gap: 7px;

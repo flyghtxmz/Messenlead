@@ -58,6 +58,7 @@ export async function onRequestPost({ request, env }) {
   const appStatus = await readAppWebhookSubscriptionStatus(env, config, pageId);
   const status = await readWebhookSubscriptionStatus(env, config, pageId, pageAccessToken);
   const tokenAudit = await auditPageToken(env, config, pageId, pageAccessToken);
+  const deliveryProbe = await buildWebhookDeliveryProbe(config, env, pageId, pageAccessToken);
   return json({
     pageId,
     hasPageAccessToken: true,
@@ -65,7 +66,8 @@ export async function onRequestPost({ request, env }) {
     appSubscription,
     ...appStatus,
     subscription,
-    ...status
+    ...status,
+    deliveryProbe
   }, subscription.ok && appSubscription.ok ? 200 : 500);
 }
 
@@ -79,13 +81,15 @@ async function webhookSubscriptionStatus(request, env, pageId) {
 
   const status = await readWebhookSubscriptionStatus(env, config, pageId, pageAccessToken);
   const tokenAudit = await auditPageToken(env, config, pageId, pageAccessToken);
+  const deliveryProbe = await buildWebhookDeliveryProbe(config, env, pageId, pageAccessToken);
   return json({
     pageId,
     appId: config.appId || "",
     hasPageAccessToken: true,
     tokenAudit,
     ...appStatus,
-    ...status
+    ...status,
+    deliveryProbe
   });
 }
 
@@ -178,6 +182,143 @@ async function readWebhookSubscriptionStatus(env, config, pageId, pageAccessToke
       error: error.message,
       details: error.payload || null
     };
+  }
+}
+
+async function buildWebhookDeliveryProbe(config, env, pageId, pageAccessToken) {
+  try {
+    const conversations = await graphFetch(
+      graphUrl(config, `/${pageId}/conversations`, {
+        fields: "id,updated_time,participants,senders,snippet",
+        limit: "5",
+        access_token: pageAccessToken
+      })
+    );
+
+    const recentInbounds = [];
+    for (const conversation of conversations.data || []) {
+      const inbound = await latestInboundMessageForConversation(config, conversation.id, pageId, pageAccessToken);
+      if (!inbound) continue;
+      const webhookLog = await latestWebhookLogForMessage(env, pageId, inbound.psid, inbound.createdAt);
+      recentInbounds.push({
+        conversationId: conversation.id || "",
+        conversationUpdatedAt: conversation.updated_time || "",
+        psid: inbound.psid,
+        name: inbound.name,
+        message: inbound.message,
+        createdAt: inbound.createdAt,
+        hasWebhookLog: Boolean(webhookLog),
+        webhookLog
+      });
+    }
+
+    recentInbounds.sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""));
+    return {
+      ok: true,
+      checkedAt: new Date().toISOString(),
+      recentInboundCount: recentInbounds.length,
+      latestInbound: recentInbounds[0] || null,
+      recentInbounds: recentInbounds.slice(0, 3)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      checkedAt: new Date().toISOString(),
+      error: error.message || "delivery_probe_failed",
+      details: error.payload || null
+    };
+  }
+}
+
+async function latestInboundMessageForConversation(config, conversationId, pageId, pageAccessToken) {
+  if (!conversationId) return null;
+  const result = await fetchConversationMessagesForProbe(config, conversationId, pageAccessToken);
+
+  const inbound = (result.data || []).find((message) => message.from?.id && String(message.from.id) !== String(pageId));
+  if (!inbound) return null;
+  return {
+    id: inbound.id || "",
+    psid: String(inbound.from?.id || ""),
+    name: inbound.from?.name || "",
+    message: inbound.message || attachmentSummary(inbound),
+    createdAt: inbound.created_time || ""
+  };
+}
+
+async function fetchConversationMessagesForProbe(config, conversationId, pageAccessToken) {
+  const fieldSets = [
+    "id,message,from,created_time,attachments,sticker",
+    "id,message,from,created_time,attachments",
+    "id,message,from,created_time"
+  ];
+
+  let lastError = null;
+  for (const fields of fieldSets) {
+    try {
+      return await graphFetch(
+        graphUrl(config, `/${conversationId}/messages`, {
+          fields,
+          limit: "10",
+          access_token: pageAccessToken
+        })
+      );
+    } catch (error) {
+      if (!isAttachmentFieldError(error)) throw error;
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Could not fetch probe messages");
+}
+
+async function latestWebhookLogForMessage(env, pageId, psid, messageCreatedAt) {
+  if (!env.DB || !pageId || !psid) return null;
+  const messageTime = Date.parse(messageCreatedAt || "");
+  const since = Number.isFinite(messageTime) ? new Date(messageTime - 2 * 60 * 1000).toISOString() : new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+  try {
+    const row = await env.DB.prepare(`
+      SELECT level, event, message, data_json, created_at
+      FROM flow_logs
+      WHERE page_id = ?
+        AND psid = ?
+        AND event IN ('event_received', 'standby_received')
+        AND datetime(created_at) >= datetime(?)
+      ORDER BY datetime(created_at) DESC
+      LIMIT 1
+    `)
+      .bind(pageId, psid, since)
+      .first();
+
+    return row ? {
+      level: row.level || "",
+      event: row.event || "",
+      message: row.message || "",
+      data: parseJson(row.data_json),
+      createdAt: row.created_at || ""
+    } : null;
+  } catch {
+    return null;
+  }
+}
+
+function attachmentSummary(message = {}) {
+  if (message.sticker) return "Sticker";
+  const attachments = message.attachments?.data || [];
+  if (!attachments.length) return "Mensagem sem texto";
+  return attachments.map((attachment) => attachment.mime_type || attachment.type || "Anexo").join(", ");
+}
+
+function isAttachmentFieldError(error) {
+  const message = `${error.message || ""} ${error.payload?.error?.message || ""}`.toLowerCase();
+  return message.includes("nonexisting field") || message.includes("attachments") || message.includes("sticker") || message.includes("file_url");
+}
+
+function parseJson(value) {
+  try {
+    return value ? JSON.parse(value) : {};
+  } catch {
+    return {};
   }
 }
 
