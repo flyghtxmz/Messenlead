@@ -132,7 +132,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
       },
       force: forceLog
     });
-    return;
+    return { ok: false, status: "ignored", reason: "non_processable_event" };
   }
 
   if (event.message?.is_echo) {
@@ -144,7 +144,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
       message: "Evento ignorado porque é eco de mensagem enviada pela própria Página.",
       data: { mid: event.message?.mid || "" }
     });
-    return;
+    return { ok: false, status: "ignored", reason: "echo_event" };
   }
 
   const psid = event.sender?.id;
@@ -156,7 +156,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
       message: "Evento de Messenger chegou sem sender.id.",
       data: { event }
     });
-    return;
+    return { ok: false, status: "ignored", reason: "missing_psid" };
   }
 
   const context = eventContext(event, { channel: options.channel || "messaging" });
@@ -172,7 +172,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     await log("warn", "duplicate_event_ignored", "Evento duplicado ignorado antes de executar fluxo.", {
       eventId
     });
-    return;
+    return { ok: false, status: "ignored", reason: "duplicate_event", eventId };
   }
 
   await log("info", "event_received", "Mensagem recebida pelo webhook.", {
@@ -276,16 +276,16 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
         dueAt: continuation.dueAt,
         resumeNodeId: continuation.resumeNodeId
       }, flow);
-      return;
+      return { ok: true, status: "waiting_delay", replyCount: 0, actionCount: actions.length, flowId: flow?.id || "", continuationId: continuation.id };
     }
     if (responseWait) {
-      return;
+      return { ok: true, status: "waiting_response", replyCount: 0, actionCount: actions.length, flowId: flow?.id || "", responseWaitId: responseWait.id };
     }
     if (linkClickWait) {
-      return;
+      return { ok: true, status: "waiting_link_click", replyCount: 0, actionCount: actions.length, flowId: flow?.id || "", linkClickWaitId: linkClickWait.id };
     }
     await log("warn", "no_replies", "O fluxo terminou sem resposta para enviar.", { actions }, flow);
-    return;
+    return { ok: true, status: "no_replies", replyCount: 0, actionCount: actions.length, flowId: flow?.id || "" };
   }
 
   if (isDryRun) {
@@ -298,7 +298,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
         buttonCount: Array.isArray(reply.buttons) ? reply.buttons.length : 0
       }))
     }, flow);
-    return;
+    return { ok: true, status: "dry_run_replies", replyCount: replies.length, actionCount: actions.length, flowId: flow?.id || "" };
   }
 
   const queued = await enqueueMessengerReplies(env, {
@@ -323,6 +323,16 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     })
     : { processed: 0, sent: 0, retried: 0, skipped: 0, failed: 0, externalRelay: queued.some(isExternalRelayQueueId) };
   await log("info", "queue_drain_finished", "Processamento imediato da fila finalizado.", drain, flow);
+  return {
+    ok: true,
+    status: "queued",
+    replyCount: replies.length,
+    actionCount: actions.length,
+    queuedCount: queued.length,
+    queueIds: queued,
+    drain,
+    flowId: flow?.id || ""
+  };
 }
 
 function isProcessableMessengerEvent(event = {}) {

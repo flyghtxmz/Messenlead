@@ -92,7 +92,7 @@ export async function onRequestPost({ request, env }) {
     force: true
   });
 
-  await handleMessengerEvent(event, env, pageId, {
+  const runtime = await handleMessengerEvent(event, env, pageId, {
     channel: "manual",
     manualFlowId: flowId,
     forceLogs: true,
@@ -107,7 +107,8 @@ export async function onRequestPost({ request, env }) {
     flowId,
     flowName: flow.name || "",
     policy,
-    message: "Fluxo disparado para esta conversa."
+    runtime,
+    message: manualRunMessage(runtime)
   });
 }
 
@@ -129,4 +130,18 @@ async function authorizeRunRequest(request, env) {
 function normalizeIsoDate(value) {
   const time = Date.parse(value || "");
   return Number.isFinite(time) ? new Date(time).toISOString() : "";
+}
+
+function manualRunMessage(runtime = {}) {
+  if (runtime.status === "queued") {
+    return `Fluxo disparado: ${runtime.replyCount || runtime.queuedCount || 0} resposta(s) preparada(s).`;
+  }
+  if (runtime.status === "waiting_delay") return "Fluxo disparado e pausado no bloco de espera.";
+  if (runtime.status === "waiting_response") return "Fluxo disparado e pausado aguardando resposta do contato.";
+  if (runtime.status === "waiting_link_click") return "Fluxo disparado e pausado aguardando clique no link.";
+  if (runtime.status === "no_replies") {
+    return "Fluxo executou, mas nao preparou resposta. Verifique se a saida do bloco atual esta conectada.";
+  }
+  if (runtime.status === "ignored") return `Fluxo nao executado: ${runtime.reason || "evento ignorado"}.`;
+  return "Fluxo disparado para esta conversa.";
 }
