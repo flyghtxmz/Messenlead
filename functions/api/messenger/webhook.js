@@ -783,6 +783,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     return { replies: [], actions: [], flow };
   }
 
+  const executionStartedAt = Date.now();
   return executeFlowFromNode({
     context,
     env,
@@ -791,8 +792,8 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     log,
     flow,
     start: executableStart,
-    startedAt,
-    deadline,
+    startedAt: executionStartedAt,
+    deadline: executionStartedAt + timeoutMs,
     timeoutMs
   });
 
@@ -1245,9 +1246,9 @@ function pageIdFromPayload(payload) {
 }
 
 function flowTimeoutMs(env) {
-  const value = Number(env.MESSENLEAD_FLOW_TIMEOUT_MS || 3000);
-  if (!Number.isFinite(value)) return 3000;
-  return Math.max(500, Math.min(12000, Math.floor(value)));
+  const value = Number(env.MESSENLEAD_FLOW_TIMEOUT_MS || 12000);
+  if (!Number.isFinite(value)) return 12000;
+  return Math.max(3000, Math.min(30000, Math.floor(value)));
 }
 
 function dryRunFlowTimeoutMs(env) {
