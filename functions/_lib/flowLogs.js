@@ -146,7 +146,15 @@ function parseJson(value) {
 }
 
 const COMPACT_INFO_EVENTS = new Set([
+  "event_received",
+  "active_flows_loaded",
   "flow_started",
+  "start_node_selected",
+  "message_prepared",
+  "replies_queued",
+  "queue_drain_finished",
+  "action_node_executed",
+  "actions_applied",
   "flow_waiting",
   "flow_waiting_for_response",
   "flow_waiting_for_link_click",
@@ -187,6 +195,7 @@ const COMPACT_WARN_EVENTS = new Set([
   "page_token_invalid",
   "app_webhook_subscription_check_failed",
   "webhook_subscription_check_failed",
+  "profile_lookup_failed",
   "standby_received",
   "missing_psid",
   "no_messaging_events",
