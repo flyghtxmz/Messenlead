@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Política de Privacidade | Messenlead</title>
+    <meta name="description" content="Política de Privacidade do Messenlead para Facebook Login, Páginas do Facebook, Messenger, automações, webhooks e Pixel.">
+    <style>
+      :root {
+        --bg: #f5f7f6;
+        --paper: #ffffff;
+        --ink: #111827;
+        --muted: #55615b;
+        --line: #d9e3dd;
+        --soft: #eef7f1;
+        --green: #067647;
+        --green-2: #0a5c3a;
+        --warning: #fff7d6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        line-height: 1.62;
+      }
+
+      a {
+        color: var(--green-2);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .top {
+        border-bottom: 1px solid var(--line);
+        background: var(--paper);
+      }
+
+      .top-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 18px 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 900;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: var(--green);
+        color: #fff;
+        font-size: 13px;
+        letter-spacing: 0;
+      }
+
+      .top small {
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr);
+        gap: 22px;
+        width: min(1120px, calc(100% - 32px));
+        margin: 24px auto 64px;
+      }
+
+      aside {
+        position: sticky;
+        top: 18px;
+        align-self: start;
+        display: grid;
+        gap: 10px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+      }
+
+      aside strong {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      aside a {
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      main {
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero,
+      section {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+      }
+
+      .hero {
+        padding: 32px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        width: fit-content;
+        margin-bottom: 12px;
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: var(--soft);
+        color: var(--green-2);
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      h1 {
+        max-width: 820px;
+        margin: 0;
+        font-size: clamp(32px, 5vw, 52px);
+        line-height: 1.04;
+        letter-spacing: 0;
+      }
+
+      .hero p {
+        max-width: 820px;
+        margin: 16px 0 0;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      .meta div {
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdfb;
+      }
+
+      .meta strong,
+      .meta span {
+        display: block;
+      }
+
+      .meta span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      section {
+        padding: 26px 30px;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 23px;
+        line-height: 1.22;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        margin: 20px 0 8px;
+        font-size: 17px;
+      }
+
+      p,
+      li {
+        color: var(--muted);
+        font-size: 15.8px;
+      }
+
+      p {
+        margin: 0 0 12px;
+      }
+
+      ul,
+      ol {
+        margin: 0 0 12px;
+        padding-left: 22px;
+      }
+
+      li + li {
+        margin-top: 6px;
+      }
+
+      .notice {
+        padding: 14px 16px;
+        border: 1px solid #f0d982;
+        border-radius: 8px;
+        background: var(--warning);
+        color: #55440b;
+        font-weight: 700;
+      }
+
+      .table {
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 720px;
+      }
+
+      th,
+      td {
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f8faf9;
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      td {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .footer {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 900px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        aside {
+          position: static;
+        }
+
+        .meta {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="top-inner">
+        <div class="brand">
+          <span class="brand-mark">ML</span>
+          <span>Messenlead</span>
+        </div>
+        <small>Política de Privacidade e Tratamento de Dados</small>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside aria-label="Índice">
+        <strong>Índice</strong>
+        <a href="#resumo">Resumo</a>
+        <a href="#dados">Dados coletados</a>
+        <a href="#uso">Como usamos</a>
+        <a href="#meta">Facebook, Messenger e Meta</a>
+        <a href="#pixel">Pixel e rastreamento</a>
+        <a href="#compartilhamento">Compartilhamento</a>
+        <a href="#retencao">Retenção e exclusão</a>
+        <a href="#direitos">Direitos dos titulares</a>
+        <a href="#seguranca">Segurança</a>
+        <a href="#contato">Contato</a>
+      </aside>
+
+      <main>
+        <article class="hero" id="resumo">
+          <span class="eyebrow">Última atualização: 13 de maio de 2026</span>
+          <h1>Política de Privacidade do Messenlead</h1>
+          <p>Esta Política explica, de forma objetiva, como o Messenlead coleta, usa, armazena, compartilha e protege dados pessoais e dados de Páginas conectadas para operar atendimento, automações, fluxos e mensageria no Messenger.</p>
+
+          <div class="meta" aria-label="Resumo da política">
+            <div>
+              <strong>Aplicação</strong>
+              <span>Facebook Login, Páginas do Facebook, Messenger, webhooks, fluxos, tags, mídia e Pixel.</span>
+            </div>
+            <div>
+              <strong>Finalidade</strong>
+              <span>Gerenciar conversas, executar automações autorizadas e diagnosticar entrega de mensagens.</span>
+            </div>
+            <div>
+              <strong>Contato</strong>
+              <span><a href="mailto:aprovadoblog01@gmail.com">aprovadoblog01@gmail.com</a></span>
+            </div>
+          </div>
+        </article>
+
+        <section>
+          <h2>1. Identificação do serviço</h2>
+          <p><strong>Messenlead</strong> é uma aplicação web para gerenciamento de conversas e automações de Messenger vinculadas a Páginas do Facebook conectadas por administradores autorizados.</p>
+          <p>Para fins desta Política, “Messenlead”, “nós” ou “aplicação” refere-se ao sistema hospedado em <strong>messenlead.pages.dev</strong> e às funções associadas usadas para autenticação, armazenamento, automação e envio de mensagens.</p>
+          <p>A pessoa ou empresa que conecta uma Página, cria fluxos e opera campanhas é tratada como <strong>administrador da Página</strong>. Pessoas que enviam mensagens para a Página são tratadas como <strong>contatos</strong>.</p>
+        </section>
+
+        <section>
+          <h2>2. Aceite e escopo</h2>
+          <p>Ao utilizar o Messenlead, conectar uma conta do Facebook, autorizar uma Página ou instalar o Pixel em um site, o administrador declara que leu esta Política e que possui poderes para tratar os dados vinculados à Página e aos canais conectados.</p>
+          <p>Esta Política se aplica ao tratamento de dados feito pelo Messenlead. O uso dos produtos da Meta também está sujeito às políticas e termos próprios da Meta, incluindo:</p>
+          <ul>
+            <li><a href="https://developers.facebook.com/terms/" rel="noopener">Meta Platform Terms</a></li>
+            <li><a href="https://developers.facebook.com/policy/" rel="noopener">Meta Developer Policies</a></li>
+            <li><a href="https://www.facebook.com/privacy/policy/" rel="noopener">Meta Privacy Policy</a></li>
+          </ul>
+          <p class="notice">O administrador é responsável por usar o Messenlead de acordo com a legislação aplicável, as políticas da Meta e as regras da Messenger Platform, especialmente limites de janela de 24 horas, opt-ins e restrições para mensagens promocionais.</p>
+        </section>
+
+        <section id="dados">
+          <h2>3. Dados que coletamos ou processamos</h2>
+          <p>Os dados tratados dependem das permissões concedidas, das Páginas conectadas e dos recursos ativados pelo administrador.</p>
+
+          <div class="table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Categoria</th>
+                  <th>Exemplos de dados</th>
+                  <th>Origem</th>
+                  <th>Finalidade</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Conta administradora</td>
+                  <td>ID, nome, foto quando disponível, sessão e token de autenticação.</td>
+                  <td>Facebook Login e sessão do navegador.</td>
+                  <td>Autenticar o administrador e listar Páginas autorizadas.</td>
+                </tr>
+                <tr>
+                  <td>Páginas do Facebook</td>
+                  <td>ID da Página, nome, categoria, foto, tarefas/permissões e token de Página.</td>
+                  <td>Graph API da Meta.</td>
+                  <td>Conectar a Página, ler conversas autorizadas, configurar webhook e enviar mensagens.</td>
+                </tr>
+                <tr>
+                  <td>Contatos do Messenger</td>
+                  <td>PSID, nome público quando disponível, status, última interação, tags e campos personalizados.</td>
+                  <td>Messenger, Graph API, webhooks e ações do administrador.</td>
+                  <td>Organizar atendimento, segmentar automações e evitar envios duplicados.</td>
+                </tr>
+                <tr>
+                  <td>Conversas e eventos</td>
+                  <td>Mensagens, horários, anexos, stickers, postbacks, referrals, informações de anúncio quando a Meta envia.</td>
+                  <td>Messenger Webhooks e Graph API.</td>
+                  <td>Exibir conversas, executar fluxos, diagnosticar entregas e permitir atendimento humano.</td>
+                </tr>
+                <tr>
+                  <td>Automações</td>
+                  <td>Fluxos, nodes, condições, ações, tags, delays, rascunhos, versões publicadas e logs.</td>
+                  <td>Configuração feita pelo administrador.</td>
+                  <td>Executar regras configuradas para atendimento e automação.</td>
+                </tr>
+                <tr>
+                  <td>Mídia</td>
+                  <td>Imagens, áudios, vídeos, nomes de arquivos, URLs públicas e metadados técnicos.</td>
+                  <td>Upload feito pelo administrador.</td>
+                  <td>Usar arquivos em fluxos, mensagens e ferramentas internas.</td>
+                </tr>
+                <tr>
+                  <td>Pixel Messenlead</td>
+                  <td>URL visitada, domínio, caminho, eventos, cliques, horários, identificador técnico do visitante e parâmetros de link.</td>
+                  <td>Script instalado pelo administrador em site próprio.</td>
+                  <td>Medir entrada no site, clique em link e vincular eventos a contatos quando houver identificador válido.</td>
+                </tr>
+                <tr>
+                  <td>Logs técnicos</td>
+                  <td>Eventos de webhook, falhas de token, fila de envio, erros, status de relay e diagnósticos.</td>
+                  <td>Infraestrutura do Messenlead.</td>
+                  <td>Segurança, auditoria operacional, depuração e estabilidade do serviço.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="uso">
+          <h2>4. Como usamos os dados</h2>
+          <p>Usamos os dados somente para finalidades compatíveis com a operação do Messenlead e com as permissões concedidas:</p>
+          <ul>
+            <li>Autenticar administradores e manter sessões seguras.</li>
+            <li>Listar Páginas administradas e salvar tokens de Página necessários para operação autorizada.</li>
+            <li>Exibir conversas reais do Messenger no painel.</li>
+            <li>Executar fluxos de automação configurados pelo administrador.</li>
+            <li>Aplicar, remover e consultar tags e campos personalizados de contatos.</li>
+            <li>Enviar mensagens, anexos e botões dentro das regras permitidas pela Meta.</li>
+            <li>Evitar duplicidade de eventos, mensagens e fluxos por meio de deduplicação.</li>
+            <li>Diagnosticar falhas de webhook, entrega, permissões, token, fila e relay.</li>
+            <li>Permitir análise de cliques e visitas em links enviados pelo Messenger, quando o Pixel estiver instalado.</li>
+          </ul>
+        </section>
+
+        <section id="meta">
+          <h2>5. Uso de dados da Meta, Facebook Login e Messenger</h2>
+          <p>O Messenlead usa APIs da Meta conforme permissões concedidas pelo administrador. As permissões podem incluir, conforme aprovação e configuração do aplicativo: listagem de Páginas, gerenciamento de metadados da Página, mensagens da Página e leitura de dados necessários ao funcionamento do Messenger.</p>
+          <p>Dados obtidos da Meta não são vendidos, alugados ou transferidos para redes de anúncios, data brokers ou serviços de perfilamento externo. O tratamento é limitado à finalidade de operar o painel, automações, conversas e diagnósticos.</p>
+          <p>Se o administrador remover o acesso do app pela Meta, desconectar uma Página ou solicitar exclusão, o Messenlead deixará de usar os dados autorizados, exceto quando a retenção temporária for necessária para segurança, cumprimento legal ou defesa de direitos.</p>
+
+          <h3>5.1 Webhooks e mensagens</h3>
+          <p>Quando a Meta entrega eventos por webhook, o Messenlead processa o evento para localizar a Página, identificar o contato, aplicar regras do fluxo e enfileirar mensagens. Quando a Meta não entrega o webhook, o painel pode ainda visualizar conversas via Graph API se o administrador estiver autenticado, mas isso não substitui as regras da Messenger Platform.</p>
+
+          <h3>5.2 Restrições de mensagens</h3>
+          <p>O administrador deve respeitar janelas de resposta, opt-ins, limites de mensagens promocionais e demais regras da Messenger Platform. O Messenlead pode bloquear, registrar ou ignorar envios que pareçam violar configurações técnicas ou políticas aplicáveis.</p>
+        </section>
+
+        <section id="pixel">
+          <h2>6. Pixel, links rastreados e eventos de site</h2>
+          <p>O Pixel Messenlead pode ser instalado em sites do administrador para registrar eventos como entrada no site, clique em link e atividade recente. Quando um link enviado pelo Messenger contém identificador do contato, esses eventos podem ser associados à conversa correspondente.</p>
+          <p>O Pixel não identifica automaticamente a pessoa real sem um identificador válido no link. Se não houver vínculo com um contato, o evento fica associado a um identificador técnico de visitante.</p>
+          <p>O administrador deve informar os visitantes do seu site sobre o uso de pixels, cookies, parâmetros de rastreamento ou tecnologias similares quando exigido por lei.</p>
+        </section>
+
+        <section id="compartilhamento">
+          <h2>7. Compartilhamento e operadores</h2>
+          <p>Não vendemos dados pessoais. Podemos processar ou compartilhar dados somente quando necessário para operar o serviço, cumprir obrigações legais ou proteger a aplicação.</p>
+          <ul>
+            <li><strong>Meta:</strong> autenticação, APIs de Página, Messenger, webhooks e envio de mensagens.</li>
+            <li><strong>Cloudflare:</strong> hospedagem, Pages, Workers/Functions, banco de dados D1, segurança e entrega de conteúdo.</li>
+            <li><strong>Serviços configurados pelo administrador:</strong> armazenamento, links, mídia ou integrações adicionadas pelo próprio administrador.</li>
+            <li><strong>Autoridades competentes:</strong> quando houver obrigação legal, ordem válida ou necessidade de defesa de direitos.</li>
+          </ul>
+        </section>
+
+        <section id="retencao">
+          <h2>8. Retenção, exclusão e desinstalação</h2>
+          <p>Mantemos dados pelo tempo necessário para operar o serviço, cumprir obrigações legais, resolver disputas, auditar falhas e proteger usuários, administradores e a infraestrutura.</p>
+          <ul>
+            <li>Tokens e dados de Páginas são mantidos enquanto a Página permanecer conectada ou enquanto forem necessários para operação autorizada.</li>
+            <li>Contatos, tags, fluxos e configurações são mantidos enquanto o administrador usar o Messenlead ou até solicitação de exclusão.</li>
+            <li>Logs técnicos e filas podem ser removidos ou reduzidos periodicamente para controle operacional.</li>
+            <li>Mídias enviadas podem permanecer disponíveis enquanto estiverem referenciadas em fluxos ou até remoção pelo administrador.</li>
+          </ul>
+
+          <h3>8.1 Solicitação de exclusão de dados</h3>
+          <p>Para solicitar exclusão de dados, envie e-mail para <a href="mailto:aprovadoblog01@gmail.com">aprovadoblog01@gmail.com</a> com o assunto <strong>Exclusão de dados Messenlead</strong> e informe:</p>
+          <ul>
+            <li>Nome e ID da Página conectada.</li>
+            <li>Conta administradora relacionada.</li>
+            <li>Quais dados deseja excluir: sessão, Página, contatos, tags, fluxos, mídia, logs, Pixel ou todos os dados.</li>
+          </ul>
+          <p>Após validação da autorização, excluiremos ou anonimizaremos os dados aplicáveis em prazo razoável, salvo quando a retenção for necessária por obrigação legal, segurança, prevenção de abuso ou defesa de direitos.</p>
+        </section>
+
+        <section id="direitos">
+          <h2>9. Direitos dos titulares</h2>
+          <p>Conforme a legislação aplicável, titulares podem solicitar confirmação de tratamento, acesso, correção, portabilidade, anonimização, bloqueio, exclusão ou informação sobre compartilhamento de dados.</p>
+          <p>Quando o dado estiver sob controle direto de uma Página administrada por terceiro, a solicitação poderá exigir validação com o administrador da Página. Também é possível exercer controles diretamente nos produtos da Meta, conforme as configurações da própria Meta.</p>
+        </section>
+
+        <section id="seguranca">
+          <h2>10. Segurança da informação</h2>
+          <p>Adotamos medidas técnicas e organizacionais para proteger dados contra acesso não autorizado, alteração indevida, perda e uso abusivo. Essas medidas incluem:</p>
+          <ul>
+            <li>sessões protegidas e variáveis secretas de ambiente;</li>
+            <li>validação de assinatura de webhooks da Meta;</li>
+            <li>controle de acesso a endpoints administrativos;</li>
+            <li>deduplicação de eventos e filas de envio;</li>
+            <li>logs de diagnóstico para falhas relevantes;</li>
+            <li>separação de dados por Página sempre que aplicável.</li>
+          </ul>
+          <p>Nenhum sistema é totalmente imune a riscos. Em caso de incidente relevante, adotaremos medidas compatíveis com a natureza do evento e com as obrigações legais aplicáveis.</p>
+        </section>
+
+        <section>
+          <h2>11. Transferências internacionais</h2>
+          <p>O Messenlead utiliza provedores de infraestrutura distribuída. Dados podem ser processados em regiões diferentes do país de residência do administrador ou contato, conforme operação da Cloudflare, da Meta e de provedores técnicos autorizados.</p>
+        </section>
+
+        <section>
+          <h2>12. Crianças e adolescentes</h2>
+          <p>O Messenlead não é direcionado a crianças. Administradores não devem usar a ferramenta para coletar conscientemente dados de menores sem base legal, autorização apropriada e conformidade com regras aplicáveis.</p>
+        </section>
+
+        <section>
+          <h2>13. Alterações nesta Política</h2>
+          <p>Podemos atualizar esta Política para refletir mudanças legais, técnicas, operacionais ou exigências da Meta. A versão vigente será publicada nesta página com a data de atualização.</p>
+        </section>
+
+        <section id="contato">
+          <h2>14. Contato para privacidade</h2>
+          <p>Para dúvidas, solicitações de privacidade, remoção de dados ou informações sobre o tratamento realizado pelo Messenlead, entre em contato:</p>
+          <p><strong>E-mail:</strong> <a href="mailto:aprovadoblog01@gmail.com">aprovadoblog01@gmail.com</a></p>
+          <p><strong>URL desta Política:</strong> <a href="https://messenlead.pages.dev/politica-de-privacidade/">https://messenlead.pages.dev/politica-de-privacidade/</a></p>
+        </section>
+
+        <p class="footer">Documento preparado para uso operacional do Messenlead com Meta/Facebook/Messenger. Recomenda-se revisão jurídica antes de submissão definitiva do app para produção ou análise da Meta.</p>
+      </main>
+    </div>
+  </body>
+</html>

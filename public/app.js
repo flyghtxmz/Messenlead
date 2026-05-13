@@ -376,7 +376,13 @@ let metaState = {
   error: oauthErrorFromHash()
 };
 let broadcastState = {
-  pageConversations: {}
+  pageConversations: {},
+  missingTag: "NovoUsuario",
+  flowId: "",
+  limit: 25,
+  running: false,
+  result: null,
+  error: ""
 };
 
 mainNav.addEventListener("click", (event) => {
@@ -2145,6 +2151,7 @@ function renderBroadcasts() {
             <span>Fora da janela 24h</span>
           </span>
         </div>
+        ${renderMissingTagFlowDispatcher(currentFlowPageId())}
         <div class="panel-body campaign-list">
           ${filteredCampaigns
             .map(
@@ -2193,6 +2200,88 @@ function renderBroadcasts() {
       </aside>
     </div>
   `;
+}
+
+function renderMissingTagFlowDispatcher(pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  if (flowStore.pageId !== normalizedPageId && !flowStore.loading) {
+    loadFlowsForPage(normalizedPageId);
+  }
+  if (contactStore.pageId !== normalizedPageId && !contactStore.loading) {
+    loadContactsForPage(normalizedPageId);
+  }
+
+  const flows = metaConversationRunnableFlows(normalizedPageId);
+  const selectedFlowId = currentMissingTagFlowId(normalizedPageId, flows);
+  const tags = manualMissingTagOptions(normalizedPageId);
+  const selectedTag = currentMissingTagName(normalizedPageId, tags);
+  const previewCount = missingTagPreviewRecipients(normalizedPageId, selectedTag).length;
+  const result = broadcastState.result;
+  const error = broadcastState.error;
+
+  return `
+    <div class="manual-flow-dispatcher">
+      <div>
+        <strong>Disparo manual por tag ausente</strong>
+        <span>Usa a Graph API para achar mensagens recentes e roda o fluxo somente em contatos sem a tag escolhida.</span>
+      </div>
+      <div class="manual-flow-grid">
+        <label>
+          <span>Fluxo</span>
+          <select data-missing-tag-flow="true" ${broadcastState.running || !flows.length ? "disabled" : ""}>
+            ${
+              flows.length
+                ? flows.map((flow) => `<option value="${attr(flow.id)}" ${flow.id === selectedFlowId ? "selected" : ""}>${escapeHtml(flow.name || "Fluxo sem nome")}</option>`).join("")
+                : `<option value="">Nenhum fluxo ativo publicado</option>`
+            }
+          </select>
+        </label>
+        <label>
+          <span>Enviar para quem nao tem a tag</span>
+          <select data-missing-tag-name="true" ${broadcastState.running ? "disabled" : ""}>
+            ${tags.map((tag) => `<option value="${attr(tag)}" ${tag === selectedTag ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          <span>Limite por execucao</span>
+          <input type="number" min="1" max="50" value="${Number(broadcastState.limit || 25)}" data-missing-tag-limit="true" ${broadcastState.running ? "disabled" : ""}>
+        </label>
+        <button class="primary-button" type="button" data-action="run-missing-tag-flow" ${broadcastState.running || !selectedFlowId || !selectedTag ? "disabled" : ""}>${icons.send}<span>${broadcastState.running ? "Enviando..." : "Enviar fluxo"}</span></button>
+      </div>
+      <p class="muted">${previewCount} conversa${previewCount === 1 ? "" : "s"} desta Pagina parecem estar sem essa tag e dentro da janela de 24h. O backend vai conferir novamente no D1 antes de enviar.</p>
+      ${result ? `<div class="code-block">Verificados: ${result.checked} | Disparados: ${result.triggered} | Ja tinham tag: ${result.skippedHasTag} | Fora 24h: ${result.skippedOutsideWindow} | Falhas: ${result.failed}</div>` : ""}
+      ${error ? `<div class="code-block">${escapeHtml(error)}</div>` : ""}
+    </div>
+  `;
+}
+
+function currentMissingTagFlowId(pageId = currentFlowPageId(), flows = metaConversationRunnableFlows(pageId)) {
+  const stored = String(broadcastState.flowId || "").trim();
+  if (stored && flows.some((flow) => flow.id === stored)) return stored;
+  return flows[0]?.id || "";
+}
+
+function currentMissingTagName(pageId = currentFlowPageId(), tags = manualMissingTagOptions(pageId)) {
+  const stored = normalizeTagName(broadcastState.missingTag || "");
+  const match = tags.find((tag) => normalizeTagKey(tag) === normalizeTagKey(stored));
+  return match || tags[0] || "NovoUsuario";
+}
+
+function manualMissingTagOptions(pageId = currentFlowPageId()) {
+  return unique([
+    broadcastState.missingTag,
+    "NovoUsuario",
+    ...tagRecordsForPage(pageId).map((tag) => tag.name),
+    ...allContactTags(contactsForPage(pageId))
+  ].map(normalizeTagName).filter(Boolean)).sort((a, b) => a.localeCompare(b));
+}
+
+function missingTagPreviewRecipients(pageId = currentFlowPageId(), tagName = "") {
+  const page = metaState.pages?.find((item) => normalizeFlowPageId(item.id) === normalizeFlowPageId(pageId));
+  const live = page ? broadcastPageStats(page).eligible : [];
+  const local = contactsForPage(pageId).filter((contact) => isBroadcastEligible(contact));
+  return uniqueRecipients([...live, ...local])
+    .filter((contact) => !contactHasTag(contact, tagName));
 }
 
 function renderPixel() {
@@ -3742,7 +3831,7 @@ async function loadContactsForPage(pageId) {
     contactStore.status = contactStoreStatusFromError(error);
   } finally {
     contactStore.loading = false;
-    if (["subscribers", "inbox"].includes(activeView)) render();
+    if (["subscribers", "inbox", "broadcasts"].includes(activeView)) render();
     renderPageSwitcher();
     renderNav();
   }
@@ -4056,7 +4145,7 @@ async function loadFlowsForPage(pageId) {
   } finally {
     if (currentFlowPageId() === normalizedPageId) {
       flowStore.loading = false;
-      if (activeView === "flows" || activeView === "settings" || activeView === "pages") render();
+      if (activeView === "flows" || activeView === "settings" || activeView === "pages" || activeView === "broadcasts") render();
     }
   }
 }
@@ -5778,6 +5867,7 @@ function handleWorkspaceClick(event) {
   if (action === "export-csv") return exportSubscribersCsv();
   if (action === "new-campaign") return createCampaign();
   if (action === "launch-campaign") return launchCampaign(id);
+  if (action === "run-missing-tag-flow") return runMissingTagFlow();
   if (action === "delete-campaign") return deleteCampaign(id);
   if (action === "create-tag-folder") return openCreateTagFolderModal();
   if (action === "delete-tag-folder") return confirmDeleteTagFolder(button.dataset.folderId);
@@ -5965,6 +6055,21 @@ function handleWorkspaceChange(event) {
   }
   if (target.id === "subscriberTagFilter") {
     subscriberTagFilter = target.value;
+    render();
+    return;
+  }
+  if (target.dataset.missingTagFlow) {
+    broadcastState = { ...broadcastState, flowId: target.value, result: null, error: "" };
+    render();
+    return;
+  }
+  if (target.dataset.missingTagName) {
+    broadcastState = { ...broadcastState, missingTag: target.value, result: null, error: "" };
+    render();
+    return;
+  }
+  if (target.dataset.missingTagLimit) {
+    broadcastState = { ...broadcastState, limit: Math.max(1, Math.min(50, Number(target.value) || 25)), result: null, error: "" };
     render();
     return;
   }
@@ -7639,6 +7744,41 @@ function launchCampaign(id) {
   saveState();
   toastMessage("Envio simulado no inbox local.");
   render();
+}
+
+async function runMissingTagFlow() {
+  const pageId = currentFlowPageId();
+  const flowId = currentMissingTagFlowId(pageId);
+  const tag = currentMissingTagName(pageId);
+  const limit = Math.max(1, Math.min(50, Number(broadcastState.limit) || 25));
+
+  if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID || !flowId || !tag) {
+    toastMessage("Selecione uma Pagina, um fluxo ativo e uma tag.");
+    return;
+  }
+
+  broadcastState = { ...broadcastState, running: true, result: null, error: "" };
+  render();
+
+  try {
+    const result = await apiPost("/api/flow-runtime/run-missing-tag", {
+      pageId,
+      flowId,
+      tag,
+      limit
+    });
+    broadcastState = { ...broadcastState, running: false, result, error: "" };
+    toastMessage(`Disparo finalizado: ${result.triggered || 0} contato${result.triggered === 1 ? "" : "s"} acionado${result.triggered === 1 ? "" : "s"}.`);
+    await Promise.all([
+      loadContactsForPage(pageId),
+      loadFlowLogsForPage(pageId, { silent: true })
+    ]);
+  } catch (error) {
+    broadcastState = { ...broadcastState, running: false, result: null, error: error.message || "Falha no disparo manual." };
+    toastMessage(broadcastState.error);
+  } finally {
+    if (activeView === "broadcasts") render();
+  }
 }
 
 function deleteCampaign(id) {
@@ -10486,6 +10626,7 @@ function broadcastRecipientsFromPages() {
 function conversationToBroadcastRecipient(conversation, page) {
   const psid = recipientIdFromConversation(conversation, page.id);
   if (!psid) return null;
+  const existing = state.contacts.find((contact) => normalizeFlowPageId(contact.pageId) === normalizeFlowPageId(page.id) && contact.psid === psid);
 
   return {
     id: `${page.id}:${psid}`,
@@ -10495,6 +10636,8 @@ function conversationToBroadcastRecipient(conversation, page) {
     name: conversationTitle(conversation, page.name),
     lastSeen: conversation.updated_time,
     source: "Messenger",
+    tags: existing ? contactTags(existing) : [],
+    tag: existing ? contactTags(existing)[0] || "" : "",
     status: "open",
     live: true
   };
