@@ -6,6 +6,10 @@ import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { handleMessengerEvent } from "../messenger/webhook.js";
 
 const RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_LIMITED_SCAN = 25;
+const DEFAULT_ALL_SCAN_MAX = 1000;
+const GRAPH_PAGE_SIZE = 100;
+const GRAPH_LOOKUP_CONCURRENCY = 4;
 
 export async function onRequestPost({ request, env }) {
   const auth = await authorizeRunMissingTagRequest(request, env);
@@ -21,7 +25,11 @@ export async function onRequestPost({ request, env }) {
   const pageId = String(body.pageId || "").trim();
   const flowId = String(body.flowId || "").trim();
   const tag = normalizeTagName(body.tag);
-  const limit = clampNumber(body.limit, 1, 50, 25);
+  const scanAll = isAllScan(body.limit) || isAllScan(body.scope);
+  const limit = scanAll ? 0 : clampNumber(body.limit, 1, 200, DEFAULT_LIMITED_SCAN);
+  const maxScan = scanAll
+    ? clampNumber(body.maxScan || env.MESSENLEAD_MISSING_TAG_ALL_MAX, 50, 5000, DEFAULT_ALL_SCAN_MAX)
+    : Math.max(limit, 10);
 
   if (!pageId || !flowId || !tag) {
     return json({ error: "pageId, flowId and tag are required" }, 400);
@@ -35,13 +43,22 @@ export async function onRequestPost({ request, env }) {
   const flow = flows.find((item) => item.id === flowId);
   if (!flow) return json({ error: "Selected flow is not active for this Page" }, 404);
 
-  const candidates = await recentInboundCandidates(config, pageId, pageAccessToken, limit);
+  const scan = await recentInboundCandidates(config, pageId, pageAccessToken, {
+    limit,
+    scanAll,
+    maxScan
+  });
+  const candidates = scan.candidates;
   const result = {
     ok: true,
     pageId,
     flowId,
     flowName: flow.name || "",
     tag,
+    scope: scanAll ? "all" : "limited",
+    maxScan,
+    scannedConversations: scan.scannedConversations,
+    partial: scan.partial,
     checked: candidates.length,
     triggered: 0,
     skippedHasTag: 0,
@@ -126,6 +143,10 @@ export async function onRequestPost({ request, env }) {
     message: "Disparo manual para contatos sem tag finalizado.",
     data: {
       tag,
+      scope: result.scope,
+      maxScan: result.maxScan,
+      scannedConversations: result.scannedConversations,
+      partial: result.partial,
       checked: result.checked,
       triggered: result.triggered,
       skippedHasTag: result.skippedHasTag,
@@ -138,30 +159,74 @@ export async function onRequestPost({ request, env }) {
   return json(result);
 }
 
-async function recentInboundCandidates(config, pageId, pageAccessToken, limit) {
-  const conversations = await graphFetch(
-    graphUrl(config, `/${pageId}/conversations`, {
-      fields: "id,updated_time,participants,senders,snippet",
-      limit: String(Math.max(limit, 10)),
-      access_token: pageAccessToken
-    })
-  );
-
+async function recentInboundCandidates(config, pageId, pageAccessToken, options = {}) {
+  const scanAll = Boolean(options.scanAll);
+  const limit = clampNumber(options.limit, 1, 200, DEFAULT_LIMITED_SCAN);
+  const maxScan = clampNumber(options.maxScan, 10, 5000, scanAll ? DEFAULT_ALL_SCAN_MAX : Math.max(limit, 10));
+  const targetCandidates = scanAll ? Number.POSITIVE_INFINITY : limit;
   const candidates = [];
-  for (const conversation of conversations.data || []) {
-    if (candidates.length >= limit) break;
-    const inbound = await latestInboundMessage(config, conversation.id, pageId, pageAccessToken);
-    if (!inbound) continue;
-    candidates.push({
-      conversationId: conversation.id || "",
-      psid: inbound.psid,
-      name: inbound.name,
-      lastInboundAt: inbound.createdAt,
-      preview: inbound.message
+  let scannedConversations = 0;
+  let partial = false;
+  let nextUrl = graphUrl(config, `/${pageId}/conversations`, {
+    fields: "id,updated_time,participants,senders,snippet",
+    limit: String(Math.min(GRAPH_PAGE_SIZE, maxScan)),
+    access_token: pageAccessToken
+  });
+
+  while (nextUrl && scannedConversations < maxScan && candidates.length < targetCandidates) {
+    const conversations = await graphFetch(nextUrl);
+    const remainingScan = maxScan - scannedConversations;
+    const pageConversations = (conversations.data || []).slice(0, remainingScan);
+    scannedConversations += pageConversations.length;
+
+    const inboundResults = await mapLimit(pageConversations, GRAPH_LOOKUP_CONCURRENCY, async (conversation) => {
+      const inbound = await latestInboundMessage(config, conversation.id, pageId, pageAccessToken);
+      if (!inbound) return null;
+      return {
+        conversationId: conversation.id || "",
+        psid: inbound.psid,
+        name: inbound.name,
+        lastInboundAt: inbound.createdAt,
+        preview: inbound.message
+      };
     });
+
+    for (const inbound of inboundResults.filter(Boolean)) {
+      if (candidates.length >= targetCandidates) break;
+      candidates.push(inbound);
+    }
+
+    const pageNextUrl = conversations.paging?.next || "";
+    if (candidates.length >= targetCandidates) break;
+    if (scannedConversations >= maxScan) {
+      partial = Boolean(pageNextUrl);
+      break;
+    }
+    nextUrl = pageNextUrl;
   }
 
-  return candidates;
+  return {
+    candidates,
+    scannedConversations,
+    partial
+  };
+}
+
+async function mapLimit(items, limit, iterator) {
+  const results = new Array(items.length);
+  let index = 0;
+
+  async function worker() {
+    while (index < items.length) {
+      const currentIndex = index;
+      index += 1;
+      results[currentIndex] = await iterator(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
 }
 
 async function latestInboundMessage(config, conversationId, pageId, pageAccessToken) {
@@ -256,4 +321,8 @@ function clampNumber(value, min, max, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(number)));
+}
+
+function isAllScan(value) {
+  return String(value || "").trim().toLowerCase() === "all";
 }

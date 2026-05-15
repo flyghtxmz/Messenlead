@@ -368,6 +368,8 @@ let metaState = {
   pageDebug: null,
   selectedPageId: state.settings.pageId || "",
   conversations: null,
+  conversationsPageId: "",
+  loadingConversationsPageId: "",
   selectedConversationId: "",
   messages: null,
   pixelEvents: null,
@@ -379,7 +381,7 @@ let broadcastState = {
   pageConversations: {},
   missingTag: "NovoUsuario",
   flowId: "",
-  limit: 25,
+  limit: "25",
   running: false,
   result: null,
   error: ""
@@ -1565,14 +1567,24 @@ function renderPages() {
     return;
   }
 
-  const pages = filterBySearch(metaState.pages, (page) => `${page.name} ${page.id} ${page.category || ""}`);
-  const selectedPage = pages.find((page) => page.id === metaState.selectedPageId) || pages[0] || null;
+  const allPages = metaState.pages || [];
+  const pages = filterBySearch(allPages, (page) => `${page.name} ${page.id} ${page.category || ""}`);
+  const selectedPage =
+    allPages.find((page) => page.id === metaState.selectedPageId) ||
+    allPages.find((page) => page.id === state.settings.pageId) ||
+    allPages[0] ||
+    null;
 
   if (selectedPage && selectedPage.id !== metaState.selectedPageId) {
     metaState.selectedPageId = selectedPage.id;
   }
 
-  if (selectedPage && !metaState.conversations) {
+  const conversationsBelongToSelectedPage =
+    Boolean(selectedPage?.id) && normalizeFlowPageId(metaState.conversationsPageId) === normalizeFlowPageId(selectedPage.id);
+  const conversationsLoadingForSelectedPage =
+    Boolean(selectedPage?.id) && normalizeFlowPageId(metaState.loadingConversationsPageId) === normalizeFlowPageId(selectedPage.id);
+
+  if (selectedPage && (!metaState.conversations || !conversationsBelongToSelectedPage) && !conversationsLoadingForSelectedPage) {
     loadMetaConversations(selectedPage.id);
   }
 
@@ -1580,7 +1592,7 @@ function renderPages() {
     loadFlowsForPage(selectedPage.id);
   }
 
-  const conversations = sortMetaConversations(metaState.conversations || [], selectedPage?.id);
+  const conversations = conversationsBelongToSelectedPage ? sortMetaConversations(metaState.conversations || [], selectedPage?.id) : [];
   const unreadSummary = selectedPage ? metaUnreadSummary(conversations, selectedPage.id) : null;
   const selectedConversation = metaState.selectedConversationId
     ? conversations.find((conversation) => conversation.id === metaState.selectedConversationId) || null
@@ -1649,7 +1661,7 @@ function renderPages() {
               <div class="live-inbox">
                 <aside class="live-thread-list">
                   ${
-                    metaState.conversations
+                    conversationsBelongToSelectedPage && metaState.conversations
                       ? conversations
                           .map(
                             (conversation) => `
@@ -2215,6 +2227,7 @@ function renderMissingTagFlowDispatcher(pageId = currentFlowPageId()) {
   const selectedFlowId = currentMissingTagFlowId(normalizedPageId, flows);
   const tags = manualMissingTagOptions(normalizedPageId);
   const selectedTag = currentMissingTagName(normalizedPageId, tags);
+  const selectedLimit = currentMissingTagLimit();
   const previewCount = missingTagPreviewRecipients(normalizedPageId, selectedTag).length;
   const result = broadcastState.result;
   const error = broadcastState.error;
@@ -2243,16 +2256,31 @@ function renderMissingTagFlowDispatcher(pageId = currentFlowPageId()) {
           </select>
         </label>
         <label>
-          <span>Limite por execucao</span>
-          <input type="number" min="1" max="50" value="${Number(broadcastState.limit || 25)}" data-missing-tag-limit="true" ${broadcastState.running ? "disabled" : ""}>
+          <span>Alcance</span>
+          <select data-missing-tag-limit="true" ${broadcastState.running ? "disabled" : ""}>
+            <option value="25" ${selectedLimit === "25" ? "selected" : ""}>25 conversas recentes</option>
+            <option value="50" ${selectedLimit === "50" ? "selected" : ""}>50 conversas recentes</option>
+            <option value="100" ${selectedLimit === "100" ? "selected" : ""}>100 conversas recentes</option>
+            <option value="all" ${selectedLimit === "all" ? "selected" : ""}>Todos</option>
+          </select>
         </label>
         <button class="primary-button" type="button" data-action="run-missing-tag-flow" ${broadcastState.running || !selectedFlowId || !selectedTag ? "disabled" : ""}>${icons.send}<span>${broadcastState.running ? "Enviando..." : "Enviar fluxo"}</span></button>
       </div>
-      <p class="muted">${previewCount} conversa${previewCount === 1 ? "" : "s"} desta Pagina parecem estar sem essa tag e dentro da janela de 24h. O backend vai conferir novamente no D1 antes de enviar.</p>
-      ${result ? `<div class="code-block">Verificados: ${result.checked} | Disparados: ${result.triggered} | Ja tinham tag: ${result.skippedHasTag} | Fora 24h: ${result.skippedOutsideWindow} | Falhas: ${result.failed}</div>` : ""}
+      <p class="muted">${previewCount} conversa${previewCount === 1 ? "" : "s"} desta Pagina parecem estar sem essa tag e dentro da janela de 24h. O backend vai conferir novamente no D1 antes de enviar. Em Todos, ele pagina as conversas da Meta e usa uma trava de seguranca de ate 1000 conversas por execucao.</p>
+      ${result ? `<div class="code-block">Escopo: ${result.scope === "all" ? "Todos" : "Limitado"} | Conversas Meta: ${result.scannedConversations || result.checked || 0}${result.partial ? " (parcial)" : ""} | Verificados: ${result.checked} | Disparados: ${result.triggered} | Ja tinham tag: ${result.skippedHasTag} | Fora 24h: ${result.skippedOutsideWindow} | Falhas: ${result.failed}</div>` : ""}
       ${error ? `<div class="code-block">${escapeHtml(error)}</div>` : ""}
     </div>
   `;
+}
+
+function currentMissingTagLimit() {
+  const value = String(broadcastState.limit || "25").trim().toLowerCase();
+  if (value === "all") return "all";
+  if (["25", "50", "100"].includes(value)) return value;
+  const number = Math.max(1, Math.min(200, Number(value) || 25));
+  if (number <= 25) return "25";
+  if (number <= 50) return "50";
+  return "100";
 }
 
 function currentMissingTagFlowId(pageId = currentFlowPageId(), flows = metaConversationRunnableFlows(pageId)) {
@@ -3609,8 +3637,21 @@ async function loadMetaPages() {
     metaState.pages = result.pages || [];
     metaState.pageDebug = result.debug || null;
     metaState.error = "";
-    if (!metaState.selectedPageId && metaState.pages[0]) {
-      metaState.selectedPageId = metaState.pages[0].id;
+    const selectedStillExists = metaState.pages.some((page) => page.id === metaState.selectedPageId);
+    const savedPage = metaState.pages.find((page) => page.id === state.settings.pageId);
+    const nextPage = selectedStillExists
+      ? metaState.pages.find((page) => page.id === metaState.selectedPageId)
+      : savedPage || metaState.pages[0] || null;
+
+    if (nextPage && metaState.selectedPageId !== nextPage.id) {
+      metaState.selectedPageId = nextPage.id;
+      metaState.conversations = null;
+      metaState.conversationsPageId = "";
+      metaState.loadingConversationsPageId = "";
+      metaState.selectedConversationId = "";
+      metaState.messages = null;
+      metaState.pixelEvents = null;
+      metaState.unreadAnchorId = "";
     }
   } catch (error) {
     metaState.pages = [];
@@ -3623,22 +3664,33 @@ async function loadMetaPages() {
 }
 
 async function loadMetaConversations(pageId) {
+  const requestedPageId = normalizeFlowPageId(pageId);
+  metaState.loadingConversationsPageId = requestedPageId;
+
   try {
     metaState.error = "";
-    const result = await apiGet(`/api/meta/conversations?pageId=${encodeURIComponent(pageId)}`);
+    const result = await apiGet(`/api/meta/conversations?pageId=${encodeURIComponent(requestedPageId)}`);
+    if (normalizeFlowPageId(metaState.selectedPageId || state.settings.pageId) !== requestedPageId) return;
+
     const conversations = result.conversations || [];
     const previousConversationId = metaState.selectedConversationId;
     metaState.conversations = conversations;
-    mergeConversationsAsContacts(pageId, selectedPageName(pageId), conversations);
+    metaState.conversationsPageId = requestedPageId;
+    mergeConversationsAsContacts(requestedPageId, selectedPageName(requestedPageId), conversations);
     metaState.selectedConversationId = conversations.find((conversation) => conversation.id === previousConversationId)?.id || "";
     metaState.messages = null;
     metaState.pixelEvents = null;
     metaState.unreadAnchorId = "";
   } catch (error) {
+    if (normalizeFlowPageId(metaState.selectedPageId || state.settings.pageId) !== requestedPageId) return;
     metaState.conversations = [];
+    metaState.conversationsPageId = requestedPageId;
     metaState.error = error.message;
     toastMessage(error.message);
   } finally {
+    if (normalizeFlowPageId(metaState.loadingConversationsPageId) === requestedPageId) {
+      metaState.loadingConversationsPageId = "";
+    }
     render();
   }
 }
@@ -3946,6 +3998,8 @@ async function logoutFacebook() {
     pageDebug: null,
     selectedPageId: "",
     conversations: null,
+    conversationsPageId: "",
+    loadingConversationsPageId: "",
     selectedConversationId: "",
     messages: null,
     pixelEvents: null,
@@ -3960,6 +4014,8 @@ function selectMetaPage(pageId) {
   const page = metaState.pages?.find((item) => item.id === pageId);
   metaState.selectedPageId = pageId;
   metaState.conversations = null;
+  metaState.conversationsPageId = "";
+  metaState.loadingConversationsPageId = "";
   metaState.selectedConversationId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
@@ -3988,6 +4044,8 @@ function selectSidebarPage(pageId) {
 
   metaState.selectedPageId = page.id;
   metaState.conversations = null;
+  metaState.conversationsPageId = "";
+  metaState.loadingConversationsPageId = "";
   metaState.selectedConversationId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
@@ -4012,6 +4070,8 @@ function selectSidebarPage(pageId) {
 function refreshMetaConversations() {
   if (!metaState.selectedPageId) return;
   metaState.conversations = null;
+  metaState.conversationsPageId = "";
+  metaState.loadingConversationsPageId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
   metaState.unreadAnchorId = "";
@@ -4020,6 +4080,7 @@ function refreshMetaConversations() {
 
 function selectMetaConversation(conversationId) {
   const pageId = metaState.selectedPageId || state.settings.pageId;
+  if (normalizeFlowPageId(metaState.conversationsPageId) !== normalizeFlowPageId(pageId)) return;
   metaState.selectedConversationId = conversationId;
   metaState.messages = null;
   metaState.pixelEvents = null;
@@ -4029,7 +4090,9 @@ function selectMetaConversation(conversationId) {
 
 async function sendMetaMessage() {
   const page = metaState.pages?.find((item) => item.id === metaState.selectedPageId);
-  const conversation = metaState.conversations?.find((item) => item.id === metaState.selectedConversationId);
+  const conversation = page && normalizeFlowPageId(metaState.conversationsPageId) === normalizeFlowPageId(page.id)
+    ? metaState.conversations?.find((item) => item.id === metaState.selectedConversationId)
+    : null;
   const textarea = document.querySelector("#metaComposerText");
   const text = textarea?.value.trim();
   const psid = conversation ? recipientIdFromConversation(conversation, page?.id) : "";
@@ -4055,7 +4118,9 @@ async function sendMetaMessage() {
 
 async function runMetaConversationFlow() {
   const page = metaState.pages?.find((item) => item.id === metaState.selectedPageId);
-  const conversation = metaState.conversations?.find((item) => item.id === metaState.selectedConversationId);
+  const conversation = page && normalizeFlowPageId(metaState.conversationsPageId) === normalizeFlowPageId(page.id)
+    ? metaState.conversations?.find((item) => item.id === metaState.selectedConversationId)
+    : null;
   const select = document.querySelector("#metaConversationFlowSelect");
   const flowId = String(select?.value || "").trim();
   const psid = conversation ? recipientIdFromConversation(conversation, page?.id) : "";
@@ -6069,7 +6134,10 @@ function handleWorkspaceChange(event) {
     return;
   }
   if (target.dataset.missingTagLimit) {
-    broadcastState = { ...broadcastState, limit: Math.max(1, Math.min(50, Number(target.value) || 25)), result: null, error: "" };
+    const nextLimit = String(target.value || "").trim().toLowerCase() === "all"
+      ? "all"
+      : String(Math.max(1, Math.min(200, Number(target.value) || 25)));
+    broadcastState = { ...broadcastState, limit: nextLimit, result: null, error: "" };
     render();
     return;
   }
@@ -7750,7 +7818,8 @@ async function runMissingTagFlow() {
   const pageId = currentFlowPageId();
   const flowId = currentMissingTagFlowId(pageId);
   const tag = currentMissingTagName(pageId);
-  const limit = Math.max(1, Math.min(50, Number(broadcastState.limit) || 25));
+  const selectedLimit = currentMissingTagLimit();
+  const limit = selectedLimit === "all" ? "all" : Number(selectedLimit);
 
   if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID || !flowId || !tag) {
     toastMessage("Selecione uma Pagina, um fluxo ativo e uma tag.");
@@ -7765,7 +7834,8 @@ async function runMissingTagFlow() {
       pageId,
       flowId,
       tag,
-      limit
+      limit,
+      scope: selectedLimit === "all" ? "all" : "limited"
     });
     broadcastState = { ...broadcastState, running: false, result, error: "" };
     toastMessage(`Disparo finalizado: ${result.triggered || 0} contato${result.triggered === 1 ? "" : "s"} acionado${result.triggered === 1 ? "" : "s"}.`);
