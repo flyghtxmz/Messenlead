@@ -16,6 +16,7 @@ const navItems = [
   { id: "inbox", label: "Inbox", icon: "inbox" },
   { id: "subscribers", label: "Assinantes", icon: "users" },
   { id: "broadcasts", label: "Disparos", icon: "send" },
+  { id: "json_templates", label: "JSON Template", icon: "pages" },
   { id: "pixel", label: "Pixel", icon: "pixel" },
   { id: "media", label: "Mídia", icon: "upload" },
   { id: "image", label: "Imagem", icon: "image" },
@@ -240,6 +241,7 @@ const icons = {
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-1 5v6M9 11v6M5 6l1 15h12l1-15"/></svg>`,
   copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h12v12H8V8Z"/><path d="M4 16V4h12"/></svg>`,
+  edit: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"/></svg>`,
   upload: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0-4 4m4-4 4 4"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg>`,
   download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>`,
   refresh: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v6h-6"/><path d="M4 18v-6h6"/><path d="M19 12a7 7 0 0 0-12-5l-3 3"/><path d="M5 12a7 7 0 0 0 12 5l3-3"/></svg>`,
@@ -378,6 +380,12 @@ let attributionState = {
   pageId: "",
   loading: false,
   events: [],
+  error: ""
+};
+let jsonTemplateState = {
+  pageId: "",
+  loading: false,
+  templates: [],
   error: ""
 };
 let mediaState = {
@@ -1431,6 +1439,7 @@ function render() {
     inbox: renderInbox,
     subscribers: renderSubscribers,
     broadcasts: renderBroadcasts,
+    json_templates: renderJsonTemplates,
     pixel: renderPixel,
     media: renderMediaLibrary,
     image: renderImageTool,
@@ -1452,6 +1461,7 @@ function renderNav() {
     inbox: pageContacts.filter((contact) => contact.status === "open").length,
     subscribers: pageContacts.length,
     broadcasts: state.campaigns.filter((campaign) => campaign.status !== "sent").length,
+    json_templates: jsonTemplateState.pageId === currentFlowPageId() ? jsonTemplateState.templates.length || "" : "",
     pixel: pixelState.summary?.linkClicks || "",
     image: "",
     video: "",
@@ -2666,6 +2676,81 @@ function pixelInstallSnippet(pageId = currentFlowPageId()) {
   return `<script async src="${scriptUrl}"></script>`;
 }
 
+function renderJsonTemplates() {
+  const pageId = currentFlowPageId();
+  const pageName = selectedPageName(pageId);
+  const hasCurrentPageData = jsonTemplateState.pageId === pageId;
+  const templates = filterBySearch(hasCurrentPageData ? jsonTemplateState.templates : [], (template) =>
+    `${template.name} ${template.description} ${template.jsonText}`
+  );
+
+  if (!hasCurrentPageData && !jsonTemplateState.loading) {
+    loadJsonTemplatesForPage(pageId, { silent: true });
+  }
+
+  workspace.innerHTML = `
+    <div class="json-template-grid">
+      <section class="panel json-template-library-panel">
+        <div class="panel-header">
+          <div>
+            <h2>JSON Templates</h2>
+            <span>Templates reutilizaveis da Pagina ${escapeHtml(pageName)}.</span>
+          </div>
+          <div class="panel-actions">
+            <button class="secondary-button" type="button" data-action="refresh-json-templates">${icons.refresh}<span>Atualizar</span></button>
+            <button class="secondary-button" type="button" data-action="create-default-json-template">${icons.plus}<span>Template inicial</span></button>
+            <button class="primary-button" type="button" data-action="create-json-template">${icons.plus}<span>Novo template</span></button>
+          </div>
+        </div>
+        <div class="panel-body json-template-list">
+          ${jsonTemplateState.error ? `<div class="modal-error">${escapeHtml(jsonTemplateState.error)}</div>` : ""}
+          ${
+            jsonTemplateState.loading && !templates.length
+              ? `<div class="empty-state">Carregando JSON Templates...</div>`
+              : templates.length
+                ? templates.map(renderJsonTemplateCard).join("")
+                : emptyInline("Nenhum JSON Template salvo nesta Pagina.")
+          }
+        </div>
+      </section>
+
+      <aside class="panel json-template-help-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Uso</h2>
+            <span>Biblioteca vinculada a Pagina selecionada</span>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          ${metricInline("Templates", hasCurrentPageData ? jsonTemplateState.templates.length : 0)}
+          <p class="muted">Use Template inicial para gerar o JSON de entrada Click-to-Messenger. Depois edite o conteudo e copie o JSON validado para o Gerenciador de Anuncios.</p>
+          <p class="muted">Cada Pagina possui sua propria biblioteca. Alterar um template aqui nao modifica anuncios que ja foram publicados na Meta.</p>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function renderJsonTemplateCard(template) {
+  return `
+    <article class="json-template-card">
+      <div class="json-template-card-header">
+        <div>
+          <strong>${escapeHtml(template.name || "Template sem nome")}</strong>
+          <span>${escapeHtml(template.description || "Sem descricao")}</span>
+          <small>Atualizado em ${escapeHtml(formatDate(template.updatedAt) || template.updatedAt || "-")}</small>
+        </div>
+        <div class="panel-actions">
+          <button class="secondary-button" type="button" data-action="copy-json-template" data-id="${attr(template.id)}" title="Copiar JSON">${icons.copy}<span>Copiar</span></button>
+          <button class="secondary-button" type="button" data-action="edit-json-template" data-id="${attr(template.id)}" title="Editar template">${icons.edit}<span>Editar</span></button>
+          <button class="icon-button danger" type="button" data-action="delete-json-template" data-id="${attr(template.id)}" title="Excluir template">${icons.trash}</button>
+        </div>
+      </div>
+      <pre class="code-block json-template-code">${escapeHtml(template.jsonText || "{}")}</pre>
+    </article>
+  `;
+}
+
 function safeTrackingToken(value) {
   return String(value || "default")
     .trim()
@@ -3163,14 +3248,13 @@ function renderSettings() {
       <section class="panel settings-wide-panel">
         <div class="panel-header">
           <div>
-            <h2>Template reutilizavel para anuncios</h2>
-            <span>Salve uma vez no Gerenciador de Anuncios e reutilize nos anuncios Click-to-Messenger desta Pagina.</span>
+            <h2>JSON Templates</h2>
+            <span>Biblioteca por Pagina para editar e copiar templates reutilizaveis de anuncios.</span>
           </div>
-          <button class="primary-button" type="button" data-action="copy-ad-entry-template">${icons.copy}<span>Copiar JSON</span></button>
+          <button class="primary-button" type="button" data-action="open-json-templates">${icons.pages}<span>Abrir biblioteca</span></button>
         </div>
         <div class="panel-body stack">
-          <pre class="code-block">${escapeHtml(adEntryTemplateJson(pageId))}</pre>
-          <p class="muted">O template apenas pede a primeira interacao. Depois do clique em Receber conteudo, o webhook identifica page_id + ad_id e o fluxo assume a conversa. Valide a previa no Gerenciador antes de publicar.</p>
+          <p class="muted">Crie um template inicial de Click-to-Messenger ou salve suas proprias variacoes. O dashboard valida o JSON antes de persistir no D1.</p>
         </div>
       </section>
 
@@ -4381,6 +4465,7 @@ function selectMetaPage(pageId) {
     contactStore.pageId = "";
     customFieldStore.pageId = "";
     pixelState.pageId = "";
+    jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
     loadFlowsForPage(page.id);
     loadContactsForPage(page.id);
   }
@@ -4415,6 +4500,7 @@ function selectSidebarPage(pageId) {
   contactStore.pageId = "";
   customFieldStore.pageId = "";
   pixelState.pageId = "";
+  jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
   persistLocalState();
   loadContactsForPage(page.id);
   render();
@@ -4527,6 +4613,7 @@ function openPageFlow() {
     contactStore.pageId = "";
     customFieldStore.pageId = "";
     pixelState.pageId = "";
+    jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
     loadContactsForPage(page.id);
   }
   navigate("flows");
@@ -4830,6 +4917,147 @@ async function loadAttributionsForPage(pageId = currentFlowPageId(), options = {
       if (activeView === "settings") render();
     }
   }
+}
+
+async function loadJsonTemplatesForPage(pageId = currentFlowPageId(), options = {}) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  jsonTemplateState = {
+    ...jsonTemplateState,
+    pageId: normalizedPageId,
+    loading: true,
+    error: ""
+  };
+  if (activeView === "json_templates" && !options.silent) render();
+
+  try {
+    const result = await apiGet(`/api/json-templates?pageId=${encodeURIComponent(normalizedPageId)}`);
+    if (jsonTemplateState.pageId !== normalizedPageId) return;
+    jsonTemplateState.templates = Array.isArray(result.templates) ? result.templates : [];
+    jsonTemplateState.error = "";
+  } catch (error) {
+    if (jsonTemplateState.pageId !== normalizedPageId) return;
+    jsonTemplateState.templates = [];
+    jsonTemplateState.error = error.message || "Erro ao carregar JSON Templates";
+  } finally {
+    if (jsonTemplateState.pageId === normalizedPageId) {
+      jsonTemplateState.loading = false;
+      if (activeView === "json_templates") render();
+    }
+  }
+}
+
+function openJsonTemplateModal(template = null) {
+  const editing = Boolean(template?.id);
+  openFormModal({
+    title: editing ? "Editar JSON Template" : "Novo JSON Template",
+    description: "O JSON sera validado antes de ser salvo no D1.",
+    submitLabel: editing ? "Salvar alteracoes" : "Criar template",
+    className: "json-template-modal",
+    fields: [
+      { name: "name", label: "Nome", required: true, value: template?.name || "", placeholder: "Ex.: Entrada Click-to-Messenger" },
+      { name: "description", label: "Descricao", value: template?.description || "", placeholder: "Uso interno deste template" },
+      { name: "jsonText", label: "JSON", type: "textarea", rows: 18, required: true, value: template?.jsonText || "{\n  \"messages\": []\n}" }
+    ],
+    onSubmit: async (values) => {
+      validateJsonTemplateText(values.jsonText);
+      await saveJsonTemplateForPage({
+        ...template,
+        name: values.name,
+        description: values.description,
+        jsonText: values.jsonText
+      });
+    }
+  });
+}
+
+async function saveJsonTemplateForPage(template, pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const result = await apiPost("/api/json-templates", {
+    pageId: normalizedPageId,
+    template
+  });
+  const saved = result.template;
+  jsonTemplateState = {
+    ...jsonTemplateState,
+    pageId: normalizedPageId,
+    templates: [
+      saved,
+      ...jsonTemplateState.templates.filter((item) => item.id !== saved.id)
+    ],
+    error: ""
+  };
+  toastMessage("JSON Template salvo no D1.");
+  if (activeView === "json_templates") render();
+  return saved;
+}
+
+async function createDefaultJsonTemplate() {
+  const existing = jsonTemplateState.templates.find((template) => template.name === "Entrada Click-to-Messenger");
+  if (existing) {
+    openJsonTemplateModal(existing);
+    return;
+  }
+
+  try {
+    await saveJsonTemplateForPage({
+      name: "Entrada Click-to-Messenger",
+      description: "Primeira interacao reutilizavel para anuncios Click-to-Messenger.",
+      jsonText: adEntryTemplateJson(currentFlowPageId())
+    });
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel criar o template inicial.");
+  }
+}
+
+function editJsonTemplate(templateId) {
+  const template = jsonTemplateState.templates.find((item) => item.id === templateId);
+  if (!template) return toastMessage("JSON Template nao encontrado.");
+  openJsonTemplateModal(template);
+}
+
+function copyJsonTemplate(templateId) {
+  const template = jsonTemplateState.templates.find((item) => item.id === templateId);
+  if (!template) return toastMessage("JSON Template nao encontrado.");
+  return copyText(template.jsonText, "JSON Template copiado.");
+}
+
+function confirmDeleteJsonTemplate(templateId) {
+  const template = jsonTemplateState.templates.find((item) => item.id === templateId);
+  if (!template) return;
+  openConfirmModal({
+    title: "Excluir JSON Template",
+    message: `Excluir ${template.name}? Esta acao remove o template salvo nesta Pagina.`,
+    submitLabel: "Excluir",
+    danger: true,
+    onConfirm: () => removeJsonTemplateForPage(templateId)
+  });
+}
+
+async function removeJsonTemplateForPage(templateId, pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  try {
+    await apiDelete(`/api/json-templates?pageId=${encodeURIComponent(normalizedPageId)}&id=${encodeURIComponent(templateId)}`);
+    if (jsonTemplateState.pageId === normalizedPageId) {
+      jsonTemplateState.templates = jsonTemplateState.templates.filter((template) => template.id !== templateId);
+    }
+    toastMessage("JSON Template excluido.");
+    if (activeView === "json_templates") render();
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel excluir o JSON Template.");
+  }
+}
+
+function validateJsonTemplateText(value) {
+  const text = String(value || "").trim();
+  if (!text) throw new Error("O JSON e obrigatorio.");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("O JSON informado e invalido.");
+  }
+  if (!parsed || typeof parsed !== "object") throw new Error("O JSON precisa ser um objeto ou array.");
+  return parsed;
 }
 
 async function testFlowLog() {
@@ -6544,6 +6772,13 @@ function handleWorkspaceClick(event) {
   if (action === "refresh-pixel-events") return loadPixelEventsForPage(currentFlowPageId());
   if (action === "refresh-attributions") return loadAttributionsForPage(currentFlowPageId());
   if (action === "copy-ad-entry-template") return copyText(adEntryTemplateJson(currentFlowPageId()), "Template JSON copiado.");
+  if (action === "open-json-templates") return navigate("json_templates");
+  if (action === "refresh-json-templates") return loadJsonTemplatesForPage(currentFlowPageId());
+  if (action === "create-json-template") return openJsonTemplateModal();
+  if (action === "create-default-json-template") return createDefaultJsonTemplate();
+  if (action === "copy-json-template") return copyJsonTemplate(id);
+  if (action === "edit-json-template") return editJsonTemplate(id);
+  if (action === "delete-json-template") return confirmDeleteJsonTemplate(id);
   if (action === "copy-pixel-snippet") return copyText(pixelInstallSnippet(currentFlowPageId()), "Pixel copiado.");
   if (action === "set-pixel-range") {
     pixelState.rangeDays = Number(button.dataset.days || 7);
@@ -10996,6 +11231,7 @@ function placeholderForView(view) {
     inbox: "Buscar conversa Messenger",
     subscribers: "Buscar assinante ou PSID",
     broadcasts: "Buscar disparo",
+    json_templates: "Buscar JSON Template",
     pixel: "Buscar evento, link ou visitante",
     image: "Limpar metadados de imagem",
     video: "Trocar áudio de vídeo",

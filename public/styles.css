@@ -2783,6 +2783,69 @@ svg {
   grid-column: 1 / -1;
 }
 
+.json-template-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+}
+
+.json-template-list {
+  display: grid;
+  gap: 12px;
+}
+
+.json-template-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.json-template-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.json-template-card-header strong,
+.json-template-card-header span,
+.json-template-card-header small {
+  display: block;
+}
+
+.json-template-card-header strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.json-template-card-header span,
+.json-template-card-header small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.json-template-code {
+  max-height: 320px;
+  margin: 0;
+  white-space: pre;
+}
+
+.json-template-modal {
+  width: min(780px, 100%);
+}
+
+.json-template-modal textarea {
+  min-height: 360px;
+  resize: vertical;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .panel-actions {
   display: flex;
   flex-wrap: wrap;
@@ -5985,6 +6048,7 @@ svg {
 
 @media (max-width: 900px) {
   .pixel-grid,
+  .json-template-grid,
   .pixel-event-row {
     grid-template-columns: 1fr;
   }
