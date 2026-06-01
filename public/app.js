@@ -3663,14 +3663,14 @@ function renderAdEntryMonitor(logs = []) {
       <div class="ad-entry-monitor-header">
         <div>
           <strong>Monitor de entrada por anuncio</strong>
-          <span>Depois de tocar em Receber conteudo no Messenger, clique em Atualizar.</span>
+          <span>Mostra quando a Meta abre a conversa pelo anuncio e quando o contato toca em Receber conteudo.</span>
         </div>
-        <span class="badge ${entryLogs.length ? "active" : ""}">${entryLogs.length ? `${entryLogs.length} entrada${entryLogs.length === 1 ? "" : "s"}` : "Aguardando clique"}</span>
+        <span class="badge ${entryLogs.length ? "active" : ""}">${entryLogs.length ? `${entryLogs.length} entrada${entryLogs.length === 1 ? "" : "s"}` : "Aguardando entrada"}</span>
       </div>
       ${
         entryLogs.length
           ? `<div class="ad-entry-monitor-list">${entryLogs.map((log) => renderAdEntryMonitorRow(log, logs)).join("")}</div>`
-          : `<div class="empty-state compact">Nenhum clique no template MESSENLEAD_AD_ENTRY apareceu nos logs carregados.</div>`
+          : `<div class="empty-state compact">Nenhuma abertura por anuncio ou clique no template apareceu nos logs carregados.</div>`
       }
     </section>
   `;
@@ -3679,20 +3679,22 @@ function renderAdEntryMonitor(logs = []) {
 function renderAdEntryMonitorRow(log, logs = []) {
   const hasReferral = Boolean(log.data?.hasAdReferral);
   const route = relatedFlowLog(log, logs, "flow_route_selected");
-  const issue = relatedFlowLog(log, logs, ["no_matching_flow", "no_matching_trigger"]);
-  const routeState = route ? "Fluxo selecionado" : issue ? "Sem fluxo compativel" : "Roteamento nao registrado";
+  const issue = relatedFlowLog(log, logs, ["no_active_flow", "no_matching_flow", "no_matching_trigger"]);
+  const entryKind = adEntryKind(log);
+  const routeState = route ? "Fluxo selecionado" : issue?.event === "no_active_flow" ? "Pagina sem fluxo ativo" : issue ? "Sem fluxo compativel" : "Roteamento nao registrado";
   return `
     <article class="ad-entry-monitor-row ${issue ? "warn" : ""}">
       <div class="ad-entry-monitor-row-title">
-        <strong>Receber conteudo clicado</strong>
+        <strong>${entryKind === "template_click" ? "Receber conteudo clicado" : "Anuncio abriu a conversa"}</strong>
         <time>${escapeHtml(formatDate(log.createdAt) || log.createdAt || "")}</time>
       </div>
       <div class="ad-entry-monitor-meta">
         <span class="badge active">Webhook recebido</span>
-        <span class="badge ${hasReferral ? "active" : "paused"}">${hasReferral ? "Referral de anuncio recebido" : "Sem referral de anuncio"}</span>
+        <span class="badge ${hasReferral ? "active" : "paused"}">${hasReferral ? "Origem do anuncio recebida" : "Sem origem do anuncio"}</span>
         <span class="badge ${route ? "active" : "paused"}">${escapeHtml(routeState)}</span>
       </div>
       <small>Pagina ${escapeHtml(log.pageId || "")}${log.psid ? ` · PSID ${escapeHtml(log.psid)}` : ""}${log.data?.adId ? ` · Ad ID ${escapeHtml(log.data.adId)}` : ""}</small>
+      ${log.data?.adTitle ? `<small>Anuncio: ${escapeHtml(log.data.adTitle)}</small>` : ""}
       ${route?.flowName ? `<small>Fluxo: ${escapeHtml(route.flowName)}</small>` : ""}
     </article>
   `;
@@ -3737,13 +3739,21 @@ function flowLogMatchesFilter(log, filter = "all", logs = []) {
 
 function isAdEntryLog(log) {
   if (log.event !== "event_received") return false;
-  return log.data?.text === "MESSENLEAD_AD_ENTRY" || log.data?.entry?.template_key === "MESSENLEAD_AD_ENTRY";
+  return adEntryKind(log) !== "";
+}
+
+function adEntryKind(log) {
+  if (log.data?.text === "MESSENLEAD_AD_ENTRY" || log.data?.entry?.template_key === "MESSENLEAD_AD_ENTRY") return "template_click";
+  if (log.data?.hasAdReferral || log.data?.sourceLabel === "facebook_ad") return "open_thread";
+  return "";
 }
 
 function isAdEntryRelatedLog(log, logs = []) {
   if (isAdEntryLog(log)) return true;
-  if (log.event === "ad_referral_diagnostic") return log.data?.templateKey === "MESSENLEAD_AD_ENTRY";
-  if (["flow_route_selected", "no_matching_flow", "no_matching_trigger"].includes(log.event)) {
+  if (log.event === "ad_referral_diagnostic") {
+    return log.data?.templateKey === "MESSENLEAD_AD_ENTRY" || Boolean(log.data?.adId) || String(log.data?.referralPayload?.source || "").toLowerCase() === "ads";
+  }
+  if (["flow_route_selected", "no_active_flow", "no_matching_flow", "no_matching_trigger"].includes(log.event)) {
     return log.data?.templateKey === "MESSENLEAD_AD_ENTRY" || log.data?.sourceLabel === "facebook_ad" || logs.some((entry) => isAdEntryLog(entry) && relatedFlowLog(entry, [log], log.event));
   }
   return false;
