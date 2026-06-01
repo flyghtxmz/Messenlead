@@ -147,6 +147,7 @@ function parseJson(value) {
 
 const COMPACT_INFO_EVENTS = new Set([
   "event_received",
+  "ad_referral_diagnostic",
   "active_flows_loaded",
   "flow_started",
   "start_node_selected",

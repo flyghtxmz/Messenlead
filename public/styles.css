@@ -2133,6 +2133,56 @@ svg {
   color: #27372d;
 }
 
+.bubble.attribution-event {
+  border-color: #b9d9c5;
+  background: #f2fbf5;
+}
+
+.attribution-chat-event svg {
+  color: #087443;
+}
+
+.settings-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.attribution-summary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.attribution-summary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.attribution-summary-row div,
+.attribution-summary-metrics {
+  display: grid;
+  gap: 3px;
+}
+
+.attribution-summary-row span,
+.attribution-summary-row small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.attribution-summary-metrics {
+  justify-items: end;
+  text-align: right;
+}
+
 .unread-divider {
   display: flex;
   align-items: center;

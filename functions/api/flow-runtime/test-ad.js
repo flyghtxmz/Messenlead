@@ -19,34 +19,48 @@ export async function onRequestPost({ request, env }) {
   const text = String(body.text || "Hola").trim() || "Hola";
   const channel = body.channel === "standby" ? "standby" : "messaging";
   const adId = String(body.adId || `ad_test_${Date.now()}`).trim();
+  const referralLocation = normalizeReferralLocation(body.referralLocation);
   const testTag = String(body.testTag || "").replace(/\s+/g, " ").trim();
   const testTagMode = body.testTagMode === "missing" ? "missing" : "has";
   if (!pageId) return json({ error: "pageId is required" }, 400);
   if (!flowId) return json({ error: "flowId is required" }, 400);
 
   const timestamp = Date.now();
+  const referral = {
+    source: "ADS",
+    type: "OPEN_THREAD",
+    ref: "messenlead_ad_test",
+    ad_id: adId,
+    ads_context_data: {
+      ad_id: adId,
+      ad_title: "Messenlead dashboard ad test"
+    }
+  };
   const event = {
     sender: { id: psid },
     recipient: { id: pageId },
-    timestamp,
-    message: {
+    timestamp
+  };
+  if (referralLocation === "postback.referral") {
+    event.postback = {
+      mid: `mid.test_ad.${timestamp}`,
+      title: "Receber conteudo",
+      payload: "MESSENLEAD_AD_ENTRY",
+      referral
+    };
+  } else if (referralLocation === "event.referral") {
+    event.referral = referral;
+  } else {
+    event.message = {
       mid: `mid.test_ad.${timestamp}`,
       text,
-      referral: {
-        source: "ADS",
-        type: "OPEN_THREAD",
-        ref: "messenlead_ad_test",
-        ad_id: adId,
-        ads_context_data: {
-          ad_id: adId,
-          ad_title: "Messenlead dashboard ad test"
-        }
-      }
-    }
-  };
+      referral
+    };
+  }
 
   await handleMessengerEvent(event, env, pageId, {
     channel,
+    referralLocation,
     adId,
     simulated: true,
     dryRun: true,
@@ -69,6 +83,11 @@ export async function onRequestPost({ request, env }) {
     testTagMode,
     message: "Evento de anuncio simulado em modo dry-run. Veja o painel visual e os logs para confirmar event_received e flow_started."
   });
+}
+
+function normalizeReferralLocation(value) {
+  const location = String(value || "").trim();
+  return ["message.referral", "postback.referral", "event.referral"].includes(location) ? location : "message.referral";
 }
 
 async function authorizeTestRequest(request, env) {

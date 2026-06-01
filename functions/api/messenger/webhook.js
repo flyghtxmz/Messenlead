@@ -3,6 +3,7 @@ import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, getContact, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
 import { coerceCustomFieldValue } from "../../_lib/customFields.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
+import { attributionSourceKey, messengerEntryFromContext, recordMessengerAttribution } from "../../_lib/messengerAttribution.js";
 import { createMessengerContactToken } from "../../_lib/pixel.js";
 import {
   consumeFlowLinkClickWait,
@@ -160,7 +161,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     return { ok: false, status: "ignored", reason: "missing_psid" };
   }
 
-  const context = eventContext(event, { channel: options.channel || "messaging" });
+  let context = eventContext(event, { channel: options.channel || "messaging" });
   const log = flowEventLogger(env, pageId, psid, { force: forceLog });
   const eventId = messengerEventDedupId(pageId, event);
   const dedup = await reserveMessengerEvent(env, {
@@ -176,6 +177,36 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     return { ok: false, status: "ignored", reason: "duplicate_event", eventId };
   }
 
+  const attribution = context.hasAdReferral
+    ? isDryRun
+      ? {
+          sourceKey: attributionSourceKey(pageId, context.adId)
+        }
+      : await recordMessengerAttribution(env, {
+          pageId,
+          psid,
+          eventId,
+          context,
+          createdAt: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString(),
+          data: {
+            channel: context.channel,
+            eventType: context.eventType,
+            referralPayload: context.referralPayload
+          }
+        }).catch(async (error) => {
+          await log("error", "ad_attribution_store_failed", "Referencia do anuncio chegou, mas nao foi salva no D1.", {
+            error: error.message || "unknown_error",
+            adId: context.adId,
+            referralLocation: context.referralLocation
+          });
+          return null;
+        })
+    : null;
+  context = {
+    ...context,
+    entry: messengerEntryFromContext(pageId, context, attribution)
+  };
+
   await log("info", "event_received", "Mensagem recebida pelo webhook.", {
     eventId,
     eventType: context.eventType,
@@ -187,8 +218,20 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     referralRef: context.referralRef,
     referralSource: context.referralSource,
     adId: context.adId,
-    adTitle: context.adTitle
+    adTitle: context.adTitle,
+    entry: context.entry
   });
+  if (context.hasAdReferral) {
+    await log("info", "ad_referral_diagnostic", "Referencia de anuncio recebida e atribuida ao contato.", {
+      referralLocation: context.referralLocation,
+      pageId,
+      adId: context.adId,
+      adTitle: context.adTitle,
+      sourceKey: context.entry.source_key,
+      templateKey: context.templateKey,
+      referralPayload: context.referralPayload
+    });
+  }
 
   const dryRunStoredContact = isDryRun && options.testContactPsid ? await getContact(env, pageId, psid) : null;
   const profile = isDryRun
@@ -837,7 +880,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     }
 
     if (current.type === "action") {
-      const nodeActions = actionStepsForNode(current);
+      const nodeActions = resolveActionSteps(actionStepsForNode(current), stepContext);
       actions.push(...nodeActions);
       applyRuntimeContactActions(runtimeContact, nodeActions);
       await log?.("info", "action_node_executed", "Bloco de ação executado no estado do contato.", {
@@ -1166,7 +1209,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
     }
 
     if (current.type === "action") {
-      const nodeActions = actionStepsForNode(current);
+      const nodeActions = resolveActionSteps(actionStepsForNode(current), stepContext);
       actions.push(...nodeActions);
       applyRuntimeContactActions(runtimeContact, nodeActions);
       await log?.("info", "action_node_executed", "Bloco de acao executado no estado do contato.", {
@@ -1300,6 +1343,13 @@ function serializableFlowContext(context = {}) {
     referralRef: context.referralRef || "",
     referralSource: context.referralSource || "",
     hasReferral: Boolean(context.hasReferral),
+    hasAdReferral: Boolean(context.hasAdReferral),
+    adId: context.adId || "",
+    adGroupId: context.adGroupId || "",
+    adTitle: context.adTitle || "",
+    referralLocation: context.referralLocation || "",
+    templateKey: context.templateKey || "",
+    entry: context.entry && typeof context.entry === "object" ? context.entry : {},
     eventId: context.eventId || "",
     policyExpiresAt: context.policyExpiresAt || "",
     resumedFromDelay: Boolean(context.resumedFromDelay),
@@ -1539,6 +1589,13 @@ function actionStepsForNode(node) {
   return [];
 }
 
+function resolveActionSteps(actions = [], context = {}) {
+  return normalizeActionSteps(actions).map((action) => ({
+    ...action,
+    fieldValue: resolveTemplate(action.fieldValue, context.contact, context.entry)
+  }));
+}
+
 function nextExecutableNode(flow, node, context = {}) {
   const targetId = nextExecutableTargetId(node, context);
   const next = targetId ? flow.nodes.find((item) => item.id === targetId) : null;
@@ -1718,6 +1775,12 @@ function conditionRuleMatches(condition, context = {}) {
     if (condition.operator === "not_contains") return expected ? !value.includes(expected) : !value;
     return expected ? value.includes(expected) : Boolean(value);
   }
+  if (condition.type === "entry") {
+    const value = normalize(context.entry?.[condition.fieldName] || "");
+    if (condition.operator === "equals") return value === expected;
+    if (condition.operator === "not_contains") return expected ? !value.includes(expected) : !value;
+    return expected ? value.includes(expected) : Boolean(value);
+  }
   const terms = String(condition.value || "")
     .split(",")
     .map((item) => normalize(item.trim()))
@@ -1778,14 +1841,26 @@ function eventContext(event, options = {}) {
   const inputText = event.message?.quick_reply?.payload || event.message?.text || event.postback?.payload || event.optin?.ref || referral.ref || "";
   const referralSource = normalize(referral.source || referral.type || "");
   const referralRef = normalize(referral.ref || event.optin?.ref || "");
-  const adId = String(referral.ad_id || adsContext.ad_id || adsContext.adgroup_id || "").trim();
+  const adId = String(referral.ad_id || adsContext.ad_id || "").trim();
+  const adGroupId = String(adsContext.adgroup_id || "").trim();
   const adTitle = String(adsContext.ad_title || adsContext.post_title || adsContext.video_title || "").trim();
+  const referralLocation = event.message?.referral
+    ? "message.referral"
+    : event.postback?.referral
+      ? "postback.referral"
+      : event.referral
+        ? "event.referral"
+        : event.optin?.ref
+          ? "optin.ref"
+          : "";
+  const templateKey = String(event.message?.quick_reply?.payload || event.postback?.payload || event.optin?.ref || referral.ref || "").trim();
   const adSignal = normalize([
     referral.source,
     referral.type,
     referral.ref,
     referral.ad_id,
     adsContext.ad_id,
+    adsContext.adgroup_id,
     adsContext.ad_title,
     adsContext.post_title,
     adsContext.product_id,
@@ -1823,7 +1898,11 @@ function eventContext(event, options = {}) {
     hasReferral: Boolean(referral.ref || referral.source || referral.type || event.optin?.ref || hasAdReferral),
     hasAdReferral,
     adId,
+    adGroupId,
     adTitle,
+    referralLocation,
+    templateKey,
+    referralPayload: referral,
     sourceLabel: hasAdReferral ? "facebook_ad" : eventType
   };
 }
@@ -1923,9 +2002,9 @@ function repliesForMessageNode(node, context = {}) {
     payload: option.id || option.title
   }));
   const buttons = node.buttons.map((option) => ({
-    title: option.title,
+    title: resolveTemplate(option.title, context.contact, context.entry),
     type: option.type || "next",
-    url: option.url || "",
+    url: resolveTemplate(option.url, context.contact, context.entry),
     phone: option.phone || "",
     payload: option.id || option.title,
     tracking
@@ -1936,7 +2015,7 @@ function repliesForMessageNode(node, context = {}) {
       if (block.type === "text") {
         return {
           type: "text",
-          text: resolveTemplate(block.text || node.message || "", context.contact),
+          text: resolveTemplate(block.text || node.message || "", context.contact, context.entry),
           quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : [],
           buttons: index === node.contentBlocks.length - 1 ? buttons : []
         };
@@ -1946,13 +2025,13 @@ function repliesForMessageNode(node, context = {}) {
           type: "generic",
           elements: [
             {
-              title: block.title || "Imagem",
-              subtitle: block.subtitle || "",
-              image_url: block.url,
+              title: resolveTemplate(block.title || "Imagem", context.contact, context.entry),
+              subtitle: resolveTemplate(block.subtitle || "", context.contact, context.entry),
+              image_url: resolveTemplate(block.url, context.contact, context.entry),
               buttons: block.buttons.map((option) => ({
-                title: option.title,
+                title: resolveTemplate(option.title, context.contact, context.entry),
                 type: option.type || "url",
-                url: option.url || "",
+                url: resolveTemplate(option.url, context.contact, context.entry),
                 phone: option.phone || "",
                 payload: option.id || option.title,
                 tracking
@@ -1965,7 +2044,7 @@ function repliesForMessageNode(node, context = {}) {
         return {
           type: "attachment",
           attachmentType: block.type,
-          url: block.url,
+          url: resolveTemplate(block.url, context.contact, context.entry),
           quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : []
         };
       }
@@ -1974,18 +2053,18 @@ function repliesForMessageNode(node, context = {}) {
           type: "generic",
           elements: [
             {
-              title: block.title || "Card",
-              subtitle: block.subtitle || "",
-              image_url: block.url || "",
+              title: resolveTemplate(block.title || "Card", context.contact, context.entry),
+              subtitle: resolveTemplate(block.subtitle || "", context.contact, context.entry),
+              image_url: resolveTemplate(block.url || "", context.contact, context.entry),
               buttons
             }
           ]
         };
       }
       if (block.type === "data_collection") {
-        return { type: "text", text: resolveTemplate(block.text || "Informe o dado solicitado.", context.contact), quickReplies };
+        return { type: "text", text: resolveTemplate(block.text || "Informe o dado solicitado.", context.contact, context.entry), quickReplies };
       }
-      if (block.text) return { type: "text", text: resolveTemplate(block.text, context.contact), quickReplies };
+      if (block.text) return { type: "text", text: resolveTemplate(block.text, context.contact, context.entry), quickReplies };
       return null;
     })
     .filter(Boolean);
@@ -2255,10 +2334,15 @@ function normalizeTagKey(value) {
   return normalize(String(value || "").replace(/\s+/g, " ").trim());
 }
 
-function resolveTemplate(text, contact = {}) {
+function resolveTemplate(text, contact = {}, entry = {}) {
   const name = cleanText(contact?.name);
   const firstName = cleanText(contact?.firstName || contact?.customFields?.first_name || name.split(" ")[0]) || "Contato";
   return String(text || "")
     .replaceAll("{{first_name}}", firstName)
-    .replaceAll("{{name}}", name || firstName);
+    .replaceAll("{{name}}", name || firstName)
+    .replace(/\{\{\s*entry\.([a-zA-Z0-9_]+)\s*\}\}/g, (_, field) => String(entry?.[field] ?? ""))
+    .replace(/\{\{\s*contact\.([^{}]+?)\s*\}\}/g, (_, field) => {
+      const key = String(field || "").trim();
+      return String(contact?.customFields?.[key] ?? contact?.[key] ?? "");
+    });
 }

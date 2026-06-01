@@ -198,7 +198,10 @@ const conditionOptions = [
   { id: "message_contains", category: "general", label: "Mensagem contém", icon: "message", conditionType: "message_contains", operator: "contains_any", placeholder: "preço, orçamento" },
   { id: "custom_field", category: "general", label: "Campo personalizado", icon: "text", conditionType: "field", operator: "equals", placeholder: "valor esperado" },
   { id: "phone", category: "system", label: "Telefone", icon: "text", conditionType: "field", fieldName: "phone", operator: "contains_any", placeholder: "+5511999999999" },
-  { id: "first_name", category: "system", label: "Primeiro nome", icon: "text", conditionType: "field", fieldName: "first_name", operator: "contains_any", placeholder: "Maria" }
+  { id: "first_name", category: "system", label: "Primeiro nome", icon: "text", conditionType: "field", fieldName: "first_name", operator: "contains_any", placeholder: "Maria" },
+  { id: "entry_source", category: "system", label: "Origem da entrada", icon: "text", conditionType: "entry", fieldName: "source", operator: "equals", placeholder: "ads" },
+  { id: "entry_ad_id", category: "system", label: "Ad ID da entrada", icon: "text", conditionType: "entry", fieldName: "ad_id", operator: "equals", placeholder: "123456789" },
+  { id: "entry_source_key", category: "system", label: "Chave curta da entrada", icon: "text", conditionType: "entry", fieldName: "source_key", operator: "equals", placeholder: "src_abc123" }
 ];
 
 const CANVAS_WIDTH = 8000;
@@ -347,6 +350,7 @@ let flowLogState = {
 let flowAdTestState = {
   loading: false,
   channel: "",
+  referralLocation: "message.referral",
   flowId: "",
   testVersion: "published",
   psid: "",
@@ -370,6 +374,12 @@ let pixelState = {
   events: [],
   error: ""
 };
+let attributionState = {
+  pageId: "",
+  loading: false,
+  events: [],
+  error: ""
+};
 let mediaState = {
   pageId: "",
   loading: false,
@@ -389,6 +399,7 @@ let metaState = {
   selectedConversationId: "",
   messages: null,
   pixelEvents: null,
+  attributionEvents: null,
   unreadAnchorId: "",
   loadingMessages: false,
   error: oauthErrorFromHash()
@@ -411,6 +422,7 @@ mainNav.addEventListener("click", (event) => {
     metaState.selectedConversationId = "";
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.attributionEvents = null;
     metaState.unreadAnchorId = "";
   }
   if (activeView === "flows") {
@@ -1709,6 +1721,7 @@ function renderPages() {
     metaState.selectedConversationId = "";
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.attributionEvents = null;
     metaState.unreadAnchorId = "";
   }
 
@@ -1797,7 +1810,7 @@ function renderPages() {
                         <div class="conversation" data-conversation-scroll>
                           ${
                             metaState.messages
-                              ? renderMetaConversationMessages(metaState.messages, selectedPage.id, metaState.pixelEvents || [], metaState.unreadAnchorId)
+                              ? renderMetaConversationMessages(metaState.messages, selectedPage.id, metaState.pixelEvents || [], metaState.attributionEvents || [], metaState.unreadAnchorId)
                               : `<div class="empty-state">${icons.inbox}<span>Carregando mensagens...</span></div>`
                           }
                         </div>
@@ -3109,6 +3122,9 @@ function renderSettings() {
   if (flowLogState.pageId !== logPageId && !flowLogState.loading) {
     loadFlowLogsForPage(logPageId, { silent: true });
   }
+  if (attributionState.pageId !== pageId && !attributionState.loading) {
+    loadAttributionsForPage(pageId, { silent: true });
+  }
 
   workspace.innerHTML = `
     <div class="settings-grid">
@@ -3143,6 +3159,33 @@ function renderSettings() {
           <p class="muted">As tags criadas nos nodes de ação aparecem no dropdown e podem ser agrupadas por pasta aqui.</p>
         </div>
       </aside>
+
+      <section class="panel settings-wide-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Template reutilizavel para anuncios</h2>
+            <span>Salve uma vez no Gerenciador de Anuncios e reutilize nos anuncios Click-to-Messenger desta Pagina.</span>
+          </div>
+          <button class="primary-button" type="button" data-action="copy-ad-entry-template">${icons.copy}<span>Copiar JSON</span></button>
+        </div>
+        <div class="panel-body stack">
+          <pre class="code-block">${escapeHtml(adEntryTemplateJson(pageId))}</pre>
+          <p class="muted">O template apenas pede a primeira interacao. Depois do clique em Receber conteudo, o webhook identifica page_id + ad_id e o fluxo assume a conversa. Valide a previa no Gerenciador antes de publicar.</p>
+        </div>
+      </section>
+
+      <section class="panel settings-wide-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Atribuicoes recentes</h2>
+            <span>Mapa automatico entre Pagina, anuncio e chave curta usada nas URLs.</span>
+          </div>
+          <button class="secondary-button" type="button" data-action="refresh-attributions">${icons.refresh}<span>Atualizar</span></button>
+        </div>
+        <div class="panel-body">
+          ${renderAttributionSummary()}
+        </div>
+      </section>
 
       <section class="panel settings-wide-panel">
         <div class="panel-header">
@@ -3260,6 +3303,15 @@ function renderAdFlowTestPanel(pageId) {
           <small>O dry-run adiciona ou remove essa tag somente durante o teste.</small>
         </label>
         <label>
+          <span>Envelope de referral</span>
+          <select data-ad-test-referral-location="true" ${flowAdTestState.loading ? "disabled" : ""}>
+            <option value="message.referral" ${currentAdTestReferralLocation() === "message.referral" ? "selected" : ""}>message.referral</option>
+            <option value="postback.referral" ${currentAdTestReferralLocation() === "postback.referral" ? "selected" : ""}>postback.referral</option>
+            <option value="event.referral" ${currentAdTestReferralLocation() === "event.referral" ? "selected" : ""}>event.referral</option>
+          </select>
+          <small>Simula os formatos que podem chegar ao webhook.</small>
+        </label>
+        <label>
           <span>Contato do teste</span>
           <select data-ad-test-contact="true" ${flowAdTestState.loading ? "disabled" : ""}>
             ${!testerContacts.length ? `<option value="" selected disabled>Nenhum contato com ${escapeHtml(AD_TEST_CONTACT_TAG)}</option>` : ""}
@@ -3298,6 +3350,54 @@ function renderAdFlowTestPanel(pageId) {
       }
     </div>
   `;
+}
+
+function renderAttributionSummary() {
+  if (attributionState.loading) return `<div class="empty-state compact">Carregando atribuicoes...</div>`;
+  if (attributionState.error) return `<div class="empty-state compact">Nao foi possivel carregar atribuicoes: ${escapeHtml(attributionState.error)}</div>`;
+  const groups = groupAttributionEvents(attributionState.events);
+  if (!groups.length) {
+    return `<div class="empty-state compact">Nenhuma entrada originada por anuncio foi registrada nesta Pagina.</div>`;
+  }
+  return `
+    <div class="attribution-summary-list">
+      ${groups.map((group) => `
+        <article class="attribution-summary-row">
+          <div>
+            <strong>${escapeHtml(group.sourceKey || "Origem sem chave curta")}</strong>
+            <span>${escapeHtml(group.adTitle || "Anuncio sem titulo retornado pela Meta")}</span>
+            <small>Ad ID: ${escapeHtml(group.adId || "nao informado")}</small>
+          </div>
+          <div class="attribution-summary-metrics">
+            <span>${group.contacts.size} contato${group.contacts.size === 1 ? "" : "s"}</span>
+            <span>${group.entries} entrada${group.entries === 1 ? "" : "s"}</span>
+            <small>${escapeHtml(formatDate(group.lastSeen) || "")}</small>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function groupAttributionEvents(events = []) {
+  const groups = new Map();
+  events.forEach((event) => {
+    const key = `${event.pageId || ""}:${event.adId || event.sourceKey || event.id || ""}`;
+    const group = groups.get(key) || {
+      adId: event.adId || "",
+      adTitle: event.adTitle || "",
+      sourceKey: event.sourceKey || "",
+      contacts: new Set(),
+      entries: 0,
+      lastSeen: ""
+    };
+    if (event.psid) group.contacts.add(event.psid);
+    group.entries += 1;
+    if (!group.lastSeen || Date.parse(event.createdAt || "") > Date.parse(group.lastSeen || "")) group.lastSeen = event.createdAt || "";
+    if (!group.adTitle && event.adTitle) group.adTitle = event.adTitle;
+    groups.set(key, group);
+  });
+  return [...groups.values()].sort((left, right) => Date.parse(right.lastSeen || "") - Date.parse(left.lastSeen || ""));
 }
 
 function currentAdTestContactPsid(pageId = currentFlowPageId()) {
@@ -3339,6 +3439,11 @@ function currentAdTestTag(pageId = currentFlowPageId(), pageContacts = contactsF
 
 function currentAdTestTagMode() {
   return flowAdTestState.tagMode === "missing" ? "missing" : "has";
+}
+
+function currentAdTestReferralLocation() {
+  const value = String(flowAdTestState.referralLocation || "");
+  return ["message.referral", "postback.referral", "event.referral"].includes(value) ? value : "message.referral";
 }
 
 function adTestTagOptions(pageId = currentFlowPageId(), pageContacts = contactsForPage(pageId)) {
@@ -3887,6 +3992,7 @@ async function loadMetaPages() {
       metaState.selectedConversationId = "";
       metaState.messages = null;
       metaState.pixelEvents = null;
+      metaState.attributionEvents = null;
       metaState.unreadAnchorId = "";
     }
   } catch (error) {
@@ -3916,6 +4022,7 @@ async function loadMetaConversations(pageId) {
     metaState.selectedConversationId = conversations.find((conversation) => conversation.id === previousConversationId)?.id || "";
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.attributionEvents = null;
     metaState.unreadAnchorId = "";
   } catch (error) {
     if (normalizeFlowPageId(metaState.selectedPageId || state.settings.pageId) !== requestedPageId) return;
@@ -3995,10 +4102,13 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
     const psid = conversation ? recipientIdFromConversation(conversation, pageId) : "";
     const readBeforeOpen = conversationReadState[conversationReadKey(pageId, conversationId)] || null;
     const unreadCountBeforeOpen = conversationUnreadCount(conversation);
-    const [result, pixelResult] = await Promise.all([
+    const [result, pixelResult, attributionResult] = await Promise.all([
       apiGet(`/api/meta/messages?pageId=${encodeURIComponent(pageId)}&conversationId=${encodeURIComponent(conversationId)}`),
       psid
         ? apiGet(`/api/pixel/events?pageId=${encodeURIComponent(pageId)}&psid=${encodeURIComponent(psid)}&days=90&limit=80`).catch(() => ({ events: [] }))
+        : Promise.resolve({ events: [] }),
+      psid
+        ? apiGet(`/api/messenger-attributions?pageId=${encodeURIComponent(pageId)}&psid=${encodeURIComponent(psid)}&limit=80`).catch(() => ({ events: [] }))
         : Promise.resolve({ events: [] })
     ]);
     if (activeView === "pages" && (metaState.selectedPageId !== pageId || metaState.selectedConversationId !== conversationId)) {
@@ -4007,6 +4117,7 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
     }
     metaState.messages = result.messages || [];
     metaState.pixelEvents = pixelResult.events || [];
+    metaState.attributionEvents = attributionResult.events || [];
     metaState.unreadAnchorId = options.silent ? metaState.unreadAnchorId : unreadAnchorForConversation(metaState.messages, pageId, readBeforeOpen, unreadCountBeforeOpen);
     scrollToUnreadAfterRender = !options.silent;
     metaState.error = "";
@@ -4018,6 +4129,7 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
     }
     metaState.messages = [];
     metaState.pixelEvents = [];
+    metaState.attributionEvents = [];
     metaState.unreadAnchorId = "";
     metaState.error = error.message;
     toastMessage(error.message);
@@ -4239,6 +4351,7 @@ async function logoutFacebook() {
     selectedConversationId: "",
     messages: null,
     pixelEvents: null,
+    attributionEvents: null,
     loadingMessages: false,
     error: ""
   };
@@ -4255,6 +4368,7 @@ function selectMetaPage(pageId) {
   metaState.selectedConversationId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
+  metaState.attributionEvents = null;
   metaState.unreadAnchorId = "";
 
   if (page) {
@@ -4286,6 +4400,7 @@ function selectSidebarPage(pageId) {
   metaState.selectedConversationId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
+  metaState.attributionEvents = null;
   metaState.unreadAnchorId = "";
   state.settings.pageId = page.id;
   state.settings.pageName = page.name;
@@ -4312,6 +4427,7 @@ function refreshMetaConversations() {
   metaState.loadingConversationsPageId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
+  metaState.attributionEvents = null;
   metaState.unreadAnchorId = "";
   render();
 }
@@ -4322,6 +4438,7 @@ function selectMetaConversation(conversationId) {
   metaState.selectedConversationId = conversationId;
   metaState.messages = null;
   metaState.pixelEvents = null;
+  metaState.attributionEvents = null;
   metaState.unreadAnchorId = "";
   render();
 }
@@ -4346,6 +4463,7 @@ async function sendMetaMessage() {
     textarea.value = "";
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.attributionEvents = null;
     metaState.unreadAnchorId = "";
     toastMessage("Mensagem enviada pelo Messenger.");
     render();
@@ -4386,6 +4504,7 @@ async function runMetaConversationFlow() {
     });
     metaState.messages = null;
     metaState.pixelEvents = null;
+    metaState.attributionEvents = null;
     metaState.unreadAnchorId = "";
     toastMessage(result.message || "Fluxo disparado para esta conversa.");
     render();
@@ -4686,6 +4805,33 @@ async function loadMediaAssetsForPage(pageId = currentFlowPageId(), options = {}
   }
 }
 
+async function loadAttributionsForPage(pageId = currentFlowPageId(), options = {}) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  attributionState = {
+    ...attributionState,
+    pageId: normalizedPageId,
+    loading: true,
+    error: ""
+  };
+  if (activeView === "settings" && !options.silent) render();
+
+  try {
+    const result = await apiGet(`/api/messenger-attributions?pageId=${encodeURIComponent(normalizedPageId)}&limit=160`);
+    if (attributionState.pageId !== normalizedPageId) return;
+    attributionState.events = Array.isArray(result.events) ? result.events : [];
+    attributionState.error = "";
+  } catch (error) {
+    if (attributionState.pageId !== normalizedPageId) return;
+    attributionState.events = [];
+    attributionState.error = error.message || "Erro ao carregar atribuicoes";
+  } finally {
+    if (attributionState.pageId === normalizedPageId) {
+      attributionState.loading = false;
+      if (activeView === "settings") render();
+    }
+  }
+}
+
 async function testFlowLog() {
   const pageId = currentFlowPageId();
   try {
@@ -4707,6 +4853,7 @@ async function testAdFlow(channel = "messaging") {
   const selectedAdTestValue = psid;
   const selectedTag = currentAdTestTag(pageId);
   const tagMode = currentAdTestTagMode();
+  const referralLocation = currentAdTestReferralLocation();
   if (!pageId || pageId === DEFAULT_FLOW_PAGE_ID) {
     toastMessage("Selecione uma Pagina antes de simular anuncio.");
     return;
@@ -4732,6 +4879,7 @@ async function testAdFlow(channel = "messaging") {
     psid: selectedAdTestValue,
     tag: selectedTag,
     tagMode,
+    referralLocation,
     result: null,
     logs: [],
     error: ""
@@ -4746,6 +4894,7 @@ async function testAdFlow(channel = "messaging") {
       psid,
       testTag: selectedTag,
       testTagMode: tagMode,
+      referralLocation,
       channel,
       adId,
       text: "Hola"
@@ -4760,6 +4909,7 @@ async function testAdFlow(channel = "messaging") {
       psid: selectedAdTestValue,
       tag: selectedTag,
       tagMode,
+      referralLocation,
       result,
       logs,
       error: ""
@@ -4781,6 +4931,7 @@ async function testAdFlow(channel = "messaging") {
       psid: selectedAdTestValue,
       tag: selectedTag,
       tagMode,
+      referralLocation,
       result: null,
       logs: [],
       error: error.message || "Nao foi possivel simular anuncio."
@@ -5189,6 +5340,7 @@ function renderMessageSettings(flow, node) {
             <span>Monte os blocos enviados no Messenger.</span>
           </div>
         </div>
+        <small class="settings-hint">Links e textos aceitam {{entry.source_key}}, {{entry.ad_id}}, {{entry.page_id}}, {{entry.source}} e {{contact.nome_do_campo}}.</small>
         <div class="content-block-list">
           ${node.contentBlocks.map((block) => renderMessageContentBlock(flow, node, block)).join("")}
           <div class="content-add-row">
@@ -5568,6 +5720,7 @@ function renderConditionSettings(flow, node) {
 function renderConditionRule(condition) {
   if (condition.type === "tag") return renderTagConditionRule(condition);
   if (condition.type === "field") return renderCustomFieldConditionRule(condition);
+  if (condition.type === "entry") return renderEntryConditionRule(condition);
   return `
     <article class="condition-rule-card">
       <span class="condition-rule-icon">${icons.condition}</span>
@@ -5577,6 +5730,29 @@ function renderConditionRule(condition) {
         <input data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="${attr(condition.type === "tag" ? "Nome da tag" : condition.type === "field" ? "Valor esperado" : "Termos")}" />
       </div>
       <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condição">&times;</button>
+    </article>
+  `;
+}
+
+function renderEntryConditionRule(condition) {
+  const fields = [
+    { id: "source", label: "Origem da entrada" },
+    { id: "ad_id", label: "Ad ID da entrada" },
+    { id: "source_key", label: "Chave curta da entrada" },
+    { id: "page_id", label: "Page ID da entrada" }
+  ];
+  return `
+    <article class="condition-rule-card custom-field-condition-rule-card">
+      <select data-condition-rule-field="fieldName" data-condition-id="${attr(condition.id)}">
+        ${fields.map((field) => `<option value="${attr(field.id)}" ${condition.fieldName === field.id ? "selected" : ""}>${escapeHtml(field.label)}</option>`).join("")}
+      </select>
+      <select data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
+        <option value="equals" ${condition.operator === "equals" ? "selected" : ""}>e exatamente</option>
+        <option value="contains_any" ${condition.operator === "contains_any" ? "selected" : ""}>contem</option>
+        <option value="not_contains" ${condition.operator === "not_contains" ? "selected" : ""}>nao contem</option>
+      </select>
+      <input data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="Valor esperado" />
+      <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condicao">&times;</button>
     </article>
   `;
 }
@@ -6035,6 +6211,7 @@ function renderActionCustomFieldValue(step) {
   const field = findCustomFieldForPage(step.fieldName);
   const type = normalizeCustomFieldType(field?.type || step.fieldType);
   const common = `data-action-step-field="fieldValue" data-step-id="${attr(step.id)}"`;
+  const dynamicValue = String(step.fieldValue ?? "").includes("{{");
   if (type === "boolean") {
     return `
       <select ${common}>
@@ -6044,8 +6221,11 @@ function renderActionCustomFieldValue(step) {
       </select>
     `;
   }
-  const inputType = type === "number" ? "number" : type === "date" ? "date" : type === "datetime" ? "datetime-local" : "text";
-  return `<input type="${attr(inputType)}" ${common} value="${attr(step.fieldValue ?? "")}" placeholder="Valor" />`;
+  const inputType = dynamicValue ? "text" : type === "number" ? "number" : type === "date" ? "date" : type === "datetime" ? "datetime-local" : "text";
+  return `
+    <input type="${attr(inputType)}" ${common} value="${attr(step.fieldValue ?? "")}" placeholder="Valor ou {{entry.ad_id}}" />
+    <small class="settings-hint">Aceita {{entry.ad_id}}, {{entry.source_key}}, {{entry.page_id}} e {{entry.source}}.</small>
+  `;
 }
 
 function renderActionTagPicker(step) {
@@ -6362,6 +6542,8 @@ function handleWorkspaceClick(event) {
   if (action === "check-get-started") return checkGetStartedButton();
   if (action === "clear-flow-logs") return clearFlowLogs();
   if (action === "refresh-pixel-events") return loadPixelEventsForPage(currentFlowPageId());
+  if (action === "refresh-attributions") return loadAttributionsForPage(currentFlowPageId());
+  if (action === "copy-ad-entry-template") return copyText(adEntryTemplateJson(currentFlowPageId()), "Template JSON copiado.");
   if (action === "copy-pixel-snippet") return copyText(pixelInstallSnippet(currentFlowPageId()), "Pixel copiado.");
   if (action === "set-pixel-range") {
     pixelState.rangeDays = Number(button.dataset.days || 7);
@@ -6604,6 +6786,17 @@ function handleWorkspaceChange(event) {
     flowAdTestState = {
       ...flowAdTestState,
       tagMode: target.value === "missing" ? "missing" : "has",
+      result: null,
+      logs: [],
+      error: ""
+    };
+    render();
+    return;
+  }
+  if (target.dataset.adTestReferralLocation) {
+    flowAdTestState = {
+      ...flowAdTestState,
+      referralLocation: target.value,
       result: null,
       logs: [],
       error: ""
@@ -9619,6 +9812,12 @@ function conditionRuleMatches(condition, context = {}) {
     if (condition.operator === "not_contains") return expected ? !value.includes(expected) : !value;
     return expected ? value.includes(expected) : Boolean(value);
   }
+  if (condition.type === "entry") {
+    const value = normalize(context.entry?.[condition.fieldName] || "");
+    if (condition.operator === "equals") return value === expected;
+    if (condition.operator === "not_contains") return expected ? !value.includes(expected) : !value;
+    return expected ? value.includes(expected) : Boolean(value);
+  }
   const terms = String(condition.value || "")
     .split(",")
     .map((item) => normalize(item.trim()))
@@ -10298,18 +10497,22 @@ function selectedContact() {
   return pageContacts.find((contact) => contact.id === selectedContactId) || pageContacts[0];
 }
 
-function renderMetaConversationMessages(messages, pageId, pixelEvents = [], unreadAnchorId = "") {
+function renderMetaConversationMessages(messages, pageId, pixelEvents = [], attributionEvents = [], unreadAnchorId = "") {
   const visibleMessages = messages.filter((message) => !isMetaDefaultGreetingMessage(message, pageId));
   const normalizedPixelEvents = conversationPixelTimelineEvents(pixelEvents);
   const timeline = [
     ...visibleMessages.map((message) => ({ kind: "message", at: messageTimeValue(message), message })),
-    ...normalizedPixelEvents.map((event) => ({ kind: "pixel", at: event.createdAt || "", event }))
+    ...normalizedPixelEvents.map((event) => ({ kind: "pixel", at: event.createdAt || "", event })),
+    ...attributionEvents.map((event) => ({ kind: "attribution", at: event.createdAt || "", event }))
   ].sort((left, right) => Date.parse(left.at || "") - Date.parse(right.at || ""));
 
   return timeline
     .map((item, index) => {
       if (item.kind === "pixel") {
         return renderPixelConversationBubble(item.event, shouldShowBubbleTime(item, timeline[index - 1]));
+      }
+      if (item.kind === "attribution") {
+        return renderAttributionConversationBubble(item.event);
       }
 
       const message = item.message;
@@ -10326,6 +10529,29 @@ function renderMetaConversationMessages(messages, pageId, pixelEvents = [], unre
       })}`;
     })
     .join("");
+}
+
+function renderAttributionConversationBubble(event = {}) {
+  const meta = [
+    event.sourceKey ? `Chave ${event.sourceKey}` : "",
+    event.referralLocation ? `Recebido em ${event.referralLocation}` : ""
+  ].filter(Boolean);
+  return renderConversationBubble({
+    direction: "system attribution-event",
+    content: `
+      <div class="pixel-chat-event attribution-chat-event">
+        ${icons.trigger}
+        <div>
+          <strong>Entrou pelo anuncio</strong>
+          ${event.adTitle ? `<span>${escapeHtml(event.adTitle)}</span>` : ""}
+          <span>Ad ID: ${escapeHtml(event.adId || "nao informado pela Meta")}</span>
+          ${meta.length ? `<span class="pixel-chat-event-meta">${meta.map((item) => `<small>${escapeHtml(item)}</small>`).join("")}</span>` : ""}
+        </div>
+      </div>
+    `,
+    time: event.createdAt || "",
+    showTime: true
+  });
 }
 
 function displayConversationSnippet(conversation = {}) {
@@ -11311,6 +11537,23 @@ function makeId(prefix) {
 function webhookUrl() {
   const origin = location.origin === "null" ? "https://seu-projeto.pages.dev" : location.origin;
   return `${origin}/api/messenger/webhook`;
+}
+
+function adEntryTemplateJson(pageId = currentFlowPageId()) {
+  return JSON.stringify({
+    messages: [
+      {
+        text: "Ola! Toque abaixo para continuar.",
+        quick_replies: [
+          {
+            content_type: "text",
+            title: "Receber conteudo",
+            payload: `MESSENLEAD_AD_ENTRY:${normalizeFlowPageId(pageId)}`
+          }
+        ]
+      }
+    ]
+  }, null, 2);
 }
 
 function compactFlowJson() {
