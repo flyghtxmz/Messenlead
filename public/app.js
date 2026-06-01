@@ -3623,7 +3623,7 @@ function renderAdFlowTestLogItem(log) {
         <strong>${escapeHtml(log.event || "evento")}</strong>
         <small>${escapeHtml(log.message || "")}</small>
       </div>
-      <time>${escapeHtml(formatDate(log.createdAt) || "")}</time>
+      <time>${escapeHtml(formatLogDate(log.createdAt) || "")}</time>
     </article>
   `;
 }
@@ -3686,7 +3686,7 @@ function renderAdEntryMonitorRow(log, logs = []) {
     <article class="ad-entry-monitor-row ${issue ? "warn" : ""}">
       <div class="ad-entry-monitor-row-title">
         <strong>${entryKind === "template_click" ? "Receber conteudo clicado" : "Anuncio abriu a conversa"}</strong>
-        <time>${escapeHtml(formatDate(log.createdAt) || log.createdAt || "")}</time>
+        <time>${escapeHtml(formatLogDate(log.createdAt) || log.createdAt || "")}</time>
       </div>
       <div class="ad-entry-monitor-meta">
         <span class="badge active">Webhook recebido</span>
@@ -3809,7 +3809,7 @@ function renderWebhookDeliveryProbe(probe) {
   }
 
   const status = inbound.hasWebhookLog
-    ? `Webhook registrou ${inbound.webhookLog?.event || "evento"} em ${formatDate(inbound.webhookLog?.createdAt) || inbound.webhookLog?.createdAt || ""}.`
+    ? `Webhook registrou ${inbound.webhookLog?.event || "evento"} em ${formatLogDate(inbound.webhookLog?.createdAt) || inbound.webhookLog?.createdAt || ""}.`
     : "Graph API viu mensagem recente, mas nao existe event_received/standby_received nos logs para esse PSID.";
   return `
     <div class="webhook-delivery-probe ${inbound.hasWebhookLog ? "ok" : "warn"}">
@@ -3828,7 +3828,7 @@ function renderFlowLogRow(log) {
       <div class="flow-log-main">
         <span class="flow-log-level">${escapeHtml(log.level || "info")}</span>
         <strong>${escapeHtml(log.message || log.event || "Evento")}</strong>
-        <span>${escapeHtml(formatDate(log.createdAt) || log.createdAt || "")}</span>
+        <span>${escapeHtml(formatLogDate(log.createdAt) || log.createdAt || "")}</span>
       </div>
       <div class="flow-log-meta">
         <span>${escapeHtml(log.event || "")}</span>
@@ -11856,6 +11856,23 @@ function formatDate(value) {
       month: "2-digit",
       hour: "2-digit",
       minute: "2-digit"
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+function formatLogDate(value) {
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      fractionalSecondDigits: 3,
+      hour12: false
     }).format(new Date(value));
   } catch {
     return value;
