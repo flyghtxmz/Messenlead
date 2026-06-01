@@ -345,6 +345,7 @@ let customFieldStore = {
 let flowLogState = {
   pageId: "",
   scope: "current",
+  filter: "all",
   loading: false,
   logs: [],
   error: ""
@@ -3317,6 +3318,8 @@ function renderSettings() {
         </div>
         <div class="panel-body">
           ${renderWebhookDiagnostic(pageId)}
+          ${renderAdEntryMonitor(flowLogState.logs)}
+          ${renderFlowLogFilters()}
           ${renderFlowLogsPanel(logPageId)}
         </div>
       </section>
@@ -3641,11 +3644,109 @@ function renderFlowLogsPanel(pageId) {
     `;
   }
 
+  const visibleLogs = flowLogState.logs.filter((log) => flowLogMatchesFilter(log, flowLogState.filter, flowLogState.logs));
+  if (!visibleLogs.length) {
+    return `<div class="empty-state compact">Nenhum evento corresponde ao filtro selecionado.</div>`;
+  }
+
   return `
     <div class="flow-log-list">
-      ${flowLogState.logs.map(renderFlowLogRow).join("")}
+      ${visibleLogs.map(renderFlowLogRow).join("")}
     </div>
   `;
+}
+
+function renderAdEntryMonitor(logs = []) {
+  const entryLogs = logs.filter(isAdEntryLog).slice(0, 6);
+  return `
+    <section class="ad-entry-monitor">
+      <div class="ad-entry-monitor-header">
+        <div>
+          <strong>Monitor de entrada por anuncio</strong>
+          <span>Depois de tocar em Receber conteudo no Messenger, clique em Atualizar.</span>
+        </div>
+        <span class="badge ${entryLogs.length ? "active" : ""}">${entryLogs.length ? `${entryLogs.length} entrada${entryLogs.length === 1 ? "" : "s"}` : "Aguardando clique"}</span>
+      </div>
+      ${
+        entryLogs.length
+          ? `<div class="ad-entry-monitor-list">${entryLogs.map((log) => renderAdEntryMonitorRow(log, logs)).join("")}</div>`
+          : `<div class="empty-state compact">Nenhum clique no template MESSENLEAD_AD_ENTRY apareceu nos logs carregados.</div>`
+      }
+    </section>
+  `;
+}
+
+function renderAdEntryMonitorRow(log, logs = []) {
+  const hasReferral = Boolean(log.data?.hasAdReferral);
+  const route = relatedFlowLog(log, logs, "flow_route_selected");
+  const issue = relatedFlowLog(log, logs, ["no_matching_flow", "no_matching_trigger"]);
+  const routeState = route ? "Fluxo selecionado" : issue ? "Sem fluxo compativel" : "Roteamento nao registrado";
+  return `
+    <article class="ad-entry-monitor-row ${issue ? "warn" : ""}">
+      <div class="ad-entry-monitor-row-title">
+        <strong>Receber conteudo clicado</strong>
+        <time>${escapeHtml(formatDate(log.createdAt) || log.createdAt || "")}</time>
+      </div>
+      <div class="ad-entry-monitor-meta">
+        <span class="badge active">Webhook recebido</span>
+        <span class="badge ${hasReferral ? "active" : "paused"}">${hasReferral ? "Referral de anuncio recebido" : "Sem referral de anuncio"}</span>
+        <span class="badge ${route ? "active" : "paused"}">${escapeHtml(routeState)}</span>
+      </div>
+      <small>Pagina ${escapeHtml(log.pageId || "")}${log.psid ? ` · PSID ${escapeHtml(log.psid)}` : ""}${log.data?.adId ? ` · Ad ID ${escapeHtml(log.data.adId)}` : ""}</small>
+      ${route?.flowName ? `<small>Fluxo: ${escapeHtml(route.flowName)}</small>` : ""}
+    </article>
+  `;
+}
+
+function relatedFlowLog(source, logs, events) {
+  const acceptedEvents = Array.isArray(events) ? events : [events];
+  const sourceTime = Date.parse(source.createdAt || "") || 0;
+  return logs.find((log) => {
+    if (!acceptedEvents.includes(log.event)) return false;
+    if (log.psid !== source.psid || log.pageId !== source.pageId) return false;
+    const logTime = Date.parse(log.createdAt || "") || 0;
+    return logTime >= sourceTime && logTime - sourceTime <= 60 * 1000;
+  });
+}
+
+function renderFlowLogFilters() {
+  const filters = [
+    ["all", "Todos"],
+    ["ad_entry", "Entrada do anuncio"],
+    ["received", "Webhooks recebidos"],
+    ["issues", "Problemas"]
+  ];
+  return `
+    <div class="flow-log-filter-bar">
+      <strong>Eventos detalhados</strong>
+      <div class="segmented">
+        ${filters.map(([id, label]) => `
+          <button class="${flowLogState.filter === id ? "active" : ""}" type="button" data-action="set-flow-log-filter" data-filter="${attr(id)}">${escapeHtml(label)}</button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function flowLogMatchesFilter(log, filter = "all", logs = []) {
+  if (filter === "ad_entry") return isAdEntryRelatedLog(log, logs);
+  if (filter === "received") return ["event_received", "standby_received"].includes(log.event);
+  if (filter === "issues") return ["warn", "error"].includes(String(log.level || "").toLowerCase());
+  return true;
+}
+
+function isAdEntryLog(log) {
+  if (log.event !== "event_received") return false;
+  return log.data?.text === "MESSENLEAD_AD_ENTRY" || log.data?.entry?.template_key === "MESSENLEAD_AD_ENTRY";
+}
+
+function isAdEntryRelatedLog(log, logs = []) {
+  if (isAdEntryLog(log)) return true;
+  if (log.event === "ad_referral_diagnostic") return log.data?.templateKey === "MESSENLEAD_AD_ENTRY";
+  if (["flow_route_selected", "no_matching_flow", "no_matching_trigger"].includes(log.event)) {
+    return log.data?.templateKey === "MESSENLEAD_AD_ENTRY" || log.data?.sourceLabel === "facebook_ad" || logs.some((entry) => isAdEntryLog(entry) && relatedFlowLog(entry, [log], log.event));
+  }
+  return false;
 }
 
 function renderWebhookDiagnostic(pageId) {
@@ -5275,6 +5376,14 @@ function setFlowLogScope(scope) {
   return loadFlowLogsForPage(currentFlowLogPageId());
 }
 
+function setFlowLogFilter(filter) {
+  flowLogState = {
+    ...flowLogState,
+    filter: ["ad_entry", "received", "issues"].includes(filter) ? filter : "all"
+  };
+  render();
+}
+
 function currentFlowLogPageId() {
   return flowLogState.scope === "all" ? "__all__" : currentFlowPageId();
 }
@@ -6767,6 +6876,7 @@ function handleWorkspaceClick(event) {
   if (action === "reset-running-flows") return confirmResetRunningFlows();
   if (action === "clear-all-contact-tags") return confirmClearAllContactTags();
   if (action === "set-flow-log-scope") return setFlowLogScope(button.dataset.scope);
+  if (action === "set-flow-log-filter") return setFlowLogFilter(button.dataset.filter);
   if (action === "refresh-flow-logs") return refreshFlowLogs();
   if (action === "test-flow-log") return testFlowLog();
   if (action === "test-ad-flow") return testAdFlow("messaging");

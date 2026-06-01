@@ -3128,6 +3128,79 @@ svg {
   padding-right: 4px;
 }
 
+.ad-entry-monitor {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.ad-entry-monitor-header,
+.ad-entry-monitor-row-title,
+.ad-entry-monitor-meta,
+.flow-log-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ad-entry-monitor-header,
+.ad-entry-monitor-row-title,
+.flow-log-filter-bar {
+  justify-content: space-between;
+}
+
+.ad-entry-monitor-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.ad-entry-monitor-header strong,
+.flow-log-filter-bar > strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.ad-entry-monitor-header span:not(.badge),
+.ad-entry-monitor-row small,
+.ad-entry-monitor-row time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ad-entry-monitor-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ad-entry-monitor-row {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ad-entry-monitor-row.warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.ad-entry-monitor-row-title strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.flow-log-filter-bar {
+  margin-bottom: 10px;
+  padding: 8px 0;
+}
+
 .webhook-diagnostic {
   display: flex;
   flex-wrap: wrap;
