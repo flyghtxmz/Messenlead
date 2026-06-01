@@ -1,3 +1,5 @@
+import { coerceCustomFieldValue, normalizeCustomFieldType } from "./customFields.js";
+
 const DEFAULT_PAGE_ID = "__global__";
 
 export async function ensureContactSchema(env) {
@@ -187,7 +189,7 @@ export async function applyContactActions(env, pageId, psid, actions = [], conta
       tags = tags.filter((tag) => normalizeTag(tag) !== normalizedTag);
     }
     if (action.type === "set_user_field" && action.fieldName) {
-      customFields[action.fieldName] = action.fieldValue || "";
+      customFields[action.fieldName] = coerceCustomFieldValue(action.fieldValue, action.fieldType);
     }
     if (action.type === "clear_custom_field" && action.fieldName) {
       delete customFields[action.fieldName];
@@ -216,7 +218,8 @@ export function normalizeActionSteps(actions = []) {
       type: String(action.type || action.action || "").trim(),
       tag: String(action.tag || action.value || "").trim(),
       fieldName: String(action.fieldName || "").trim(),
-      fieldValue: String(action.fieldValue || "").trim()
+      fieldValue: action.fieldValue ?? "",
+      fieldType: normalizeCustomFieldType(action.fieldType)
     }))
     .filter((action) => action.type);
 }

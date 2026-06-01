@@ -1,6 +1,7 @@
 import { listFlows } from "../../_lib/flows.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, getContact, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
+import { coerceCustomFieldValue } from "../../_lib/customFields.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { createMessengerContactToken } from "../../_lib/pixel.js";
 import {
@@ -1512,7 +1513,7 @@ function applyRuntimeContactActions(contact, actions = []) {
     }
     if (action.type === "set_user_field" && action.fieldName) {
       contact.customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
-      contact.customFields[action.fieldName] = action.fieldValue || "";
+      contact.customFields[action.fieldName] = coerceCustomFieldValue(action.fieldValue, action.fieldType);
     }
     if (action.type === "clear_custom_field" && action.fieldName && contact.customFields) {
       delete contact.customFields[action.fieldName];
@@ -1587,6 +1588,11 @@ function matchingMessageOption(node, context = {}) {
 }
 
 function normalizeNodeShape(node) {
+  if (node.type === "trigger") {
+    node.triggerConfigs = node.triggerConfigs && typeof node.triggerConfigs === "object" && !Array.isArray(node.triggerConfigs)
+      ? node.triggerConfigs
+      : {};
+  }
   if (node.type === "message") {
     if (!Array.isArray(node.contentBlocks) || !node.contentBlocks.length) {
       node.contentBlocks = [{ id: "legacy", type: "text", text: node.message || "" }];
@@ -1851,7 +1857,11 @@ function triggerKeywordMatches(trigger, node, flow, context) {
   if (trigger === "messenger_message") {
     return true;
   }
-  if (trigger === "facebook_ad" || trigger === "facebook_comment" || trigger === "facebook_shop_message") {
+  if (trigger === "facebook_ad") {
+    const configuredAdId = String(node?.triggerConfigs?.facebook_ad?.adId || "").trim();
+    return !configuredAdId || configuredAdId === String(context.adId || "").trim();
+  }
+  if (trigger === "facebook_comment" || trigger === "facebook_shop_message") {
     return true;
   }
   if (trigger === "referral_link" || trigger === "qr_code") {

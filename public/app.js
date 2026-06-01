@@ -4,6 +4,7 @@ const DEFAULT_FLOW_PAGE_ID = "__global__";
 const CONVERSATION_READ_KEY = "messenlead.messenger.conversation.read.v1";
 const DEFAULT_TAG_FOLDER_ID = "default";
 const DEFAULT_TAG_FOLDER_NAME = "Tags";
+const DEFAULT_CUSTOM_FIELD_FOLDER = "Campos";
 const AD_TEST_CONTACT_TAG = "tester";
 const PIXEL_HEARTBEAT_STALE_MS = 90000;
 const META_THREAD_REFRESH_MS = 15000;
@@ -51,9 +52,9 @@ const triggerOptions = [
   {
     id: "facebook_ad",
     group: "Messenger",
-    source: "Anúncios do Facebook",
-    title: "O usuário clica no anúncio do Facebook",
-    description: "Dispara quando a conversa chega com referência de anúncio."
+    source: "Facebook Ads do Messenger",
+    title: "O usuario clica no anuncio do Facebook",
+    description: "Dispara quando a Meta envia a referencia de um anuncio Click-to-Messenger."
   },
   {
     id: "facebook_comment",
@@ -163,6 +164,14 @@ const actionOptions = [
     title: "Abrir conversa",
     description: "Mantem o contato visivel para atendimento humano."
   }
+];
+
+const customFieldTypes = [
+  { id: "text", label: "Texto" },
+  { id: "number", label: "Numero" },
+  { id: "date", label: "Data" },
+  { id: "datetime", label: "Data e hora" },
+  { id: "boolean", label: "Verdadeiro / falso" }
 ];
 
 const messageContentBlockTypes = [
@@ -295,6 +304,7 @@ let nextStepPickerNodeId = "";
 let actionPickerNodeId = "";
 let actionPickerCategory = "contact";
 let actionTagPickerStepId = "";
+let actionFieldPickerStepId = "";
 let contactTagPickerContactId = "";
 let conditionPickerNodeId = "";
 let conditionPickerCategory = "recommended";
@@ -316,6 +326,12 @@ let flowUndoState = {
   applying: false
 };
 let contactStore = {
+  pageId: "",
+  loading: false,
+  serverAvailable: null,
+  status: "Local"
+};
+let customFieldStore = {
   pageId: "",
   loading: false,
   serverAvailable: null,
@@ -783,7 +799,8 @@ function seedWorkspace() {
     ],
     contacts: [],
     campaigns: [],
-    tagLibraryByPage: {}
+    tagLibraryByPage: {},
+    customFieldsByPage: {}
   };
 
   workspace.flowsByPage = {
@@ -831,6 +848,7 @@ function normalizeWorkspaceState(workspace) {
     ...workspace,
     contacts,
     tagLibraryByPage: normalizeTagLibraryByPage(workspace.tagLibraryByPage, activePageId),
+    customFieldsByPage: normalizeCustomFieldsByPage(workspace.customFieldsByPage, activePageId),
     flowsByPage,
     flows: Array.isArray(flowsByPage[activePageId]) ? flowsByPage[activePageId] : Array.isArray(workspace.flows) ? workspace.flows : []
   };
@@ -908,6 +926,81 @@ function uniqueTagRecords(tags) {
   });
 }
 
+function normalizeCustomFieldsByPage(library, fallbackPageId = DEFAULT_FLOW_PAGE_ID) {
+  const next = {};
+  if (library && typeof library === "object" && !Array.isArray(library)) {
+    Object.entries(library).forEach(([pageId, fields]) => {
+      next[normalizeFlowPageId(pageId)] = uniqueCustomFieldRecords(fields);
+    });
+  } else if (Array.isArray(library)) {
+    next[normalizeFlowPageId(fallbackPageId)] = uniqueCustomFieldRecords(library);
+  }
+  return next;
+}
+
+function normalizeCustomFieldRecord(field = {}) {
+  const name = String(field.name || field.fieldName || "").replace(/\s+/g, " ").trim();
+  return {
+    ...field,
+    id: String(field.id || makeId("field")),
+    name,
+    type: normalizeCustomFieldType(field.type),
+    description: String(field.description || "").trim(),
+    folder: String(field.folder || DEFAULT_CUSTOM_FIELD_FOLDER).trim() || DEFAULT_CUSTOM_FIELD_FOLDER
+  };
+}
+
+function uniqueCustomFieldRecords(fields = []) {
+  const seen = new Set();
+  return (Array.isArray(fields) ? fields : [])
+    .map(normalizeCustomFieldRecord)
+    .filter((field) => {
+      const key = normalizeCustomFieldKey(field.name);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function normalizeCustomFieldType(value) {
+  const type = String(value || "text").trim().toLowerCase();
+  return customFieldTypes.some((option) => option.id === type) ? type : "text";
+}
+
+function normalizeCustomFieldKey(value) {
+  return normalize(String(value || "").replace(/\s+/g, " ").trim());
+}
+
+function customFieldRecordsForPage(pageId = currentFlowPageId()) {
+  if (!state.customFieldsByPage || typeof state.customFieldsByPage !== "object" || Array.isArray(state.customFieldsByPage)) {
+    state.customFieldsByPage = {};
+  }
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  state.customFieldsByPage[normalizedPageId] = uniqueCustomFieldRecords(state.customFieldsByPage[normalizedPageId]);
+  return state.customFieldsByPage[normalizedPageId];
+}
+
+function mergeCustomFieldsForPage(pageId, fields = []) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const current = customFieldRecordsForPage(normalizedPageId);
+  const merged = new Map(current.map((field) => [normalizeCustomFieldKey(field.name), field]));
+  uniqueCustomFieldRecords(fields).forEach((field) => {
+    merged.set(normalizeCustomFieldKey(field.name), field);
+  });
+  state.customFieldsByPage[normalizedPageId] = uniqueCustomFieldRecords([...merged.values()]);
+  return state.customFieldsByPage[normalizedPageId];
+}
+
+function findCustomFieldForPage(fieldName, pageId = currentFlowPageId()) {
+  const key = normalizeCustomFieldKey(fieldName);
+  return customFieldRecordsForPage(pageId).find((field) => normalizeCustomFieldKey(field.name) === key) || null;
+}
+
+function customFieldTypeLabel(type) {
+  return customFieldTypes.find((option) => option.id === normalizeCustomFieldType(type))?.label || "Texto";
+}
+
 function normalizeFlowPageId(pageId) {
   return String(pageId || DEFAULT_FLOW_PAGE_ID).trim() || DEFAULT_FLOW_PAGE_ID;
 }
@@ -926,6 +1019,7 @@ function normalizeContactRecord(contact, fallbackPageId = DEFAULT_FLOW_PAGE_ID) 
     source: contact?.source || "Messenger",
     tags,
     tag: tags[0] || contact?.tag || "",
+    customFields: contact?.customFields && typeof contact.customFields === "object" && !Array.isArray(contact.customFields) ? contact.customFields : {},
     lastSeen: contact?.lastSeen || lastMessage(contact)?.at || "",
     messages: Array.isArray(contact?.messages) ? contact.messages : []
   };
@@ -1052,6 +1146,19 @@ function hasPublishedFlow(flow) {
 
 function normalizeNodeStructure(node) {
   if (!node || typeof node !== "object") return node;
+
+  if (node.type === "trigger") {
+    node.triggerConfigs =
+      node.triggerConfigs && typeof node.triggerConfigs === "object" && !Array.isArray(node.triggerConfigs)
+        ? node.triggerConfigs
+        : {};
+    if (node.triggerConfigs.facebook_ad) {
+      node.triggerConfigs.facebook_ad = {
+        ...node.triggerConfigs.facebook_ad,
+        adId: String(node.triggerConfigs.facebook_ad.adId || "").trim()
+      };
+    }
+  }
 
   if (node.type === "message") {
     if (!Array.isArray(node.contentBlocks) || !node.contentBlocks.length) {
@@ -2054,6 +2161,7 @@ function renderSubscribers() {
               <th>Nome</th>
               <th>PSID</th>
               <th>Tags</th>
+              <th>Campos</th>
               <th>Status</th>
               <th>Origem</th>
               <th>Última mensagem</th>
@@ -2067,18 +2175,55 @@ function renderSubscribers() {
                     <td><strong>${escapeHtml(contact.name)}</strong></td>
                     <td>${escapeHtml(contact.psid)}</td>
                     <td>${renderContactTagEditor(contact)}</td>
+                    <td>${renderContactCustomFields(contact)}</td>
                     <td>${contact.status === "open" ? "Aberta" : "Fechada"}</td>
                     <td>${escapeHtml(contact.source)}</td>
                     <td>${escapeHtml(lastMessage(contact)?.text || "-")}</td>
                   </tr>
                 `
               )
-              .join("") || `<tr><td colspan="6">${emptyInline("Nenhum contato neste filtro.")}</td></tr>`}
+              .join("") || `<tr><td colspan="7">${emptyInline("Nenhum contato neste filtro.")}</td></tr>`}
           </tbody>
         </table>
       </div>
     </section>
   `;
+}
+
+function renderContactCustomFields(contact) {
+  const entries = Object.entries(contact?.customFields || {}).filter(([, value]) => value !== "" && value !== null && value !== undefined);
+  if (!entries.length) return `<span class="muted">Nenhum</span>`;
+  return `
+    <div class="contact-custom-fields">
+      ${entries
+        .slice(0, 4)
+        .map(([name, value]) => `<span class="contact-custom-field"><strong>${escapeHtml(name)}</strong><span>${escapeHtml(formatCustomFieldValue(value))}</span></span>`)
+        .join("")}
+      ${entries.length > 4 ? `<small>+${entries.length - 4}</small>` : ""}
+    </div>
+  `;
+}
+
+function formatCustomFieldValue(value) {
+  if (typeof value === "boolean") return value ? "Sim" : "Nao";
+  return String(value ?? "");
+}
+
+function coerceCustomFieldValue(value, type = "text") {
+  const normalizedType = normalizeCustomFieldType(type);
+  const text = String(value ?? "").trim();
+  if (!text && normalizedType !== "text") return "";
+  if (normalizedType === "number") {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : text;
+  }
+  if (normalizedType === "boolean") return ["true", "1", "sim", "yes", "on"].includes(text.toLowerCase());
+  if (normalizedType === "date") return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? String(value) : "";
+  if (normalizedType === "datetime") {
+    const timestamp = Date.parse(String(value || ""));
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "";
+  }
+  return String(value ?? "");
 }
 
 function renderBroadcasts() {
@@ -2949,6 +3094,7 @@ function renderSettings() {
   const pageName = state.settings.pageName || state.settings.pageId || "Página atual";
   const folders = tagFoldersForPage(pageId);
   const tags = tagRecordsForPage(pageId);
+  const customFields = customFieldRecordsForPage(pageId);
   const pageContacts = contactsForPage(pageId);
   const taggedContacts = pageContacts.filter((contact) => contactTags(contact).length).length;
   const connectedPageCount = connectedPagesForTagCleanup().length;
@@ -2956,6 +3102,9 @@ function renderSettings() {
   if (shouldLoadContactsForCurrentPage()) loadContactsForPage(pageId);
   if (flowStore.pageId !== pageId && !flowStore.loading) {
     loadFlowsForPage(pageId);
+  }
+  if (customFieldStore.pageId !== pageId && !customFieldStore.loading) {
+    loadCustomFieldsForPage(pageId);
   }
   if (flowLogState.pageId !== logPageId && !flowLogState.loading) {
     loadFlowLogsForPage(logPageId, { silent: true });
@@ -2986,6 +3135,7 @@ function renderSettings() {
         <div class="panel-body stack">
           ${metricInline("Pastas", folders.length)}
           ${metricInline("Tags salvas", tags.length)}
+          ${metricInline("Campos personalizados", customFields.length)}
           ${metricInline("Usuarios com tags", taggedContacts)}
           ${metricInline("Paginas conectadas", connectedPageCount)}
           <button class="compact-danger-action" type="button" data-action="reset-running-flows" title="Reiniciar execucoes de fluxos em andamento">${icons.refresh}<span>Reiniciar fluxos em andamento</span></button>
@@ -2993,6 +3143,22 @@ function renderSettings() {
           <p class="muted">As tags criadas nos nodes de ação aparecem no dropdown e podem ser agrupadas por pasta aqui.</p>
         </div>
       </aside>
+
+      <section class="panel settings-wide-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Campos personalizados</h2>
+            <span>Biblioteca da Pagina para salvar dados especificos em cada contato.</span>
+          </div>
+          <div class="panel-actions">
+            <span class="sync-pill ${customFieldStore.serverAvailable ? "synced" : "local"}">${escapeHtml(customFieldStore.loading ? "Carregando D1" : customFieldStore.status)}</span>
+            <button class="primary-button" type="button" data-action="create-custom-field">${icons.plus}<span>Novo campo</span></button>
+          </div>
+        </div>
+        <div class="panel-body stack">
+          ${customFields.length ? customFields.map(renderCustomFieldRow).join("") : emptyInline("Nenhum campo personalizado criado nesta Pagina.")}
+        </div>
+      </section>
 
       <section class="panel settings-wide-panel">
         <div class="panel-header">
@@ -3402,6 +3568,76 @@ function metricInline(label, value) {
       <strong>${escapeHtml(value)}</strong>
     </div>
   `;
+}
+
+function renderCustomFieldRow(field) {
+  return `
+    <article class="custom-field-row">
+      <div>
+        <div class="custom-field-row-title">
+          <strong>${escapeHtml(field.name)}</strong>
+          <span class="badge">${escapeHtml(customFieldTypeLabel(field.type))}</span>
+        </div>
+        <span>${escapeHtml(field.description || "Campo disponivel para nodes de Acoes e dados do contato.")}</span>
+        <small>${escapeHtml(field.folder || DEFAULT_CUSTOM_FIELD_FOLDER)}</small>
+      </div>
+      <button class="icon-button danger" type="button" data-action="delete-custom-field" data-id="${attr(field.id)}" title="Excluir campo da biblioteca">${icons.trash}</button>
+    </article>
+  `;
+}
+
+function openCreateCustomFieldModal(stepId = "") {
+  const context = stepId ? actionStepContext(stepId) : null;
+  openFormModal({
+    title: "Criar campo personalizado",
+    description: "O campo ficara disponivel somente nesta Pagina e armazenara um valor especifico para cada contato.",
+    submitLabel: "Criar campo",
+    fields: [
+      { name: "name", label: "Nome", value: context?.step.fieldName || "", required: true, placeholder: "Ex: Data de nascimento" },
+      {
+        name: "type",
+        label: "Tipo",
+        type: "select",
+        value: normalizeCustomFieldType(context?.step.fieldType),
+        options: customFieldTypes.map((option) => ({ value: option.id, label: option.label }))
+      },
+      { name: "folder", label: "Pasta", value: DEFAULT_CUSTOM_FIELD_FOLDER, placeholder: "Ex: Dados do cliente" },
+      { name: "description", label: "Descricao", type: "textarea", rows: 3, value: "", placeholder: "Uso interno deste campo" }
+    ],
+    onSubmit: async ({ name, type, folder, description }) => {
+      const field = await saveCustomFieldForPage(
+        {
+          name: name.trim(),
+          type,
+          folder: folder.trim() || DEFAULT_CUSTOM_FIELD_FOLDER,
+          description: description.trim()
+        },
+        currentFlowPageId()
+      );
+      if (!field) throw new Error("Informe o nome do campo.");
+      if (context) {
+        context.step.fieldName = field.name;
+        context.step.fieldType = field.type;
+        context.node.message = summarizeActionSteps(context.node);
+        context.flow.updatedAt = new Date().toISOString();
+        saveState();
+      }
+      render();
+    }
+  });
+}
+
+function confirmDeleteCustomField(fieldId) {
+  const pageId = currentFlowPageId();
+  const field = customFieldRecordsForPage(pageId).find((item) => item.id === fieldId);
+  if (!field) return;
+  openConfirmModal({
+    title: "Excluir campo personalizado",
+    message: `Excluir "${field.name}" da biblioteca? Os valores ja gravados nos contatos nao serao apagados automaticamente.`,
+    submitLabel: "Excluir",
+    danger: true,
+    onConfirm: () => removeCustomFieldForPage(field.id, pageId)
+  });
 }
 
 function openCreateTagFolderModal() {
@@ -4029,6 +4265,7 @@ function selectMetaPage(pageId) {
     persistLocalState();
     flowStore.pageId = "";
     contactStore.pageId = "";
+    customFieldStore.pageId = "";
     pixelState.pageId = "";
     loadFlowsForPage(page.id);
     loadContactsForPage(page.id);
@@ -4061,6 +4298,7 @@ function selectSidebarPage(pageId) {
   nextStepPickerNodeId = "";
   flowStore.pageId = "";
   contactStore.pageId = "";
+  customFieldStore.pageId = "";
   pixelState.pageId = "";
   persistLocalState();
   loadContactsForPage(page.id);
@@ -4168,6 +4406,7 @@ function openPageFlow() {
     persistLocalState();
     flowStore.pageId = "";
     contactStore.pageId = "";
+    customFieldStore.pageId = "";
     pixelState.pageId = "";
     loadContactsForPage(page.id);
   }
@@ -4212,6 +4451,96 @@ async function loadFlowsForPage(pageId) {
       flowStore.loading = false;
       if (activeView === "flows" || activeView === "settings" || activeView === "pages" || activeView === "broadcasts") render();
     }
+  }
+}
+
+async function loadCustomFieldsForPage(pageId) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  customFieldStore = {
+    ...customFieldStore,
+    pageId: normalizedPageId,
+    loading: true,
+    status: "Carregando D1"
+  };
+
+  try {
+    const result = await apiGet(`/api/custom-fields?pageId=${encodeURIComponent(normalizedPageId)}`);
+    if (currentFlowPageId() !== normalizedPageId) return;
+    mergeCustomFieldsForPage(normalizedPageId, result.fields || []);
+    customFieldStore.serverAvailable = true;
+    customFieldStore.status = "Campos no D1";
+    persistLocalState();
+  } catch (error) {
+    if (currentFlowPageId() !== normalizedPageId) return;
+    customFieldStore.serverAvailable = false;
+    customFieldStore.status = flowStoreStatusFromError(error);
+  } finally {
+    if (currentFlowPageId() === normalizedPageId) {
+      customFieldStore.loading = false;
+      if (activeView === "settings" || (activeView === "flows" && showInspector)) render();
+    }
+  }
+}
+
+async function saveCustomFieldForPage(field, pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const localField = normalizeCustomFieldRecord(field);
+  if (!localField.name) return null;
+
+  mergeCustomFieldsForPage(normalizedPageId, [localField]);
+  persistLocalState();
+
+  if (normalizedPageId === DEFAULT_FLOW_PAGE_ID) return localField;
+
+  try {
+    const result = await apiPost("/api/custom-fields", { pageId: normalizedPageId, field: localField });
+    const saved = normalizeCustomFieldRecord(result.field || localField);
+    mergeCustomFieldsForPage(normalizedPageId, [saved]);
+    customFieldStore = {
+      ...customFieldStore,
+      pageId: normalizedPageId,
+      serverAvailable: true,
+      status: "Campos no D1"
+    };
+    persistLocalState();
+    return saved;
+  } catch (error) {
+    customFieldStore = {
+      ...customFieldStore,
+      pageId: normalizedPageId,
+      serverAvailable: false,
+      status: flowStoreStatusFromError(error)
+    };
+    toastMessage("Campo salvo localmente. O D1 nao respondeu.");
+    return localField;
+  }
+}
+
+async function removeCustomFieldForPage(fieldId, pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const fields = customFieldRecordsForPage(normalizedPageId);
+  state.customFieldsByPage[normalizedPageId] = fields.filter((field) => field.id !== fieldId);
+  persistLocalState();
+  render();
+
+  if (normalizedPageId === DEFAULT_FLOW_PAGE_ID) return;
+
+  try {
+    await apiDelete(`/api/custom-fields?pageId=${encodeURIComponent(normalizedPageId)}&id=${encodeURIComponent(fieldId)}`);
+    customFieldStore = {
+      ...customFieldStore,
+      pageId: normalizedPageId,
+      serverAvailable: true,
+      status: "Campos no D1"
+    };
+  } catch (error) {
+    customFieldStore = {
+      ...customFieldStore,
+      pageId: normalizedPageId,
+      serverAvailable: false,
+      status: flowStoreStatusFromError(error)
+    };
+    toastMessage("Campo removido localmente. O D1 nao respondeu.");
   }
 }
 
@@ -4372,6 +4701,8 @@ async function testAdFlow(channel = "messaging") {
   const pageId = currentFlowPageId();
   const flowId = currentAdTestFlowId(pageId);
   const testVersion = currentAdTestVersion();
+  const testFlow = adTestFlowsForPage(pageId).find((flow) => flow.id === flowId);
+  const adId = facebookAdIdForFlow(testFlow, testVersion);
   const psid = currentAdTestContactPsid(pageId);
   const selectedAdTestValue = psid;
   const selectedTag = currentAdTestTag(pageId);
@@ -4416,6 +4747,7 @@ async function testAdFlow(channel = "messaging") {
       testTag: selectedTag,
       testTagMode: tagMode,
       channel,
+      adId,
       text: "Hola"
     });
     const logsResult = await apiGet(`/api/flow-logs?pageId=${encodeURIComponent(pageId)}&limit=160`);
@@ -4457,6 +4789,12 @@ async function testAdFlow(channel = "messaging") {
   } finally {
     if (activeView === "settings") render();
   }
+}
+
+function facebookAdIdForFlow(flow, version = "published") {
+  const nodes = version === "published" && Array.isArray(flow?.publishedNodes) ? flow.publishedNodes : flow?.nodes || [];
+  const trigger = nodes.find((node) => node.type === "trigger" && nodeTriggerEvents(node).includes("facebook_ad"));
+  return String(trigger?.triggerConfigs?.facebook_ad?.adId || "").trim();
 }
 
 async function checkWebhookSubscription() {
@@ -4741,7 +5079,7 @@ function renderTriggerSettings(flow, node) {
     <form class="inspector-form manychat-settings">
       <div class="manychat-trigger-head">Quando...</div>
       <div class="trigger-card-list">
-        ${nodeTriggerEvents(node).map((id, index) => renderTriggerSettingCard(node.id, id, index)).join("")}
+        ${nodeTriggerEvents(node).map((id, index) => renderTriggerSettingCard(node, id, index)).join("")}
         <button class="dashed-add-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">+ Novo Gatilho</button>
       </div>
       <div class="next-step-divider"></div>
@@ -4757,23 +5095,35 @@ function renderTriggerSettings(flow, node) {
   `;
 }
 
-function renderTriggerSettingCard(nodeId, triggerId, index) {
+function renderTriggerSettingCard(node, triggerId, index) {
   const option = triggerOptionById(triggerId);
+  normalizeNodeStructure(node);
+  const adId = node.triggerConfigs?.facebook_ad?.adId || "";
   return `
-    <article class="trigger-setting-card">
+    <article class="trigger-setting-card ${triggerId === "facebook_ad" ? "has-config" : ""}">
       <span class="trigger-card-icon">${icons.message}</span>
       <div class="trigger-setting-copy">
         <span class="trigger-setting-source">${escapeHtml(option?.source || "Messenger")} #${index + 1}</span>
         <strong>${escapeHtml(option?.title || triggerId)}</strong>
         <small>${triggerExecutionLabel(triggerId)}</small>
       </div>
-      <button class="mini-menu-button" type="button" data-action="open-trigger-picker" data-id="${nodeId}" title="Editar gatilho">⋮</button>
+      <button class="mini-menu-button" type="button" data-action="open-trigger-picker" data-id="${node.id}" title="Editar gatilho">⋮</button>
+      ${
+        triggerId === "facebook_ad"
+          ? `
+            <label class="trigger-config-field">
+              <span>ID do anuncio <small>opcional</small></span>
+              <input data-trigger-config-field="adId" data-trigger-id="facebook_ad" value="${attr(adId)}" placeholder="Vazio = qualquer anuncio Click-to-Messenger" />
+            </label>
+          `
+          : ""
+      }
     </article>
   `;
 }
 
 function triggerExecutionLabel(triggerId) {
-  if (triggerId === "facebook_ad") return "0 clicado";
+  if (triggerId === "facebook_ad") return "Referencia do anuncio recebida pelo Messenger";
   return "0 execuções";
 }
 
@@ -5176,6 +5526,8 @@ function legacyRenderConditionSettingsManychat(flow, node) {
 
 function renderConditionSettings(flow, node) {
   normalizeNodeStructure(node);
+  const pageId = currentFlowPageId();
+  if (customFieldStore.pageId !== pageId && !customFieldStore.loading) loadCustomFieldsForPage(pageId);
   return `
     <form class="inspector-form manychat-condition-settings">
       <div class="manychat-condition-head">
@@ -5215,6 +5567,7 @@ function renderConditionSettings(flow, node) {
 
 function renderConditionRule(condition) {
   if (condition.type === "tag") return renderTagConditionRule(condition);
+  if (condition.type === "field") return renderCustomFieldConditionRule(condition);
   return `
     <article class="condition-rule-card">
       <span class="condition-rule-icon">${icons.condition}</span>
@@ -5224,6 +5577,27 @@ function renderConditionRule(condition) {
         <input data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="${attr(condition.type === "tag" ? "Nome da tag" : condition.type === "field" ? "Valor esperado" : "Termos")}" />
       </div>
       <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condição">&times;</button>
+    </article>
+  `;
+}
+
+function renderCustomFieldConditionRule(condition) {
+  const fields = customFieldRecordsForPage();
+  const selected = findCustomFieldForPage(condition.fieldName);
+  const options = selected || !condition.fieldName ? fields : [...fields, normalizeCustomFieldRecord({ name: condition.fieldName })];
+  return `
+    <article class="condition-rule-card custom-field-condition-rule-card">
+      <select data-condition-rule-field="fieldName" data-condition-id="${attr(condition.id)}">
+        <option value="" ${condition.fieldName ? "" : "selected"}>Selecionar campo</option>
+        ${options.map((field) => `<option value="${attr(field.name)}" ${normalizeCustomFieldKey(field.name) === normalizeCustomFieldKey(condition.fieldName) ? "selected" : ""}>${escapeHtml(field.name)}</option>`).join("")}
+      </select>
+      <select data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
+        <option value="equals" ${condition.operator === "equals" ? "selected" : ""}>e exatamente</option>
+        <option value="contains_any" ${condition.operator === "contains_any" ? "selected" : ""}>contem</option>
+        <option value="not_contains" ${condition.operator === "not_contains" ? "selected" : ""}>nao contem</option>
+      </select>
+      <input data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="Valor esperado" />
+      <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condicao">&times;</button>
     </article>
   `;
 }
@@ -5565,6 +5939,8 @@ function renderCommentSettings(flow, node) {
 }
 
 function renderActionSettings(flow, node) {
+  const pageId = currentFlowPageId();
+  if (customFieldStore.pageId !== pageId && !customFieldStore.loading) loadCustomFieldsForPage(pageId);
   return `
     <form class="inspector-form manychat-settings">
       <div class="manychat-action-head">
@@ -5617,10 +5993,10 @@ function renderActionStep(nodeId, step) {
           <strong>${escapeHtml(label)}</strong>
           ${removeButton}
         </div>
-        <input data-action-step-field="fieldName" data-step-id="${attr(step.id)}" value="${attr(step.fieldName || "")}" placeholder="Nome do campo" />
+        ${renderActionCustomFieldControl(step)}
         ${
           step.type === "set_user_field"
-            ? `<input data-action-step-field="fieldValue" data-step-id="${attr(step.id)}" value="${attr(step.fieldValue || "")}" placeholder="Valor" />`
+            ? renderActionCustomFieldValue(step)
             : ""
         }
       </article>
@@ -5636,6 +6012,40 @@ function renderActionStep(nodeId, step) {
       </div>
     </article>
   `;
+}
+
+function renderActionCustomFieldControl(step) {
+  const fields = customFieldRecordsForPage();
+  const selected = findCustomFieldForPage(step.fieldName);
+  const options = selected || !step.fieldName ? fields : [...fields, normalizeCustomFieldRecord({ name: step.fieldName, type: step.fieldType })];
+  return `
+    <div class="action-field-row">
+      <select data-action-step-field="fieldName" data-step-id="${attr(step.id)}">
+        <option value="" ${step.fieldName ? "" : "selected"}>Selecionar campo</option>
+        ${options
+          .map((field) => `<option value="${attr(field.name)}" ${normalizeCustomFieldKey(field.name) === normalizeCustomFieldKey(step.fieldName) ? "selected" : ""}>${escapeHtml(field.name)} - ${escapeHtml(customFieldTypeLabel(field.type))}</option>`)
+          .join("")}
+      </select>
+      <button class="icon-button" type="button" data-action="create-action-custom-field" data-step-id="${attr(step.id)}" title="Criar campo personalizado">${icons.plus}</button>
+    </div>
+  `;
+}
+
+function renderActionCustomFieldValue(step) {
+  const field = findCustomFieldForPage(step.fieldName);
+  const type = normalizeCustomFieldType(field?.type || step.fieldType);
+  const common = `data-action-step-field="fieldValue" data-step-id="${attr(step.id)}"`;
+  if (type === "boolean") {
+    return `
+      <select ${common}>
+        <option value="" ${step.fieldValue === "" ? "selected" : ""}>Selecionar valor</option>
+        <option value="true" ${String(step.fieldValue) === "true" ? "selected" : ""}>Verdadeiro</option>
+        <option value="false" ${String(step.fieldValue) === "false" ? "selected" : ""}>Falso</option>
+      </select>
+    `;
+  }
+  const inputType = type === "number" ? "number" : type === "date" ? "date" : type === "datetime" ? "datetime-local" : "text";
+  return `<input type="${attr(inputType)}" ${common} value="${attr(step.fieldValue ?? "")}" placeholder="Valor" />`;
 }
 
 function renderActionTagPicker(step) {
@@ -5830,6 +6240,7 @@ function handleWorkspaceClick(event) {
   if (action === "open-action-tag-picker") return openActionTagPicker(button.dataset.stepId);
   if (action === "select-action-tag") return selectActionTag(button.dataset.stepId, button.dataset.tag);
   if (action === "open-create-action-tag") return openCreateActionTagModal(button.dataset.stepId);
+  if (action === "create-action-custom-field") return openCreateCustomFieldModal(button.dataset.stepId);
   if (action === "open-condition-picker") return openConditionPicker(id);
   if (action === "close-condition-picker") return closeConditionPicker();
   if (action === "select-condition-category") return selectConditionCategory(button.dataset.category);
@@ -5936,6 +6347,8 @@ function handleWorkspaceClick(event) {
   if (action === "delete-campaign") return deleteCampaign(id);
   if (action === "create-tag-folder") return openCreateTagFolderModal();
   if (action === "delete-tag-folder") return confirmDeleteTagFolder(button.dataset.folderId);
+  if (action === "create-custom-field") return openCreateCustomFieldModal();
+  if (action === "delete-custom-field") return confirmDeleteCustomField(id);
   if (action === "reset-running-flows") return confirmResetRunningFlows();
   if (action === "clear-all-contact-tags") return confirmClearAllContactTags();
   if (action === "set-flow-log-scope") return setFlowLogScope(button.dataset.scope);
@@ -5997,6 +6410,15 @@ function handleWorkspaceInput(event) {
     saveState();
   }
 
+  if (target.dataset.triggerConfigField && node?.type === "trigger") {
+    normalizeNodeStructure(node);
+    const triggerId = target.dataset.triggerId;
+    node.triggerConfigs[triggerId] = node.triggerConfigs[triggerId] || {};
+    node.triggerConfigs[triggerId][target.dataset.triggerConfigField] = target.value.trim();
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+  }
+
   if (target.dataset.messageBlockField && node?.type === "message") {
     const block = node.contentBlocks?.find((item) => item.id === target.dataset.blockId);
     if (!block) return;
@@ -6052,6 +6474,10 @@ function handleWorkspaceInput(event) {
     const step = nodeActionSteps(node).find((item) => item.id === target.dataset.stepId);
     if (!step) return;
     step[target.dataset.actionStepField] = target.value;
+    if (target.dataset.actionStepField === "fieldName") {
+      step.fieldType = findCustomFieldForPage(target.value)?.type || normalizeCustomFieldType(step.fieldType);
+      step.fieldValue = "";
+    }
     if (target.dataset.actionStepField === "tag") actionTagPickerStepId = step.id;
     node.message = summarizeActionSteps(node);
     flow.updatedAt = new Date().toISOString();
@@ -6240,8 +6666,25 @@ function handleWorkspaceChange(event) {
     }
   }
 
+  if (target.dataset.actionStepField && node) {
+    const step = nodeActionSteps(node).find((item) => item.id === target.dataset.stepId);
+    if (step) {
+      const fieldName = target.dataset.actionStepField;
+      const changed = step[fieldName] !== target.value;
+      step[fieldName] = target.value;
+      if (fieldName === "fieldName" && changed) {
+        step.fieldType = findCustomFieldForPage(target.value)?.type || normalizeCustomFieldType(step.fieldType);
+        step.fieldValue = "";
+      }
+      node.message = summarizeActionSteps(node);
+      flow.updatedAt = new Date().toISOString();
+      saveState();
+    }
+  }
+
   if (
     target.dataset.nodeField ||
+    target.dataset.triggerConfigField ||
     target.dataset.flowField ||
     target.dataset.settingField ||
     target.dataset.actionStepField ||
@@ -7418,7 +7861,8 @@ function addActionStep(type) {
     type: option.id,
     tag: option.id === "add_tag" ? "" : "",
     fieldName: "",
-    fieldValue: ""
+    fieldValue: "",
+    fieldType: "text"
   };
 
   nodeActionSteps(node).push(step);
@@ -8521,7 +8965,7 @@ function applyActionNodeToContact(contact, node) {
     if (step.type === "remove_tag" && step.tag) removeTagFromContact(contact, step.tag);
     if (step.type === "set_user_field" && step.fieldName) {
       contact.customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
-      contact.customFields[step.fieldName] = step.fieldValue || "";
+      contact.customFields[step.fieldName] = coerceCustomFieldValue(step.fieldValue, step.fieldType);
     }
     if (step.type === "clear_custom_field" && step.fieldName && contact.customFields) {
       delete contact.customFields[step.fieldName];
@@ -9783,7 +10227,7 @@ function actionStepLabel(step) {
 function actionStepSummary(step) {
   if (step.type === "add_tag") return step.tag ? `Adicionar Tag: ${step.tag}` : "Adicionar Tag";
   if (step.type === "remove_tag") return step.tag ? `Remover Tag: ${step.tag}` : "Remover Tag";
-  if (step.type === "set_user_field") return step.fieldName ? `Definir campo: ${step.fieldName}` : "Definir campo";
+  if (step.type === "set_user_field") return step.fieldName ? `Definir ${step.fieldName}: ${formatCustomFieldValue(step.fieldValue) || "valor"}` : "Definir campo";
   if (step.type === "clear_custom_field") return step.fieldName ? `Limpar campo: ${step.fieldName}` : "Limpar campo";
   if (step.type === "delete_contact") return "Excluir contato";
   if (step.type === "open_inbox") return "Abrir conversa";

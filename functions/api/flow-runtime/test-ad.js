@@ -18,6 +18,7 @@ export async function onRequestPost({ request, env }) {
   const psid = requestedPsid || `test_ad_${Date.now()}`;
   const text = String(body.text || "Hola").trim() || "Hola";
   const channel = body.channel === "standby" ? "standby" : "messaging";
+  const adId = String(body.adId || `ad_test_${Date.now()}`).trim();
   const testTag = String(body.testTag || "").replace(/\s+/g, " ").trim();
   const testTagMode = body.testTagMode === "missing" ? "missing" : "has";
   if (!pageId) return json({ error: "pageId is required" }, 400);
@@ -35,9 +36,9 @@ export async function onRequestPost({ request, env }) {
         source: "ADS",
         type: "OPEN_THREAD",
         ref: "messenlead_ad_test",
-        ad_id: `ad_test_${timestamp}`,
+        ad_id: adId,
         ads_context_data: {
-          ad_id: `ad_test_${timestamp}`,
+          ad_id: adId,
           ad_title: "Messenlead dashboard ad test"
         }
       }
@@ -46,6 +47,7 @@ export async function onRequestPost({ request, env }) {
 
   await handleMessengerEvent(event, env, pageId, {
     channel,
+    adId,
     simulated: true,
     dryRun: true,
     forceLogs: true,
