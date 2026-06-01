@@ -53,7 +53,10 @@ export async function onRequestPost({ request, env }) {
   } else {
     event.message = {
       mid: `mid.test_ad.${timestamp}`,
-      text,
+      text: "Receber conteudo",
+      quick_reply: {
+        payload: "MESSENLEAD_AD_ENTRY"
+      },
       referral
     };
   }

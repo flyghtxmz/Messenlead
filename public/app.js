@@ -2723,8 +2723,8 @@ function renderJsonTemplates() {
         </div>
         <div class="panel-body stack">
           ${metricInline("Templates", hasCurrentPageData ? jsonTemplateState.templates.length : 0)}
-          <p class="muted">Use Template inicial para gerar o JSON de entrada Click-to-Messenger. Depois edite o conteudo e copie o JSON validado para o Gerenciador de Anuncios.</p>
-          <p class="muted">Cada Pagina possui sua propria biblioteca. Alterar um template aqui nao modifica anuncios que ja foram publicados na Meta.</p>
+          <p class="muted">Use Template inicial para gerar o JSON generico de entrada Click-to-Messenger. O mesmo JSON pode ser reutilizado nos anuncios de qualquer Pagina conectada.</p>
+          <p class="muted">A biblioteca continua organizada por Pagina. Alterar um template aqui nao modifica anuncios que ja foram publicados na Meta.</p>
         </div>
       </aside>
     </div>
@@ -4992,17 +4992,22 @@ async function saveJsonTemplateForPage(template, pageId = currentFlowPageId()) {
 }
 
 async function createDefaultJsonTemplate() {
+  const description = "Template generico reutilizavel em anuncios Click-to-Messenger de qualquer Pagina.";
   const existing = jsonTemplateState.templates.find((template) => template.name === "Entrada Click-to-Messenger");
   if (existing) {
-    openJsonTemplateModal(existing);
+    openJsonTemplateModal({
+      ...existing,
+      description,
+      jsonText: adEntryTemplateJson()
+    });
     return;
   }
 
   try {
     await saveJsonTemplateForPage({
       name: "Entrada Click-to-Messenger",
-      description: "Primeira interacao reutilizavel para anuncios Click-to-Messenger.",
-      jsonText: adEntryTemplateJson(currentFlowPageId())
+      description,
+      jsonText: adEntryTemplateJson()
     });
   } catch (error) {
     toastMessage(error.message || "Nao foi possivel criar o template inicial.");
@@ -6771,7 +6776,7 @@ function handleWorkspaceClick(event) {
   if (action === "clear-flow-logs") return clearFlowLogs();
   if (action === "refresh-pixel-events") return loadPixelEventsForPage(currentFlowPageId());
   if (action === "refresh-attributions") return loadAttributionsForPage(currentFlowPageId());
-  if (action === "copy-ad-entry-template") return copyText(adEntryTemplateJson(currentFlowPageId()), "Template JSON copiado.");
+  if (action === "copy-ad-entry-template") return copyText(adEntryTemplateJson(), "Template JSON copiado.");
   if (action === "open-json-templates") return navigate("json_templates");
   if (action === "refresh-json-templates") return loadJsonTemplatesForPage(currentFlowPageId());
   if (action === "create-json-template") return openJsonTemplateModal();
@@ -11775,20 +11780,18 @@ function webhookUrl() {
   return `${origin}/api/messenger/webhook`;
 }
 
-function adEntryTemplateJson(pageId = currentFlowPageId()) {
+function adEntryTemplateJson() {
   return JSON.stringify({
-    messages: [
-      {
-        text: "Ola! Toque abaixo para continuar.",
-        quick_replies: [
-          {
-            content_type: "text",
-            title: "Receber conteudo",
-            payload: `MESSENLEAD_AD_ENTRY:${normalizeFlowPageId(pageId)}`
-          }
-        ]
-      }
-    ]
+    message: {
+      text: "Ola! Toque abaixo para receber o conteudo.",
+      quick_replies: [
+        {
+          content_type: "text",
+          title: "Receber conteudo",
+          payload: "MESSENLEAD_AD_ENTRY"
+        }
+      ]
+    }
   }, null, 2);
 }
 
