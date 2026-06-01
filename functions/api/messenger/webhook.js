@@ -281,7 +281,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     ? await buildReplies(flowContext, env, pageId, contact, log)
     : (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
       (await buildReplies(flowContext, env, pageId, contact, log));
-  const { replies, actions, flow, continuation, responseWait, linkClickWait } = execution;
+  const { replies, actions, flow, continuation, responseWait, linkClickWait, skipReason } = execution;
   if (actions.length && isDryRun) {
     await log("info", "test_actions_prepared", "Teste preparou acoes, mas nao alterou o contato real.", { actions }, flow);
   } else if (actions.length) {
@@ -311,6 +311,10 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
       sourceNodeId: linkClickWait.sourceNodeId || "",
       expiresAt: linkClickWait.expiresAt || ""
     }, flow);
+  }
+
+  if (skipReason) {
+    return { ok: true, status: skipReason, replyCount: 0, actionCount: actions.length, flowId: flow?.id || "" };
   }
 
   if (!replies.length) {
@@ -775,10 +779,22 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const flow =
     selectedFlowId
       ? activeFlows[0]
-      : activeFlows.find((item) => flowMatchesInput(item, context)) || activeFlows[0];
+      : activeFlows.find((item) => flowMatchesInput(item, context));
 
   if (!flow) {
     const allFlows = pageId ? await listFlows(env, pageId) : [];
+    if (!selectedFlowId && activeFlows.length) {
+      await log?.("warn", "no_matching_flow", "Existem fluxos ativos, mas nenhum gatilho corresponde ao evento recebido.", {
+        activeFlowCount: activeFlows.length,
+        eventType: context.eventType || "",
+        sourceLabel: context.sourceLabel || "",
+        hasReferral: Boolean(context.hasReferral),
+        hasAdReferral: Boolean(context.hasAdReferral),
+        adId: context.adId || "",
+        templateKey: context.templateKey || ""
+      });
+      return { replies: [], actions: [], flow: null, skipReason: "no_matching_flow" };
+    }
     await log?.("warn", "no_active_flow", "Nenhum fluxo ativo foi encontrado para esta Página.", {
       activeFlowCount: activeFlows.length,
       totalFlowCount: allFlows.length,
@@ -788,8 +804,18 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
       testFlowId,
       manualFlowId
     });
-    return { replies: [], actions: [], flow: null };
+    return { replies: [], actions: [], flow: null, skipReason: "no_active_flow" };
   }
+
+  await log?.("info", "flow_route_selected", `Fluxo selecionado: ${flow.name || flow.id}.`, {
+    flowId: flow.id,
+    flowName: flow.name || "",
+    routingMode: manualFlowId ? "manual" : testFlowId ? "test" : "trigger_match",
+    eventType: context.eventType || "",
+    sourceLabel: context.sourceLabel || "",
+    hasAdReferral: Boolean(context.hasAdReferral),
+    adId: context.adId || ""
+  }, flow);
 
   await log?.("info", "flow_started", `Fluxo iniciado: ${flow.name || flow.id}.`, {
     flowId: flow.id,
@@ -801,13 +827,22 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const start = manualFlowId
     ? flow.nodes?.find((node) => node.type === "trigger") || flow.nodes?.[0]
     : interactiveStartNode(flow, context) ||
-      flow.nodes?.find((node) => node.type === "trigger" && triggerMatchesEvent(node, flow, context)) ||
-      flow.nodes?.find((node) => node.type === "trigger") ||
-      flow.nodes?.[0];
+      flow.nodes?.find((node) => node.type === "trigger" && triggerMatchesEvent(node, flow, context));
 
   if (!start) {
+    if (!manualFlowId && flow.nodes?.length) {
+      await log?.("warn", "no_matching_trigger", "O fluxo foi selecionado, mas nenhum gatilho inicial corresponde ao evento recebido.", {
+        flowId: flow.id,
+        eventType: context.eventType || "",
+        sourceLabel: context.sourceLabel || "",
+        hasReferral: Boolean(context.hasReferral),
+        hasAdReferral: Boolean(context.hasAdReferral),
+        adId: context.adId || ""
+      }, flow);
+      return { replies: [], actions: [], flow, skipReason: "no_matching_trigger" };
+    }
     await log?.("warn", "no_start_node", "O fluxo selecionado não possui bloco inicial.", {}, flow);
-    return { replies: [], actions: [], flow };
+    return { replies: [], actions: [], flow, skipReason: "no_start_node" };
   }
 
   const executableStart = executableStartNode(flow, start, { ...context, contact: runtimeContactFrom(contact), flow });
@@ -824,7 +859,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
       startNodeType: start.type,
       targetId: nextExecutableTargetId(start, { ...context, contact: runtimeContactFrom(contact), flow }) || ""
     }, flow);
-    return { replies: [], actions: [], flow };
+    return { replies: [], actions: [], flow, skipReason: "no_executable_start_node" };
   }
 
   const executionStartedAt = Date.now();

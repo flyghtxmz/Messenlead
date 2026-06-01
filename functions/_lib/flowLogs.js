@@ -149,6 +149,7 @@ const COMPACT_INFO_EVENTS = new Set([
   "event_received",
   "ad_referral_diagnostic",
   "active_flows_loaded",
+  "flow_route_selected",
   "flow_started",
   "start_node_selected",
   "message_prepared",
@@ -176,6 +177,8 @@ const COMPACT_INFO_EVENTS = new Set([
 const COMPACT_WARN_EVENTS = new Set([
   "condition_result",
   "no_active_flow",
+  "no_matching_flow",
+  "no_matching_trigger",
   "no_start_node",
   "no_replies",
   "guard_limit",

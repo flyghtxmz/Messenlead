@@ -3579,6 +3579,8 @@ function adFlowTestStatus(logs, error) {
   if (logs.some((log) => log.event === "test_wait_prepared")) return { kind: "ok", title: "Fluxo chegou em uma espera", message: "O runtime iniciou o fluxo e parou antes de criar uma espera real no teste." };
   const routingIssue = adFlowTestRoutingIssue(logs);
   if (routingIssue) return routingIssue;
+  if (logs.some((log) => log.event === "no_matching_trigger")) return { kind: "error", title: "Nenhum gatilho inicial correspondeu", message: "Revise o node Quando do fluxo selecionado. O evento chegou, mas nenhum gatilho configurado aceitou essa entrada." };
+  if (logs.some((log) => log.event === "no_matching_flow")) return { kind: "error", title: "Nenhum fluxo correspondeu ao evento", message: "Existem fluxos ativos, mas nenhum deles possui um gatilho compatível com essa entrada." };
   if (logs.some((log) => log.event === "flow_started")) return { kind: "warn", title: "Fluxo iniciou, mas não preparou resposta", message: "Verifique se o próximo bloco é mensagem ou se o fluxo parou em condição/espera." };
   if (logs.some((log) => log.event === "no_active_flow")) return { kind: "error", title: "Nenhum fluxo ativo publicado", message: "Publique o fluxo e confirme que ele pertence à página selecionada." };
   if (logs.some((log) => log.event === "event_received")) return { kind: "warn", title: "Evento recebido, mas fluxo não iniciou", message: "O gatilho de anúncio pode não estar ativo no node Quando." };
