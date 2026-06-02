@@ -5502,6 +5502,10 @@ svg {
   grid-template-rows: minmax(0, 1fr);
 }
 
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector.condition-picker-open {
+  overflow: visible;
+}
+
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-header {
   min-height: 56px;
   padding: 12px 12px 10px;
@@ -5524,6 +5528,10 @@ svg {
   padding: 0 14px 14px;
   overflow: auto;
   overflow-x: hidden;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector.condition-picker-open .panel-body {
+  overflow: visible;
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-body.without-drawer-header {
@@ -6923,32 +6931,46 @@ svg {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  margin: -14px -22px 10px;
-  padding: 14px 16px;
+  margin: -14px -22px 0;
+  min-height: 49px;
+  padding: 12px 16px;
   background: #9eeedf;
   color: var(--ink);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
 }
 
 .manychat-condition-head .mini-menu-button {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   background: transparent;
+  color: #5f6b78;
+}
+
+.manychat-condition-head .mini-menu-button svg {
+  width: 13px;
+  height: 13px;
 }
 
 .manychat-condition-content {
   position: relative;
   display: grid;
-  gap: 10px;
-  padding: 0;
+  gap: 16px;
+  padding: 31px 16px 0;
+}
+
+.condition-match-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  gap: 8px;
+  align-items: start;
 }
 
 .condition-match-copy {
   display: grid;
-  gap: 5px;
+  gap: 1px;
   color: #26313d;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.25;
 }
 
@@ -6963,15 +6985,36 @@ svg {
   text-align: left;
 }
 
+.condition-side-actions {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding-top: 1px;
+  color: #8d98a6;
+}
+
+.condition-side-actions span,
+.condition-side-actions svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
 .condition-rule-list {
   display: grid;
-  gap: 7px;
+  gap: 8px;
+}
+
+.condition-add-wrap {
+  position: relative;
 }
 
 .condition-add-button {
-  min-height: 40px;
-  border-color: #2f8cff;
-  color: #0069df;
+  width: 100%;
+  min-height: 36px;
+  border-color: #9eeedf;
+  color: #168b73;
+  font-weight: 500;
 }
 
 .manychat-condition-settings .condition-branches {
@@ -7136,70 +7179,89 @@ svg {
 
 .condition-picker-popover {
   position: absolute;
-  top: 106px;
+  top: calc(100% + 4px);
   left: 0;
   z-index: 80;
-  width: 100%;
-  max-width: 320px;
+  width: 386px;
+  max-width: min(386px, calc(100vw - 44px));
   overflow: hidden;
   border: 1px solid #d1d7e0;
-  border-radius: 5px;
+  border-radius: 4px;
   background: #fff;
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+}
+
+.condition-picker-search-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-height: 29px;
+  margin: 5px;
+  padding: 0 8px;
+  border: 1px solid #0a84ff;
+  border-radius: 4px;
+  color: #667085;
+}
+
+.condition-picker-search-row svg {
+  width: 14px;
+  height: 14px;
 }
 
 .condition-picker-search {
-  width: calc(100% - 12px);
-  min-height: 28px;
-  margin: 6px;
-  padding: 5px 8px;
-  border: 1px solid #0a84ff;
-  border-radius: 4px;
+  width: 100%;
+  min-height: 27px;
+  padding: 0;
+  border: 0;
+  outline: 0;
   font-size: 12px;
 }
 
 .condition-picker-body {
   display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  min-height: 170px;
+  grid-template-columns: 151px minmax(0, 1fr);
+  min-height: 216px;
   border-top: 1px solid #e5e9ef;
 }
 
 .condition-picker-tabs {
   display: grid;
   align-content: start;
-  gap: 3px;
-  padding: 6px 5px;
+  gap: 4px;
+  padding: 7px 6px;
   border-right: 1px solid #e5e9ef;
 }
 
 .condition-picker-tabs button {
-  min-height: 24px;
+  min-height: 29px;
+  padding: 0 8px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: #344054;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
 }
 
 .condition-picker-tabs button.active {
-  background: #d5d5d5;
-  font-weight: 800;
+  background: #d1d1d1;
+  font-weight: 700;
 }
 
 .condition-picker-options {
   display: grid;
   align-content: start;
-  padding: 6px 8px;
+  padding: 0;
 }
 
 .condition-picker-options button {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
-  gap: 6px;
+  gap: 8px;
   align-items: center;
-  min-height: 28px;
+  min-height: 32px;
+  padding: 0 13px;
   border: 0;
   background: transparent;
   color: #344054;

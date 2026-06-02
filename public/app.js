@@ -244,6 +244,8 @@ const icons = {
   trash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-1 5v6M9 11v6M5 6l1 15h12l1-15"/></svg>`,
   copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h12v12H8V8Z"/><path d="M4 16V4h12"/></svg>`,
   edit: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>`,
+  move_vertical: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"/><path d="m8 7 4-4 4 4"/><path d="m8 17 4 4 4-4"/></svg>`,
   upload: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0-4 4m4-4 4 4"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg>`,
   download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>`,
   check: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg>`,
@@ -2046,7 +2048,7 @@ function renderFlows() {
         ${viewingPublished ? "" : renderCanvasAddMenu()}
       </section>
 
-      <aside class="panel inspector flow-config-drawer ${!viewingPublished && messageButtonOption ? "has-drawer-header" : "no-drawer-header"}">
+      <aside class="panel inspector flow-config-drawer ${!viewingPublished && messageButtonOption ? "has-drawer-header" : "no-drawer-header"} ${!viewingPublished && conditionPickerNodeId === node?.id ? "condition-picker-open" : ""}">
         ${
           !viewingPublished && messageButtonOption
             ? `
@@ -6610,30 +6612,24 @@ function renderConditionSettings(flow, node) {
         <button class="mini-menu-button" type="button" data-action="select-node" data-id="${node.id}" title="Editar nome">✎</button>
       </div>
       <div class="manychat-condition-content">
-        <div class="condition-match-copy">
-          <span>O contato corresponde</span>
-          <button type="button" data-action="toggle-condition-match" data-id="${node.id}">
-            ${node.conditionMatch === "any" ? "qualquer uma destas condições?" : "todas as seguintes condições?"}
-          </button>
+        <div class="condition-match-row">
+          <div class="condition-match-copy">
+            <span>O contato corresponde</span>
+            <button type="button" data-action="toggle-condition-match" data-id="${node.id}">
+              ${node.conditionMatch === "any" ? "qualquer uma destas condições?" : "todas as seguintes condições?"}
+            </button>
+          </div>
+          <div class="condition-side-actions" aria-hidden="true">
+            <span>${icons.copy}</span>
+            <span>${icons.move_vertical}</span>
+          </div>
         </div>
         <div class="condition-rule-list">
           ${node.conditions.length ? node.conditions.map((condition) => renderConditionRule(condition)).join("") : ""}
-          <button class="dashed-add-button condition-add-button" type="button" data-action="open-condition-picker" data-id="${node.id}">+ Condição</button>
-        </div>
-        ${conditionPickerNodeId === node.id ? renderConditionPicker(node) : ""}
-        <div class="condition-branches">
-          ${targetSelectField(flow, node, node.yesNext, "Sim, o contato corresponde", {
-            field: "yesNext",
-            className: "condition-next-step",
-            placeholder: "Escolher Próximo Passo"
-          })}
-          <div class="condition-branch-divider"><span></span><strong>Se não</strong><span></span></div>
-          <button class="dashed-add-button condition-add-button condition-add-else-button" type="button" data-action="open-condition-picker" data-id="${node.id}">+ Adicionar outra condição</button>
-          ${targetSelectField(flow, node, node.noNext, "", {
-            field: "noNext",
-            className: "condition-next-step",
-            placeholder: "Escolher Próximo Passo"
-          })}
+          <div class="condition-add-wrap">
+            <button class="dashed-add-button condition-add-button" type="button" data-action="open-condition-picker" data-id="${node.id}">+ Condição</button>
+            ${conditionPickerNodeId === node.id ? renderConditionPicker(node) : ""}
+          </div>
         </div>
       </div>
     </form>
@@ -6848,7 +6844,10 @@ function renderConditionPicker(node) {
   const options = conditionOptions.filter((option) => option.category === conditionPickerCategory && (!query || normalize(option.label).includes(query)));
   return `
     <div class="condition-picker-popover">
-      <input class="condition-picker-search" data-condition-search="true" value="${attr(conditionPickerQuery)}" placeholder="Pesquisar" />
+      <label class="condition-picker-search-row">
+        <span>${icons.search}</span>
+        <input class="condition-picker-search" data-condition-search="true" value="${attr(conditionPickerQuery)}" aria-label="Pesquisar condição" />
+      </label>
       <div class="condition-picker-body">
         <aside class="condition-picker-tabs">
           ${conditionPickerCategories
