@@ -1045,9 +1045,10 @@ function mergeCustomFieldsForPage(pageId, fields = []) {
   return state.customFieldsByPage[normalizedPageId];
 }
 
-function findCustomFieldForPage(fieldName, pageId = currentFlowPageId()) {
-  const key = normalizeCustomFieldKey(fieldName);
-  return customFieldRecordsForPage(pageId).find((field) => normalizeCustomFieldKey(field.name) === key) || null;
+function findCustomFieldForPage(fieldRef, pageId = currentFlowPageId()) {
+  const value = String(fieldRef || "").trim();
+  const key = normalizeCustomFieldKey(value);
+  return customFieldRecordsForPage(pageId).find((field) => field.id === value || normalizeCustomFieldKey(field.name) === key) || null;
 }
 
 function customFieldTypeLabel(type) {
@@ -4154,6 +4155,7 @@ function openCreateCustomFieldModal(stepId = "") {
       );
       if (!field) throw new Error("Informe o nome do campo.");
       if (context) {
+        context.step.fieldId = field.id;
         context.step.fieldName = field.name;
         context.step.fieldType = field.type;
         context.node.message = summarizeActionSteps(context.node);
@@ -7101,7 +7103,7 @@ function renderActionStep(nodeId, step) {
 }
 
 function renderActionCustomFieldControl(step) {
-  const selected = findCustomFieldForPage(step.fieldName);
+  const selected = findCustomFieldForPage(step.fieldId || step.fieldName);
   return `
     <div class="action-field-control">
       <button class="action-field-trigger ${selected ? "" : "missing"}" type="button" data-action="open-action-field-picker" data-step-id="${attr(step.id)}">
@@ -7127,7 +7129,7 @@ function renderActionCustomFieldPicker(step) {
                 ${
                   fields.length
                     ? fields.map((field) => `
-                        <button type="button" data-action="select-action-custom-field" data-step-id="${attr(step.id)}" data-field-name="${attr(field.name)}">
+                        <button type="button" data-action="select-action-custom-field" data-step-id="${attr(step.id)}" data-field-id="${attr(field.id)}" data-field-name="${attr(field.name)}">
                           <strong>${escapeHtml(field.name)}</strong>
                           <small>${escapeHtml(customFieldTypeLabel(field.type))}</small>
                         </button>
@@ -7145,8 +7147,8 @@ function renderActionCustomFieldPicker(step) {
 }
 
 function renderActionCustomFieldValue(step) {
-  if (!step.fieldName) return "";
-  const field = findCustomFieldForPage(step.fieldName);
+  const field = findCustomFieldForPage(step.fieldId || step.fieldName);
+  if (!step.fieldName && !step.fieldId) return "";
   const type = normalizeCustomFieldType(field?.type || step.fieldType);
   const common = `data-action-step-field="fieldValue" data-step-id="${attr(step.id)}"`;
   const dynamicValue = String(step.fieldValue ?? "").includes("{{");
@@ -7374,7 +7376,7 @@ function handleWorkspaceClick(event) {
   if (action === "open-create-action-tag") return openCreateActionTagModal(button.dataset.stepId);
   if (action === "open-action-field-picker") return openActionFieldPicker(button.dataset.stepId);
   if (action === "expand-action-field-picker") return expandActionFieldPicker(button.dataset.stepId);
-  if (action === "select-action-custom-field") return selectActionCustomField(button.dataset.stepId, button.dataset.fieldName);
+  if (action === "select-action-custom-field") return selectActionCustomField(button.dataset.stepId, button.dataset.fieldName, button.dataset.fieldId);
   if (action === "create-action-custom-field") return openCreateCustomFieldModal(button.dataset.stepId);
   if (action === "open-condition-picker") return openConditionPicker(id);
   if (action === "close-condition-picker") return closeConditionPicker();
@@ -7648,7 +7650,9 @@ function handleWorkspaceInput(event) {
     if (!step) return;
     step[target.dataset.actionStepField] = target.value;
     if (target.dataset.actionStepField === "fieldName") {
-      step.fieldType = findCustomFieldForPage(target.value)?.type || normalizeCustomFieldType(step.fieldType);
+      const field = findCustomFieldForPage(target.value);
+      step.fieldId = field?.id || "";
+      step.fieldType = field?.type || normalizeCustomFieldType(step.fieldType);
       step.fieldValue = "";
     }
     if (target.dataset.actionStepField === "tag") actionTagPickerStepId = step.id;
@@ -7857,7 +7861,9 @@ function handleWorkspaceChange(event) {
       const changed = step[fieldName] !== target.value;
       step[fieldName] = target.value;
       if (fieldName === "fieldName" && changed) {
-        step.fieldType = findCustomFieldForPage(target.value)?.type || normalizeCustomFieldType(step.fieldType);
+        const field = findCustomFieldForPage(target.value);
+        step.fieldId = field?.id || "";
+        step.fieldType = field?.type || normalizeCustomFieldType(step.fieldType);
         step.fieldValue = "";
       }
       node.message = summarizeActionSteps(node);
@@ -9124,6 +9130,7 @@ function addActionStep(type) {
     id: makeId("act"),
     type: option.id,
     tag: option.id === "add_tag" ? "" : "",
+    fieldId: "",
     fieldName: "",
     fieldValue: "",
     fieldType: "text"
@@ -9178,10 +9185,11 @@ function expandActionFieldPicker(stepId) {
   requestAnimationFrame(() => document.getElementById(`action_field_${stepId}`)?.focus());
 }
 
-function selectActionCustomField(stepId, fieldName) {
+function selectActionCustomField(stepId, fieldName, fieldId = "") {
   const context = actionStepContext(stepId);
-  const field = findCustomFieldForPage(fieldName);
+  const field = findCustomFieldForPage(fieldId || fieldName);
   if (!context || !field) return;
+  context.step.fieldId = field.id;
   context.step.fieldName = field.name;
   context.step.fieldType = field.type;
   context.step.fieldValue = "";
@@ -10259,12 +10267,20 @@ function applyActionNodeToContact(contact, node) {
   nodeActionSteps(node).forEach((step) => {
     if (step.type === "add_tag" && step.tag) addTagToContact(contact, step.tag);
     if (step.type === "remove_tag" && step.tag) removeTagFromContact(contact, step.tag);
-    if (step.type === "set_user_field" && step.fieldName) {
+    if (step.type === "set_user_field" && (step.fieldName || step.fieldId)) {
+      const field = findCustomFieldForPage(step.fieldId || step.fieldName);
+      const fieldName = field?.name || step.fieldName;
+      if (!fieldName) return;
       contact.customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
-      contact.customFields[step.fieldName] = coerceCustomFieldValue(step.fieldValue, step.fieldType);
+      contact.customFields[fieldName] = coerceCustomFieldValue(step.fieldValue, field?.type || step.fieldType);
+      if (step.fieldName && step.fieldName !== fieldName) delete contact.customFields[step.fieldName];
     }
-    if (step.type === "clear_custom_field" && step.fieldName && contact.customFields) {
-      delete contact.customFields[step.fieldName];
+    if (step.type === "clear_custom_field" && (step.fieldName || step.fieldId) && contact.customFields) {
+      const field = findCustomFieldForPage(step.fieldId || step.fieldName);
+      const fieldName = field?.name || step.fieldName;
+      if (!fieldName) return;
+      delete contact.customFields[fieldName];
+      if (step.fieldName && step.fieldName !== fieldName) delete contact.customFields[step.fieldName];
     }
     if (step.type === "delete_contact") {
       contact.status = "deleted";
@@ -11726,7 +11742,8 @@ function actionNodeNumber(node) {
 
 function renderActionNodeStep(step) {
   if (step.type === "set_user_field") {
-    const fieldName = String(step.fieldName || "").trim();
+    const field = findCustomFieldForPage(step.fieldId || step.fieldName);
+    const fieldName = String(field?.name || step.fieldName || "").trim();
     return `
       <span class="action-node-step">
         <span>Definir campo do usuário</span>
@@ -11857,6 +11874,14 @@ function nodeActionSteps(node) {
   }
   node.actions.forEach((step) => {
     if (!step.id) step.id = makeId("act");
+    if (step.type === "set_user_field" || step.type === "clear_custom_field") {
+      const field = findCustomFieldForPage(step.fieldId || step.fieldName);
+      step.fieldId = field?.id || String(step.fieldId || "");
+      if (field) {
+        step.fieldName = field.name;
+        step.fieldType = field.type;
+      }
+    }
   });
   return node.actions;
 }
@@ -11869,8 +11894,16 @@ function actionStepLabel(step) {
 function actionStepSummary(step) {
   if (step.type === "add_tag") return step.tag ? `Adicionar Tag: ${step.tag}` : "Adicionar Tag";
   if (step.type === "remove_tag") return step.tag ? `Remover Tag: ${step.tag}` : "Remover Tag";
-  if (step.type === "set_user_field") return step.fieldName ? `Definir ${step.fieldName}: ${formatCustomFieldValue(step.fieldValue) || "valor"}` : "Definir campo";
-  if (step.type === "clear_custom_field") return step.fieldName ? `Limpar campo: ${step.fieldName}` : "Limpar campo";
+  if (step.type === "set_user_field") {
+    const field = findCustomFieldForPage(step.fieldId || step.fieldName);
+    const fieldName = field?.name || step.fieldName;
+    return fieldName ? `Definir ${fieldName}: ${formatCustomFieldValue(step.fieldValue) || "valor"}` : "Definir campo";
+  }
+  if (step.type === "clear_custom_field") {
+    const field = findCustomFieldForPage(step.fieldId || step.fieldName);
+    const fieldName = field?.name || step.fieldName;
+    return fieldName ? `Limpar campo: ${fieldName}` : "Limpar campo";
+  }
   if (step.type === "delete_contact") return "Excluir contato";
   if (step.type === "open_inbox") return "Abrir conversa";
   return actionStepLabel(step);

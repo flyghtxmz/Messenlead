@@ -1,4 +1,4 @@
-import { coerceCustomFieldValue, normalizeCustomFieldType } from "./customFields.js";
+import { coerceCustomFieldValue, ensureCustomFieldSchema, getCustomFieldById, getCustomFieldByName, normalizeCustomFieldType } from "./customFields.js";
 
 const DEFAULT_PAGE_ID = "__global__";
 
@@ -26,8 +26,28 @@ export async function ensureContactSchema(env) {
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contacts_page_last_seen ON contacts(page_id, last_seen)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contacts_page_updated ON contacts(page_id, updated_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contacts_page_status_updated ON contacts(page_id, status, updated_at DESC)").run();
+  await ensureContactCustomFieldValueSchema(env);
 
   return true;
+}
+
+async function ensureContactCustomFieldValueSchema(env) {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS contact_custom_field_values (
+      page_id TEXT NOT NULL,
+      psid TEXT NOT NULL,
+      field_id TEXT NOT NULL,
+      field_name TEXT NOT NULL,
+      field_type TEXT NOT NULL DEFAULT 'text',
+      value_json TEXT NOT NULL DEFAULT 'null',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (page_id, psid, field_id)
+    )
+  `).run();
+
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contact_field_values_page_field ON contact_custom_field_values(page_id, field_id, updated_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_contact_field_values_page_psid ON contact_custom_field_values(page_id, psid, updated_at DESC)").run();
 }
 
 export function normalizePageId(pageId) {
@@ -38,16 +58,17 @@ export async function listContacts(env, pageId) {
   const hasDb = await ensureContactSchema(env);
   if (!hasDb) return [];
 
+  const normalizedPageId = normalizePageId(pageId);
   const result = await env.DB.prepare(`
     SELECT page_id, psid, name, status, source, tags_json, custom_fields_json, last_seen, created_at, updated_at
     FROM contacts
     WHERE page_id = ?
     ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
   `)
-    .bind(normalizePageId(pageId))
+    .bind(normalizedPageId)
     .all();
 
-  return (result.results || []).map(rowToContact);
+  return enrichContactsWithCustomFieldValues(env, normalizedPageId, (result.results || []).map(rowToContact));
 }
 
 export async function getContact(env, pageId, psid) {
@@ -62,7 +83,9 @@ export async function getContact(env, pageId, psid) {
     .bind(normalizePageId(pageId), String(psid || "").trim())
     .first();
 
-  return row ? rowToContact(row) : null;
+  if (!row) return null;
+  const contacts = await enrichContactsWithCustomFieldValues(env, normalizePageId(pageId), [rowToContact(row)]);
+  return contacts[0] || null;
 }
 
 export async function clearContactTags(env, pageId) {
@@ -173,14 +196,17 @@ export async function applyContactActions(env, pageId, psid, actions = [], conta
   const hasDb = await ensureContactSchema(env);
   if (!hasDb || !psid) return null;
 
-  const current = await upsertContact(env, pageId, { ...contact, psid });
+  const normalizedPageId = normalizePageId(pageId);
+  const savedCurrent = await upsertContact(env, normalizedPageId, { ...contact, psid });
+  const current = (await getContact(env, normalizedPageId, psid)) || savedCurrent;
   if (!current) return null;
 
   let tags = normalizeTags(current.tags);
   const customFields = current.customFields && typeof current.customFields === "object" ? { ...current.customFields } : {};
   let status = current.status || "open";
+  const fieldOps = [];
 
-  normalizeActionSteps(actions).forEach((action) => {
+  for (const action of normalizeActionSteps(actions)) {
     if (action.type === "add_tag" && action.tag) {
       tags = normalizeTags([...tags, action.tag]);
     }
@@ -188,11 +214,23 @@ export async function applyContactActions(env, pageId, psid, actions = [], conta
       const normalizedTag = normalizeTag(action.tag);
       tags = tags.filter((tag) => normalizeTag(tag) !== normalizedTag);
     }
-    if (action.type === "set_user_field" && action.fieldName) {
-      customFields[action.fieldName] = coerceCustomFieldValue(action.fieldValue, action.fieldType);
+    if (action.type === "set_user_field" && (action.fieldName || action.fieldId)) {
+      const field = await resolveActionCustomField(env, normalizedPageId, action);
+      const fieldName = field?.name || action.fieldName;
+      const fieldType = field?.type || action.fieldType;
+      if (!fieldName) continue;
+      const value = coerceCustomFieldValue(action.fieldValue, fieldType);
+      customFields[fieldName] = value;
+      if (action.fieldName && action.fieldName !== fieldName) delete customFields[action.fieldName];
+      if (field?.id) fieldOps.push({ type: "write", field, value });
     }
-    if (action.type === "clear_custom_field" && action.fieldName) {
-      delete customFields[action.fieldName];
+    if (action.type === "clear_custom_field" && (action.fieldName || action.fieldId)) {
+      const field = await resolveActionCustomField(env, normalizedPageId, action);
+      const fieldName = field?.name || action.fieldName;
+      if (!fieldName) continue;
+      delete customFields[fieldName];
+      if (action.fieldName && action.fieldName !== fieldName) delete customFields[action.fieldName];
+      if (field?.id) fieldOps.push({ type: "clear", field });
     }
     if (action.type === "delete_contact") {
       status = "deleted";
@@ -200,15 +238,26 @@ export async function applyContactActions(env, pageId, psid, actions = [], conta
     if (action.type === "open_inbox") {
       status = "open";
     }
-  });
+  }
 
-  return upsertContact(env, pageId, {
+  const saved = await upsertContact(env, normalizedPageId, {
     ...current,
     status,
     tags,
     customFields,
     lastSeen: contact.lastSeen || current.lastSeen || new Date().toISOString()
   });
+
+  for (const operation of fieldOps) {
+    if (operation.type === "write") {
+      await upsertContactCustomFieldValue(env, normalizedPageId, psid, operation.field, operation.value);
+    }
+    if (operation.type === "clear") {
+      await deleteContactCustomFieldValue(env, normalizedPageId, psid, operation.field.id);
+    }
+  }
+
+  return saved;
 }
 
 export function normalizeActionSteps(actions = []) {
@@ -217,6 +266,7 @@ export function normalizeActionSteps(actions = []) {
       id: String(action.id || ""),
       type: String(action.type || action.action || "").trim(),
       tag: String(action.tag || action.value || "").trim(),
+      fieldId: String(action.fieldId || action.customFieldId || "").trim(),
       fieldName: String(action.fieldName || "").trim(),
       fieldValue: action.fieldValue ?? "",
       fieldType: normalizeCustomFieldType(action.fieldType)
@@ -238,6 +288,114 @@ export function normalizeTags(value) {
   });
 
   return tags;
+}
+
+async function resolveActionCustomField(env, pageId, action = {}) {
+  if (action.fieldId) {
+    const byId = await getCustomFieldById(env, pageId, action.fieldId).catch(() => null);
+    if (byId) return byId;
+  }
+
+  if (action.fieldName) {
+    const byName = await getCustomFieldByName(env, pageId, action.fieldName).catch(() => null);
+    if (byName) return byName;
+  }
+
+  return null;
+}
+
+async function upsertContactCustomFieldValue(env, pageId, psid, field, value) {
+  if (!field?.id || !psid) return;
+
+  await ensureContactCustomFieldValueSchema(env);
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO contact_custom_field_values (
+      page_id, psid, field_id, field_name, field_type, value_json, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(page_id, psid, field_id) DO UPDATE SET
+      field_name = excluded.field_name,
+      field_type = excluded.field_type,
+      value_json = excluded.value_json,
+      updated_at = excluded.updated_at
+  `)
+    .bind(
+      normalizePageId(pageId),
+      String(psid || "").trim(),
+      String(field.id || "").trim(),
+      String(field.name || "").trim(),
+      normalizeCustomFieldType(field.type),
+      JSON.stringify(value),
+      now,
+      now
+    )
+    .run();
+}
+
+async function deleteContactCustomFieldValue(env, pageId, psid, fieldId) {
+  if (!fieldId || !psid) return;
+
+  await ensureContactCustomFieldValueSchema(env);
+  await env.DB.prepare(`
+    DELETE FROM contact_custom_field_values
+    WHERE page_id = ? AND psid = ? AND field_id = ?
+  `)
+    .bind(normalizePageId(pageId), String(psid || "").trim(), String(fieldId || "").trim())
+    .run();
+}
+
+async function enrichContactsWithCustomFieldValues(env, pageId, contacts = []) {
+  if (!contacts.length) return contacts;
+
+  await ensureContactCustomFieldValueSchema(env);
+  await ensureCustomFieldSchema(env);
+  const normalizedPageId = normalizePageId(pageId);
+  const byPsid = new Map(contacts.map((contact) => [contact.psid, contact]));
+  const psids = contacts.map((contact) => contact.psid).filter(Boolean);
+  if (!psids.length) return contacts;
+
+  for (const chunk of chunkArray(psids, 80)) {
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await env.DB.prepare(`
+      SELECT
+        values_table.psid,
+        values_table.field_id,
+        values_table.field_name AS stored_field_name,
+        COALESCE(fields.name, values_table.field_name) AS field_name,
+        COALESCE(fields.type, values_table.field_type, 'text') AS field_type,
+        values_table.value_json
+      FROM contact_custom_field_values values_table
+      LEFT JOIN custom_fields fields
+        ON fields.page_id = values_table.page_id
+        AND fields.id = values_table.field_id
+      WHERE values_table.page_id = ?
+        AND values_table.psid IN (${placeholders})
+    `)
+      .bind(normalizedPageId, ...chunk)
+      .all();
+
+    for (const row of result.results || []) {
+      const contact = byPsid.get(row.psid);
+      const fieldName = String(row.field_name || "").trim();
+      if (!contact || !fieldName) continue;
+
+      const storedFieldName = String(row.stored_field_name || "").trim();
+      contact.customFields = contact.customFields && typeof contact.customFields === "object" ? { ...contact.customFields } : {};
+      if (storedFieldName && storedFieldName !== fieldName) delete contact.customFields[storedFieldName];
+      contact.customFields[fieldName] = parseJsonValue(row.value_json);
+    }
+  }
+
+  return contacts;
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function normalizeTag(value) {
@@ -311,5 +469,13 @@ function parseJsonObject(value) {
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
+  }
+}
+
+function parseJsonValue(value) {
+  try {
+    return JSON.parse(value || "null");
+  } catch {
+    return null;
   }
 }

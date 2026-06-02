@@ -41,6 +41,37 @@ export async function listCustomFields(env, pageId) {
   return (result.results || []).map(rowToCustomField);
 }
 
+export async function getCustomFieldById(env, pageId, fieldId) {
+  const hasDb = await ensureCustomFieldSchema(env);
+  if (!hasDb || !fieldId) return null;
+
+  const row = await env.DB.prepare(`
+    SELECT page_id, id, name, type, description, folder, created_at, updated_at
+    FROM custom_fields
+    WHERE page_id = ? AND id = ?
+  `)
+    .bind(normalizePageId(pageId), String(fieldId || "").trim())
+    .first();
+
+  return row ? rowToCustomField(row) : null;
+}
+
+export async function getCustomFieldByName(env, pageId, fieldName) {
+  const hasDb = await ensureCustomFieldSchema(env);
+  const nameKey = normalizeCustomFieldKey(fieldName);
+  if (!hasDb || !nameKey) return null;
+
+  const row = await env.DB.prepare(`
+    SELECT page_id, id, name, type, description, folder, created_at, updated_at
+    FROM custom_fields
+    WHERE page_id = ? AND name_key = ?
+  `)
+    .bind(normalizePageId(pageId), nameKey)
+    .first();
+
+  return row ? rowToCustomField(row) : null;
+}
+
 export async function upsertCustomField(env, pageId, field = {}) {
   const hasDb = await ensureCustomFieldSchema(env);
   if (!hasDb) throw new Error("D1 binding DB is not configured");

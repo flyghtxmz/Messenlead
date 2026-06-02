@@ -1,7 +1,7 @@
 import { listFlows } from "../../_lib/flows.js";
 import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, getContact, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
-import { coerceCustomFieldValue } from "../../_lib/customFields.js";
+import { coerceCustomFieldValue, getCustomFieldById, getCustomFieldByName } from "../../_lib/customFields.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { safeRecordFlowMetric } from "../../_lib/flowMetrics.js";
 import { attributionSourceKey, messengerEntryFromContext, recordMessengerAttribution } from "../../_lib/messengerAttribution.js";
@@ -933,7 +933,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     }
 
     if (current.type === "action") {
-      const nodeActions = resolveActionSteps(actionStepsForNode(current), stepContext);
+      const nodeActions = await resolveActionSteps(actionStepsForNode(current), stepContext, env, pageId);
       actions.push(...nodeActions);
       applyRuntimeContactActions(runtimeContact, nodeActions);
       await log?.("info", "action_node_executed", "Bloco de ação executado no estado do contato.", {
@@ -1272,7 +1272,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
     }
 
     if (current.type === "action") {
-      const nodeActions = resolveActionSteps(actionStepsForNode(current), stepContext);
+      const nodeActions = await resolveActionSteps(actionStepsForNode(current), stepContext, env, pageId);
       actions.push(...nodeActions);
       applyRuntimeContactActions(runtimeContact, nodeActions);
       await log?.("info", "action_node_executed", "Bloco de acao executado no estado do contato.", {
@@ -1652,11 +1652,35 @@ function actionStepsForNode(node) {
   return [];
 }
 
-function resolveActionSteps(actions = [], context = {}) {
-  return normalizeActionSteps(actions).map((action) => ({
-    ...action,
-    fieldValue: resolveTemplate(action.fieldValue, context.contact, context.entry)
-  }));
+async function resolveActionSteps(actions = [], context = {}, env = null, pageId = "") {
+  const resolved = [];
+  for (const action of normalizeActionSteps(actions)) {
+    const field = await resolveRuntimeCustomField(env, pageId, action);
+    resolved.push({
+      ...action,
+      fieldId: field?.id || action.fieldId || "",
+      fieldName: field?.name || action.fieldName || "",
+      fieldType: field?.type || action.fieldType,
+      fieldValue: resolveTemplate(action.fieldValue, context.contact, context.entry)
+    });
+  }
+  return resolved;
+}
+
+async function resolveRuntimeCustomField(env, pageId, action = {}) {
+  if (!env?.DB || !pageId) return null;
+
+  if (action.fieldId) {
+    const byId = await getCustomFieldById(env, pageId, action.fieldId).catch(() => null);
+    if (byId) return byId;
+  }
+
+  if (action.fieldName) {
+    const byName = await getCustomFieldByName(env, pageId, action.fieldName).catch(() => null);
+    if (byName) return byName;
+  }
+
+  return null;
 }
 
 function nextExecutableNode(flow, node, context = {}) {
