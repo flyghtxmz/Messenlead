@@ -11117,13 +11117,7 @@ function nodePortDomPoint(node, output = {}) {
   const port = ports.find((item) => portMatchesOutput(item, output)) || (ports.length === 1 ? ports[0] : null);
   if (!port) return null;
 
-  const canvasRect = canvas.getBoundingClientRect();
-  const portRect = port.getBoundingClientRect();
-  const zoom = canvasZoom || 1;
-  return {
-    x: (canvas.scrollLeft + portRect.left + portRect.width / 2 - canvasRect.left) / zoom,
-    y: (canvas.scrollTop + portRect.top + portRect.height / 2 - canvasRect.top) / zoom
-  };
+  return stageElementPoint(port);
 }
 
 function portMatchesOutput(port, output = {}) {
@@ -11158,17 +11152,34 @@ function nodeInputPoint(node) {
     ? Array.from(canvas.querySelectorAll(".node")).find((item) => item.dataset.id === node?.id)
     : null;
   if (!renderingCanvasMarkup && canvas && element) {
-    const canvasRect = canvas.getBoundingClientRect();
+    const stage = canvas.querySelector(".canvas-stage");
+    const stageRect = stage?.getBoundingClientRect();
     const nodeRect = element.getBoundingClientRect();
     const zoom = canvasZoom || 1;
-    return {
-      x: (canvas.scrollLeft + nodeRect.left - canvasRect.left) / zoom,
-      y: (canvas.scrollTop + nodeRect.top + NODE_INPUT_Y * zoom - canvasRect.top) / zoom
-    };
+    if (stageRect) {
+      return {
+        x: (nodeRect.left - stageRect.left) / zoom,
+        y: (nodeRect.top + NODE_INPUT_Y * zoom - stageRect.top) / zoom
+      };
+    }
   }
   return {
     x: canvasNodeLeft(node),
     y: canvasNodeTop(node) + NODE_INPUT_Y
+  };
+}
+
+function stageElementPoint(element) {
+  const canvas = document.querySelector("#flowCanvas");
+  const stage = canvas?.querySelector(".canvas-stage");
+  if (!stage || !element) return null;
+
+  const stageRect = stage.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  const zoom = canvasZoom || 1;
+  return {
+    x: (elementRect.left + elementRect.width / 2 - stageRect.left) / zoom,
+    y: (elementRect.top + elementRect.height / 2 - stageRect.top) / zoom
   };
 }
 

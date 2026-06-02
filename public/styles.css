@@ -2346,7 +2346,7 @@ svg {
 }
 
 .messenger-preview-button .message-node-port {
-  right: 6px;
+  right: -21px;
 }
 
 .published-view .node {
