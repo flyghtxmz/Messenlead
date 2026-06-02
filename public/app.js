@@ -6533,6 +6533,7 @@ function renderCommentSettings(flow, node) {
       <label class="settings-field">
         <span>Comentário</span>
         <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
+        <small>Aceita Markdown: títulos, listas, links, citações, negrito, itálico e código.</small>
       </label>
     </form>
   `;
@@ -10882,9 +10883,127 @@ function renderCommentNode(node, selected) {
           </span>
         </div>
       </div>
-      <p>${escapeHtml(node.message || "Anotação interna do fluxo.")}</p>
+      <div class="comment-markdown">${renderCommentMarkdown(node.message || "Anotação interna do fluxo.")}</div>
     </article>
   `;
+}
+
+function renderCommentMarkdown(value) {
+  const lines = String(value || "").replaceAll("\r\n", "\n").split("\n");
+  const blocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    if (/^```/.test(line.trim())) {
+      const code = [];
+      index += 1;
+      while (index < lines.length && !/^```/.test(lines[index].trim())) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      blocks.push(`<h${level}>${renderCommentInlineMarkdown(heading[2])}</h${level}>`);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      blocks.push("<hr />");
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const quote = [];
+      while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+        quote.push(lines[index].replace(/^\s*>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(`<blockquote>${quote.map(renderCommentInlineMarkdown).join("<br />")}</blockquote>`);
+      continue;
+    }
+
+    const listMatch = line.match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
+    if (listMatch) {
+      const ordered = Boolean(listMatch[2]);
+      const items = [];
+      while (index < lines.length) {
+        const item = lines[index].match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
+        if (!item || Boolean(item[2]) !== ordered) break;
+        items.push(`<li>${renderCommentInlineMarkdown(item[3])}</li>`);
+        index += 1;
+      }
+      blocks.push(`<${ordered ? "ol" : "ul"}>${items.join("")}</${ordered ? "ol" : "ul"}>`);
+      continue;
+    }
+
+    const paragraph = [];
+    while (index < lines.length && lines[index].trim() && !commentMarkdownStartsBlock(lines[index])) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    if (!paragraph.length) {
+      paragraph.push(line);
+      index += 1;
+    }
+    blocks.push(`<p>${paragraph.map(renderCommentInlineMarkdown).join("<br />")}</p>`);
+  }
+
+  return blocks.join("");
+}
+
+function commentMarkdownStartsBlock(line) {
+  return (
+    /^```/.test(line.trim()) ||
+    /^(#{1,4})\s+/.test(line) ||
+    /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) ||
+    /^\s*>\s?/.test(line) ||
+    /^\s*(?:[-+*]|\d+\.)\s+/.test(line)
+  );
+}
+
+function renderCommentInlineMarkdown(value, allowLinks = true) {
+  const tokens = [];
+  const keep = (markup) => {
+    const key = `\uE000${tokens.length}\uE001`;
+    tokens.push([key, markup]);
+    return key;
+  };
+
+  let text = String(value || "").replace(/`([^`\n]+)`/g, (_, code) => keep(`<code>${escapeHtml(code)}</code>`));
+  if (allowLinks) {
+    text = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (match, label, url) => {
+      if (!isSafeCommentMarkdownUrl(url)) return match;
+      return keep(`<a href="${attr(url)}" target="_blank" rel="noopener noreferrer">${renderCommentInlineMarkdown(label, false)}</a>`);
+    });
+  }
+
+  let markup = escapeHtml(text)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/~~([^~\n]+)~~/g, "<s>$1</s>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+
+  tokens.forEach(([key, token]) => {
+    markup = markup.replaceAll(key, token);
+  });
+  return markup;
+}
+
+function isSafeCommentMarkdownUrl(value) {
+  return /^(?:https?:\/\/|mailto:)/i.test(String(value || "").trim());
 }
 
 function renderActionNode(node, selected) {

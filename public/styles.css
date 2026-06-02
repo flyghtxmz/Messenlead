@@ -1863,6 +1863,78 @@ svg {
   color: #536275;
 }
 
+.node.comment .comment-markdown {
+  display: block;
+  min-height: 0;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.node.comment .comment-markdown > :first-child {
+  margin-top: 0;
+}
+
+.node.comment .comment-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.node.comment .comment-markdown p {
+  display: block;
+  min-height: 0;
+  margin: 0 0 7px;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-line-clamp: unset;
+}
+
+.node.comment .comment-markdown h1,
+.node.comment .comment-markdown h2,
+.node.comment .comment-markdown h3,
+.node.comment .comment-markdown h4 {
+  margin: 8px 0 5px;
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.node.comment .comment-markdown ul,
+.node.comment .comment-markdown ol {
+  margin: 5px 0 7px;
+  padding-left: 20px;
+}
+
+.node.comment .comment-markdown blockquote {
+  margin: 5px 0 7px;
+  padding-left: 8px;
+  border-left: 3px solid #d7dce4;
+  color: #667085;
+}
+
+.node.comment .comment-markdown pre {
+  margin: 5px 0 7px;
+  padding: 6px;
+  overflow-x: auto;
+  border-radius: 5px;
+  background: #f3f6f8;
+  white-space: pre-wrap;
+}
+
+.node.comment .comment-markdown code {
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: #f3f6f8;
+  font-size: 11px;
+}
+
+.node.comment .comment-markdown a {
+  color: #0067d9;
+  text-decoration: underline;
+}
+
 .node-head {
   display: flex;
   align-items: flex-start;
