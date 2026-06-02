@@ -453,8 +453,9 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       }, activeFlow);
     }
 
+    let queued = [];
     if (result.replies.length) {
-      const queued = await enqueueMessengerReplies(env, {
+      queued = await enqueueMessengerReplies(env, {
         pageId,
         psid,
         replies: result.replies.slice(0, 5),
@@ -504,7 +505,16 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       }, activeFlow);
     }
 
-    return { status: "processed", continuation: result.continuation, responseWait: result.responseWait, linkClickWait: result.linkClickWait };
+    return {
+      status: "processed",
+      continuation: result.continuation,
+      responseWait: result.responseWait,
+      linkClickWait: result.linkClickWait,
+      replyCount: result.replies.length,
+      actionCount: result.actions.length,
+      queuedCount: queued.length,
+      queueIds: queued
+    };
   }, options);
 }
 

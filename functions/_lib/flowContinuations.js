@@ -489,7 +489,7 @@ export async function resetFlowRuntimeState(env, options = {}) {
 
 export async function processFlowContinuations(env, processor, options = {}) {
   const hasDb = await ensureFlowContinuationSchema(env);
-  if (!hasDb) return { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0 };
+  if (!hasDb) return { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0, details: [] };
 
   await cleanupFlowContinuations(env);
 
@@ -508,13 +508,16 @@ export async function processFlowContinuations(env, processor, options = {}) {
     .bind(...params)
     .all();
 
-  const stats = { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0 };
+  const stats = { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0, details: [] };
   for (const row of rows.results || []) {
     stats.processed += 1;
     const continuation = rowToContinuation(row);
     const claimed = await claimContinuation(env, continuation.id);
     if (!claimed) {
       stats.skipped += 1;
+      stats.details.push(continuationDiagnostic(continuation, "skipped", {
+        reason: "Continuation was already claimed"
+      }));
       continue;
     }
 
@@ -526,6 +529,7 @@ export async function processFlowContinuations(env, processor, options = {}) {
           processedAt: new Date().toISOString()
         });
         stats.skipped += 1;
+        stats.details.push(continuationDiagnostic(continuation, "skipped", result));
         continue;
       }
 
@@ -534,13 +538,36 @@ export async function processFlowContinuations(env, processor, options = {}) {
       });
       stats.resumed += 1;
       if (result?.continuation) stats.scheduled += 1;
+      stats.details.push(continuationDiagnostic(continuation, "resumed", result));
     } catch (error) {
       const status = await retryOrFailContinuation(env, continuation, error.message || "Continuation failed");
       stats[status] = (stats[status] || 0) + 1;
+      stats.details.push(continuationDiagnostic(continuation, status, {
+        error: error.message || "Continuation failed"
+      }));
     }
   }
 
   return stats;
+}
+
+function continuationDiagnostic(continuation = {}, status, result = {}) {
+  return {
+    continuationId: continuation.id || "",
+    flowId: continuation.flowId || "",
+    delayNodeId: continuation.delayNodeId || "",
+    resumeNodeId: continuation.resumeNodeId || "",
+    status,
+    replyCount: Number(result.replyCount || 0),
+    actionCount: Number(result.actionCount || 0),
+    queuedCount: Number(result.queuedCount || 0),
+    queueIds: Array.isArray(result.queueIds) ? result.queueIds.slice(0, 10) : [],
+    scheduledNext: Boolean(result.continuation),
+    waitingForResponse: Boolean(result.responseWait),
+    waitingForLinkClick: Boolean(result.linkClickWait),
+    reason: String(result.reason || ""),
+    error: String(result.error || "")
+  };
 }
 
 export async function processFlowLinkClickWaitTimeouts(env, processor, options = {}) {
