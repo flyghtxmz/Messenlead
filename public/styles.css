@@ -4699,17 +4699,17 @@ svg {
 .app-shell.canvas-mode .canvas-peek-button {
   position: absolute;
   top: 50%;
-  left: -18px;
+  left: 8px;
   z-index: 80;
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   place-items: center;
   border: 1px solid #d7e0ea;
   border-radius: 50%;
   background: #ffffff;
   color: #64748b;
-  opacity: 0.72;
+  opacity: 0.9;
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
   transform: translateY(-50%);
 }
