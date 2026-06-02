@@ -10802,12 +10802,11 @@ function renderMiniMapContent(flow) {
 function renderConnections(flow) {
   const links = flow.nodes
     .flatMap((node) =>
-      connectionTargets(flow, node).map((connection, index) => {
+      connectionTargets(flow, node).map((connection) => {
       const { target, label } = connection;
       const start = nodeOutputPoint(node, connection);
       const end = nodeInputPoint(target);
-      const offset = ["condition", "message", "link_click_wait"].includes(node.type) ? 0 : index * 8;
-      const startY = start.y + offset;
+      const startY = start.y;
       const endY = end.y;
       const path = connectionPath(start.x, startY, end.x, endY);
       const middleX = (start.x + end.x) / 2;
@@ -11093,7 +11092,7 @@ function messageOutputY(node, output = {}) {
 }
 
 function nodeOutputPoint(node, output = {}) {
-  const portPoint = nodePortDomPoint(node, node.type === "randomizer" ? { field: "next" } : output);
+  const portPoint = nodePortDomPoint(node, output);
   if (portPoint) return portPoint;
 
   const outputY =
@@ -11114,10 +11113,8 @@ function nodePortDomPoint(node, output = {}) {
   if (renderingCanvasMarkup) return null;
   const canvas = document.querySelector("#flowCanvas");
   if (!canvas || !node?.id) return null;
-  const port = Array.from(canvas.querySelectorAll(".node-port")).find((item) => {
-    if (item.dataset.portSource !== node.id) return false;
-    return portMatchesOutput(item, output);
-  });
+  const ports = Array.from(canvas.querySelectorAll(".node-port")).filter((item) => item.dataset.portSource === node.id);
+  const port = ports.find((item) => portMatchesOutput(item, output)) || (ports.length === 1 ? ports[0] : null);
   if (!port) return null;
 
   const canvasRect = canvas.getBoundingClientRect();
