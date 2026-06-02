@@ -7553,15 +7553,20 @@ function addNodeFromCanvasMenu(type) {
   if (!canvasAddMenu) return;
   const target = canvasAddMenu;
   canvasAddMenu = null;
-  addNodeAt(type, target.x, target.y);
+  addNodeAt(type, target.x, target.y, {
+    sourceId: target.sourceId || "",
+    sourceOutput: target.sourceOutput || null
+  });
 }
 
-function addNodeAt(type, x, y) {
+function addNodeAt(type, x, y, options = {}) {
   const flow = selectedFlow();
   if (!flow || !nodeLabels[type]) return;
 
   const node = buildNode(type, x, y);
   flow.nodes.push(node);
+  const source = options.sourceId ? flow.nodes.find((item) => item.id === options.sourceId) : null;
+  if (source && source.id !== node.id) assignOutputTarget(source, node.id, options.sourceOutput || "");
   selectedNodeId = node.id;
   showInspector = true;
   showFlowList = false;
@@ -9739,12 +9744,16 @@ function enableConnectionDragging(flow) {
 
       const sourceOutput = portOutputRef(port);
       const start = nodeOutputPoint(source, sourceOutput);
+      const startClientX = event.clientX;
+      const startClientY = event.clientY;
+      let moved = false;
       const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
       tempPath.setAttribute("class", "connection-temp");
       layer.appendChild(tempPath);
 
       const onMove = (moveEvent) => {
         moveEvent.preventDefault();
+        if (Math.abs(moveEvent.clientX - startClientX) + Math.abs(moveEvent.clientY - startClientY) > 3) moved = true;
         const point = canvasPointFromEvent(moveEvent, canvas);
         tempPath.setAttribute("d", connectionPath(start.x, start.y, point.x, point.y));
       };
@@ -9769,6 +9778,14 @@ function enableConnectionDragging(flow) {
           rememberCanvasScroll();
           saveState();
           render();
+          return;
+        }
+
+        if (moved && clientPointInsideElement(upEvent, canvas)) {
+          openCanvasAddMenuAtPoint(upEvent, {
+            sourceId: source.id,
+            sourceOutput
+          });
           return;
         }
 
@@ -9895,23 +9912,37 @@ function enableCanvasDoubleClickMenu() {
     if (event.target.closest(".node, button, input, textarea, select, .inspector, .canvas-floating-tools, .canvas-minimap, .canvas-add-menu")) return;
     event.preventDefault();
     event.stopPropagation();
-
-    const shellRect = shell.getBoundingClientRect();
-    const canvasRect = canvas.getBoundingClientRect();
-    const zoom = canvasZoom || 1;
-    const stageX = (canvas.scrollLeft + event.clientX - canvasRect.left) / zoom;
-    const stageY = (canvas.scrollTop + event.clientY - canvasRect.top) / zoom;
-
-    canvasAddMenu = {
-      left: clamp(event.clientX - shellRect.left, 8, shell.clientWidth - 176),
-      top: clamp(event.clientY - shellRect.top, 52, shell.clientHeight - 270),
-      x: clampNodeX(stageX - CANVAS_ORIGIN_X - NODE_WIDTH / 2),
-      y: clampNodeY(stageY - CANVAS_ORIGIN_Y - NODE_CENTER_Y)
-    };
-
-    rememberCanvasScroll();
-    render();
+    openCanvasAddMenuAtPoint(event);
   });
+}
+
+function openCanvasAddMenuAtPoint(event, options = {}) {
+  const canvas = document.querySelector("#flowCanvas");
+  const shell = document.querySelector(".canvas-shell");
+  if (!canvas || !shell) return;
+
+  const shellRect = shell.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  const zoom = canvasZoom || 1;
+  const stageX = (canvas.scrollLeft + event.clientX - canvasRect.left) / zoom;
+  const stageY = (canvas.scrollTop + event.clientY - canvasRect.top) / zoom;
+
+  canvasAddMenu = {
+    left: clamp(event.clientX - shellRect.left, 8, shell.clientWidth - 176),
+    top: clamp(event.clientY - shellRect.top, 52, shell.clientHeight - 270),
+    x: clampNodeX(stageX - CANVAS_ORIGIN_X - NODE_WIDTH / 2),
+    y: clampNodeY(stageY - CANVAS_ORIGIN_Y - NODE_CENTER_Y),
+    sourceId: options.sourceId || "",
+    sourceOutput: options.sourceOutput || null
+  };
+
+  rememberCanvasScroll();
+  render();
+}
+
+function clientPointInsideElement(event, element) {
+  const rect = element.getBoundingClientRect();
+  return event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
 }
 
 function enableCanvasWheelZoom() {
