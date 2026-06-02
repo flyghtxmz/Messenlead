@@ -2117,6 +2117,10 @@ svg {
   right: -21px;
 }
 
+.messenger-preview-button .message-node-port {
+  right: 6px;
+}
+
 .node-footer {
   display: flex;
   align-items: center;

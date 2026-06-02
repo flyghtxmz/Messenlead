@@ -9853,7 +9853,13 @@ function assignOutputTarget(node, targetId, output = "") {
     if ((ref.kind === "button" || ref.kind === "quick_reply") && ref.optionId) {
       const list = ref.kind === "button" ? node.buttons : node.quickReplies;
       const option = list.find((item) => item.id === ref.optionId);
-      if (option) option.next = targetId;
+      if (option) {
+        option.type = "next";
+        option.url = "";
+        option.phone = "";
+        option.flowId = "";
+        option.next = targetId;
+      }
       return;
     }
     if (ref.kind === "image_button" && ref.blockId && ref.optionId) {
@@ -10406,7 +10412,7 @@ function messageOutputItems(node) {
     }
   ];
 
-  node.buttons.filter((option) => !["url", "phone", "start_flow"].includes(option.type)).forEach((option) => {
+  node.buttons.forEach((option) => {
     items.push({
       targetId: option.next || null,
       label: `Botao: ${option.title || "sem titulo"}`,
