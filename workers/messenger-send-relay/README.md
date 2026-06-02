@@ -1,6 +1,6 @@
 # Messenlead Messenger Send Relay
 
-Worker auxiliar para subir em outra conta Cloudflare. Ele recebe itens de envio do Messenlead principal, salva em um D1 secundario, tenta enviar para a Graph API, faz retry quando falhar e expõe diagnostico da fila.
+Worker auxiliar para subir em outra conta Cloudflare. Ele recebe itens de envio do Messenlead principal, salva em um D1 secundario, tenta enviar para a Graph API, faz retry quando falhar, expoe diagnostico da fila e tambem pode hospedar o Workflow de atraso dos fluxos.
 
 O Messenlead principal continua sendo o cerebro: paginas, fluxos, contatos e tags continuam no D1 principal. Este relay cuida apenas de envio/fila/retry.
 
@@ -93,6 +93,35 @@ https://messenlead-messenger-send-relay.vinteedois-13.workers.dev/health
 ```
 
 Se `hasPrimaryQueue` estiver como `false`, revise `MESSENLEAD_PRIMARY_QUEUE_URL` e `MESSENLEAD_PRIMARY_QUEUE_TOKEN`. Se `diagnostics.primary_queue.status` estiver como `401`, o token nao corresponde ao `MESSENLEAD_OPERATOR_TOKEN` do Pages principal.
+
+Quando o `wrangler.toml` deste relay estiver publicado com `[[workflows]]`, o health tambem deve mostrar:
+
+```txt
+hasDelayWorkflow: true
+delayWorkflowSecretConfigured: true
+```
+
+Para o Pages principal usar o proprio relay como motor de atraso preciso, configure no Pages:
+
+```txt
+MESSENLEAD_DELAY_WORKFLOW_URL=https://messenlead-messenger-send-relay.vinteedois-13.workers.dev
+MESSENLEAD_DELAY_WORKFLOW_SECRET=mesmo-valor-do-MESSENLEAD_SEND_RELAY_SECRET
+```
+
+O relay aceita o mesmo segredo do envio para agendar atrasos. Se voce preferir separar, crie tambem `MESSENLEAD_DELAY_WORKFLOW_SECRET` no relay e use o mesmo valor no Pages.
+
+Agendar uma continuacao de atraso, com header `X-Messenlead-Workflow-Secret`:
+
+```txt
+POST /schedule
+POST /delay/schedule
+```
+
+Consultar uma Workflow instance de atraso:
+
+```txt
+GET /delay/status?id=delay-fcont_xxx
+```
 
 Status da fila, com header `X-Messenlead-Relay-Secret`:
 

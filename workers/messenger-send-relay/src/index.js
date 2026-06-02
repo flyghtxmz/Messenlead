@@ -1,3 +1,5 @@
+import { WorkflowEntrypoint } from "cloudflare:workers";
+
 const DEFAULT_GRAPH_URL = "https://graph.facebook.com/v23.0/me/messages";
 const DEFAULT_MAX_ATTEMPTS = 4;
 const DEFAULT_DRAIN_LIMIT = 8;
@@ -5,6 +7,34 @@ const DEFAULT_SENDS_PER_MINUTE = 50;
 const DEFAULT_SCHEDULED_PUMP_MS = 0;
 const DEFAULT_SCHEDULED_POLL_MS = 5000;
 const RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export class MessenleadDelayWorkflow extends WorkflowEntrypoint {
+  async run(event, step) {
+    const payload = schedulePayload(event.payload || {});
+    const dueTime = Date.parse(payload.dueAt);
+
+    if (Number.isFinite(dueTime) && dueTime > Date.now() + 1000) {
+      await step.sleepUntil(`Delay ${payload.continuationId}`, new Date(dueTime));
+    }
+
+    return step.do(
+      "Processar continuacao no Pages principal",
+      {
+        retries: {
+          limit: 4,
+          delay: "10 seconds",
+          backoff: "exponential"
+        },
+        timeout: "30 seconds"
+      },
+      async () => drainPrimaryQueue(this.env, {
+        continuationId: payload.continuationId,
+        pageId: payload.pageId,
+        continuationLimit: 1
+      })
+    );
+  }
+}
 
 export default {
   async fetch(request, env) {
@@ -16,12 +46,26 @@ export default {
         service: "messenlead-messenger-send-relay",
         hasD1: Boolean(env.RELAY_DB),
         hasPrimaryQueue: primaryQueueConfigured(env),
+        hasDelayWorkflow: Boolean(env.MESSENLEAD_DELAY_WORKFLOW),
         primaryQueueUrlConfigured: Boolean(clean(env.MESSENLEAD_PRIMARY_QUEUE_URL || env.MESSENLEAD_MAIN_QUEUE_URL, 500)),
         primaryQueueTokenConfigured: Boolean(clean(env.MESSENLEAD_PRIMARY_QUEUE_TOKEN || env.MESSENLEAD_OPERATOR_TOKEN, 500)),
+        delayWorkflowSecretConfigured: Boolean(delayWorkflowSecret(env)),
         scheduledPumpMs: clampNumber(env.MESSENLEAD_RELAY_SCHEDULED_PUMP_MS, 0, 55000, DEFAULT_SCHEDULED_PUMP_MS),
         scheduledPollMs: clampNumber(env.MESSENLEAD_RELAY_SCHEDULED_POLL_MS, 1000, 15000, DEFAULT_SCHEDULED_POLL_MS),
         diagnostics: await relayRuntimeDiagnostics(env)
       });
+    }
+
+    if (request.method === "POST" && ["/schedule", "/delay/schedule"].includes(url.pathname)) {
+      const authError = authorizeDelayWorkflowRequest(request, env);
+      if (authError) return authError;
+      return handleDelayWorkflowSchedule(request, env);
+    }
+
+    if (request.method === "GET" && ["/delay/status", "/workflow/status"].includes(url.pathname)) {
+      const authError = authorizeDelayWorkflowRequest(request, env);
+      if (authError) return authError;
+      return handleDelayWorkflowStatus(url, env);
     }
 
     const authError = authorize(request, env);
@@ -121,7 +165,7 @@ function primaryQueueConfigured(env) {
   );
 }
 
-async function drainPrimaryQueue(env) {
+async function drainPrimaryQueue(env, options = {}) {
   const queueUrl = clean(env.MESSENLEAD_PRIMARY_QUEUE_URL || env.MESSENLEAD_MAIN_QUEUE_URL, 500);
   const token = clean(env.MESSENLEAD_PRIMARY_QUEUE_TOKEN || env.MESSENLEAD_OPERATOR_TOKEN, 500);
   if (!queueUrl || !token) return { ok: false, skipped: true };
@@ -134,8 +178,10 @@ async function drainPrimaryQueue(env) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        limit: env.MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT || 12,
-        continuationLimit: env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8,
+        pageId: options.pageId || "",
+        continuationId: options.continuationId || "",
+        limit: options.limit || env.MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT || 12,
+        continuationLimit: options.continuationLimit || env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8,
         linkClickTimeoutLimit: env.MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT || env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8
       })
     });
@@ -224,6 +270,74 @@ function mergeStats(target, source = {}) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function handleDelayWorkflowSchedule(request, env) {
+  const body = await readJson(request);
+  if (!body) return json({ error: "Invalid JSON" }, 400);
+  if (!env.MESSENLEAD_DELAY_WORKFLOW) return json({ error: "Delay workflow binding is not configured" }, 500);
+
+  const payload = schedulePayload(body);
+  const validation = validateSchedulePayload(payload);
+  if (validation) return json({ error: validation }, 400);
+
+  const id = workflowInstanceId(payload.continuationId);
+  try {
+    const instance = await env.MESSENLEAD_DELAY_WORKFLOW.create({
+      id,
+      params: payload
+    });
+    return json({
+      ok: true,
+      created: true,
+      workflowInstanceId: instance.id,
+      continuationId: payload.continuationId,
+      dueAt: payload.dueAt
+    });
+  } catch (error) {
+    const existing = await delayWorkflowStatus(env, id);
+    if (existing.ok) {
+      return json({
+        ok: true,
+        created: false,
+        existing: true,
+        workflowInstanceId: id,
+        continuationId: payload.continuationId,
+        dueAt: payload.dueAt,
+        status: existing.status
+      });
+    }
+    return json({
+      ok: false,
+      error: error.message || "workflow_create_failed",
+      workflowInstanceId: id
+    }, 500);
+  }
+}
+
+async function handleDelayWorkflowStatus(url, env) {
+  const id = clean(url.searchParams.get("id"), 100);
+  if (!id) return json({ error: "id is required" }, 400);
+  const status = await delayWorkflowStatus(env, id);
+  return json(status, status.ok ? 200 : 404);
+}
+
+async function delayWorkflowStatus(env, id) {
+  if (!env.MESSENLEAD_DELAY_WORKFLOW) return { ok: false, error: "Delay workflow binding is not configured" };
+  try {
+    const instance = await env.MESSENLEAD_DELAY_WORKFLOW.get(id);
+    return {
+      ok: true,
+      workflowInstanceId: id,
+      status: await instance.status()
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      workflowInstanceId: id,
+      error: error.message || "workflow_status_failed"
+    };
+  }
 }
 
 async function handleSend(request, env) {
@@ -757,6 +871,21 @@ function authorize(request, env) {
   return null;
 }
 
+function authorizeDelayWorkflowRequest(request, env) {
+  const expectedSecret = delayWorkflowSecret(env);
+  if (!expectedSecret) return json({ error: "Delay workflow secret is not configured" }, 503);
+
+  const providedSecret = request.headers.get("x-messenlead-workflow-secret") || request.headers.get("x-messenlead-relay-secret") || "";
+  if (!timingSafeEqual(providedSecret, expectedSecret)) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+  return null;
+}
+
+function delayWorkflowSecret(env) {
+  return String(env.MESSENLEAD_DELAY_WORKFLOW_SECRET || env.MESSENLEAD_SEND_RELAY_SECRET || "").trim();
+}
+
 async function readJson(request) {
   try {
     const body = await request.json();
@@ -777,6 +906,30 @@ function retryDelayMs(attempts) {
 
 function makeId(prefix) {
   return `${prefix}_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+}
+
+function schedulePayload(value = {}) {
+  return {
+    continuationId: clean(value.continuationId, 120),
+    pageId: clean(value.pageId, 120),
+    psid: clean(value.psid, 120),
+    flowId: clean(value.flowId, 120),
+    delayNodeId: clean(value.delayNodeId, 120),
+    resumeNodeId: clean(value.resumeNodeId, 120),
+    dueAt: clean(value.dueAt, 80),
+    policyExpiresAt: clean(value.policyExpiresAt, 80)
+  };
+}
+
+function validateSchedulePayload(payload) {
+  if (!payload.continuationId) return "continuationId is required";
+  if (!payload.pageId) return "pageId is required";
+  if (!payload.dueAt || !Number.isFinite(Date.parse(payload.dueAt))) return "dueAt must be a valid ISO date";
+  return "";
+}
+
+function workflowInstanceId(continuationId) {
+  return `delay-${clean(continuationId, 92)}`;
 }
 
 function json(payload, status = 200) {

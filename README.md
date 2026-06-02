@@ -142,16 +142,16 @@ POST /api/messenger/queue
 Authorization: Bearer MESSENLEAD_OPERATOR_TOKEN
 ```
 
-O node `Espera` aceita duracao em segundos, minutos, horas e dias. Para maior precisao, use o Worker auxiliar em `workers/flow-delay-workflow`: ele cria uma Cloudflare Workflow instance por continuacao, dorme ate `due_at` com `step.sleepUntil()` e chama a fila principal no horario. O D1 e o cron antigo continuam como fallback.
+O node `Espera` aceita duracao em segundos, minutos, horas e dias. Para maior precisao, o Worker relay `workers/messenger-send-relay` tambem hospeda uma Cloudflare Workflow: ele cria uma Workflow instance por continuacao, dorme ate `due_at` com `step.sleepUntil()` e chama a fila principal no horario. O D1 e o cron antigo continuam como fallback.
 
 Variaveis no Pages principal:
 
 ```txt
-MESSENLEAD_DELAY_WORKFLOW_URL=https://messenlead-flow-delay-workflow.sua-conta.workers.dev
-MESSENLEAD_DELAY_WORKFLOW_SECRET=a-mesma-chave-do-worker-workflow
+MESSENLEAD_DELAY_WORKFLOW_URL=https://messenlead-messenger-send-relay.vinteedois-13.workers.dev
+MESSENLEAD_DELAY_WORKFLOW_SECRET=a-mesma-chave-do-worker-relay
 ```
 
-Secrets no Worker de Workflows:
+Secrets no Worker relay:
 
 ```txt
 MESSENLEAD_DELAY_WORKFLOW_SECRET=a-mesma-chave-do-pages
@@ -163,6 +163,8 @@ Variavel no Worker de Workflows:
 ```txt
 MESSENLEAD_PRIMARY_QUEUE_URL=https://messenlead.pages.dev/api/messenger/queue
 ```
+
+Se voce nao quiser criar outro segredo, `MESSENLEAD_DELAY_WORKFLOW_SECRET` pode ser o mesmo valor de `MESSENLEAD_SEND_RELAY_SECRET`. No relay, se `MESSENLEAD_DELAY_WORKFLOW_SECRET` nao existir, ele usa `MESSENLEAD_SEND_RELAY_SECRET` como fallback para o endpoint de atraso.
 
 Se voce estiver usando o Worker relay com cron, configure no Worker relay:
 

@@ -10,6 +10,11 @@ binding = "RELAY_DB"
 database_name = "messenlead-relay-db"
 database_id = "ef0f4f6a-e932-46fe-b1a9-954ad009d80f"
 
+[[workflows]]
+name = "messenlead-relay-delay-workflow"
+binding = "MESSENLEAD_DELAY_WORKFLOW"
+class_name = "MessenleadDelayWorkflow"
+
 [vars]
 # Configure this as a secret in production:
 # wrangler secret put MESSENLEAD_SEND_RELAY_SECRET

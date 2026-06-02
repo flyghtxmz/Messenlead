@@ -1,6 +1,11 @@
 export async function scheduleDelayWorkflow(env, options = {}) {
   const url = clean(env.MESSENLEAD_DELAY_WORKFLOW_URL || env.MESSENLEAD_FLOW_DELAY_WORKFLOW_URL, 500);
-  const secret = clean(env.MESSENLEAD_DELAY_WORKFLOW_SECRET || env.MESSENLEAD_FLOW_DELAY_WORKFLOW_SECRET, 500);
+  const secret = clean(
+    env.MESSENLEAD_DELAY_WORKFLOW_SECRET ||
+      env.MESSENLEAD_FLOW_DELAY_WORKFLOW_SECRET ||
+      env.MESSENLEAD_SEND_RELAY_SECRET,
+    500
+  );
 
   if (!url || !secret) {
     return { configured: false, ok: false, reason: "not_configured" };
