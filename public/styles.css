@@ -263,7 +263,7 @@ svg {
 
 .page-switcher-copy span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .page-switcher-control select {
