@@ -8699,7 +8699,7 @@ function fitCanvasToViewport() {
     (box, node) => ({
       minX: Math.min(box.minX, node.x),
       minY: Math.min(box.minY, node.y),
-      maxX: Math.max(box.maxX, node.x + NODE_WIDTH + 120),
+      maxX: Math.max(box.maxX, node.x + canvasNodeWidth(node) + 120),
       maxY: Math.max(box.maxY, node.y + 190)
     }),
     { minX: Infinity, minY: Infinity, maxX: 0, maxY: 0 }
@@ -10124,7 +10124,7 @@ function renderMiniMapContent(flow) {
     .join("");
   const nodes = flow.nodes
     .map((node) => {
-      const width = Math.max(4, (NODE_WIDTH / CANVAS_WIDTH) * MINIMAP_WIDTH);
+      const width = Math.max(4, (canvasNodeWidth(node) / CANVAS_WIDTH) * MINIMAP_WIDTH);
       const height = Math.max(5, (136 / CANVAS_HEIGHT) * MINIMAP_HEIGHT);
       return `<rect class="minimap-node ${node.id === selectedNodeId ? "selected" : ""}" x="${miniX(canvasNodeLeft(node))}" y="${miniY(canvasNodeTop(node))}" width="${miniNumber(width)}" height="${miniNumber(height)}" rx="1.5" />`;
     })
@@ -10438,7 +10438,7 @@ function nodeOutputPoint(node, output = {}) {
           ? linkClickOutputY(output.field)
           : NODE_CONNECT_Y;
   return {
-    x: canvasNodeLeft(node) + NODE_WIDTH,
+    x: canvasNodeLeft(node) + canvasNodeWidth(node),
     y: canvasNodeTop(node) + outputY
   };
 }
@@ -10494,6 +10494,10 @@ function nodeInputPoint(node) {
   };
 }
 
+function canvasNodeWidth(node) {
+  return node?.type === "message" ? 300 : NODE_WIDTH;
+}
+
 function canvasPointFromEvent(event, canvas = document.querySelector("#flowCanvas")) {
   if (!canvas) return { x: 0, y: 0 };
   const rect = canvas.getBoundingClientRect();
@@ -10509,6 +10513,7 @@ function renderNode(node, selected) {
   if (node.type === "action") return renderActionNode(node, selected);
   if (node.type === "condition") return renderConditionNode(node, selected);
   if (node.type === "comment") return renderCommentNode(node, selected);
+  if (node.type === "message") return renderMessageNode(node, selected);
 
   const flow = selectedFlow();
   const messageNumber = node.type === "message" ? messageNodeNumber(flow, node) : 0;
@@ -10540,6 +10545,95 @@ function renderNode(node, selected) {
       </div>
       ${node.type === "message" ? "" : node.type === "link_click_wait" ? renderLinkClickWaitOutputPorts(node) : renderOutputPort(node)}
     </article>
+  `;
+}
+
+function renderMessageNode(node, selected) {
+  const flow = selectedFlow();
+  normalizeNodeStructure(node);
+  const summary = nodeCardSummary(node);
+  const text = String(node.contentBlocks.find((block) => block.type === "text" && block.text)?.text || node.message || "").trim();
+  const attachments = node.contentBlocks.filter((block) => block.type !== "text");
+  const messageNumber = messageNodeNumber(flow, node);
+  const defaultOutput = messageOutputItems(node).find((item) => item.field === "next");
+  return `
+    <article class="node message messenger-preview-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      ${messageNumber ? `<span class="node-sequence-badge">${messageNumber}</span>` : ""}
+      ${renderNodeHoverActions(node)}
+      <div class="messenger-preview-head">
+        <span class="messenger-preview-icon">${icons.message}</span>
+        <span>
+          <small>Facebook</small>
+          <strong>${escapeHtml(node.title || "Mensagem")}</strong>
+        </span>
+        <button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>
+      </div>
+      <div class="messenger-preview-bubble">
+        <p>${escapeHtml(text || "Digite uma mensagem.")}</p>
+        ${node.buttons.map((option) => renderMessengerPreviewButton(node, option)).join("")}
+      </div>
+      ${attachments.length ? `<div class="messenger-preview-meta">${escapeHtml(summary.chips?.join(" · ") || `${attachments.length} anexo${attachments.length === 1 ? "" : "s"}`)}</div>` : ""}
+      ${node.quickReplies.length ? `<div class="messenger-preview-quick-replies">${node.quickReplies.map((option) => renderMessengerPreviewQuickReply(node, option)).join("")}</div>` : ""}
+      ${renderMessengerPreviewAuxOutputs(node)}
+      <div class="messenger-preview-next ${defaultOutput?.targetId ? "connected" : ""}">
+        <span>Próximo Passo</span>
+        ${renderMessageNodePort(node, defaultOutput)}
+      </div>
+    </article>
+  `;
+}
+
+function renderMessengerPreviewButton(node, option) {
+  const output = messageOutputItems(node).find((item) => item.kind === "button" && item.optionId === option.id);
+  return `
+    <div class="messenger-preview-button ${output?.targetId ? "connected" : ""}">
+      <span>${escapeHtml(option.title || "Novo botão")}</span>
+      ${output ? renderMessageNodePort(node, output) : ""}
+    </div>
+  `;
+}
+
+function renderMessengerPreviewAuxOutputs(node) {
+  const outputs = messageOutputItems(node).filter((item) => item.kind === "image_button");
+  if (!outputs.length) return "";
+  return `
+    <div class="messenger-preview-aux-outputs">
+      ${outputs
+        .map(
+          (output) => `
+            <div class="messenger-preview-aux-output ${output.targetId ? "connected" : ""}">
+              <span>${escapeHtml(output.label)}</span>
+              ${renderMessageNodePort(node, output)}
+            </div>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderMessengerPreviewQuickReply(node, option) {
+  const output = messageOutputItems(node).find((item) => item.kind === "quick_reply" && item.optionId === option.id);
+  return `
+    <div class="messenger-preview-quick-reply ${output?.targetId ? "connected" : ""}">
+      <span>${escapeHtml(option.title || "Resposta rápida")}</span>
+      ${output ? renderMessageNodePort(node, output) : ""}
+    </div>
+  `;
+}
+
+function renderMessageNodePort(node, item = {}) {
+  return `
+    <button
+      class="node-port message-node-port"
+      type="button"
+      data-port-source="${attr(node.id)}"
+      data-port-field="${attr(item?.field || "")}"
+      data-port-kind="${attr(item?.kind || "")}"
+      data-port-option-id="${attr(item?.optionId || "")}"
+      data-port-block-id="${attr(item?.blockId || "")}"
+      aria-label="${attr(`Conectar ${item?.label || "próximo passo"}`)}"
+    ></button>
   `;
 }
 
