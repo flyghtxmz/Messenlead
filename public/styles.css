@@ -7151,14 +7151,14 @@ svg {
   outline: 0;
 }
 
-.custom-field-condition-rule-card {
+.entry-condition-rule-card {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.85fr) minmax(0, 1fr) 20px;
   align-items: center;
   padding: 7px;
 }
 
-.custom-field-condition-rule-card select,
-.custom-field-condition-rule-card input {
+.entry-condition-rule-card select,
+.entry-condition-rule-card input {
   width: 100%;
   min-width: 0;
   min-height: 30px;
@@ -7169,6 +7169,50 @@ svg {
   background: #fff;
   color: #344054;
   font-size: 11px;
+}
+
+.custom-field-condition-rule-card {
+  grid-template-columns: minmax(0, 1fr) 22px;
+  gap: 7px;
+  align-items: start;
+  padding: 8px;
+}
+
+.condition-rule-main {
+  display: grid;
+  grid-template-columns: minmax(76px, 0.82fr) minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+
+.condition-field-select {
+  grid-column: 1 / -1;
+}
+
+.custom-field-condition-rule-card select,
+.custom-field-condition-rule-card input {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid #d4dde7;
+  border-radius: 5px;
+  background: #fff;
+  color: #344054;
+  font-size: 12px;
+}
+
+.condition-rule-operator-select {
+  color: #5f6b78;
+}
+
+.condition-rule-value-control {
+  font-weight: 500;
+}
+
+.custom-field-condition-rule-card > .mini-menu-button {
+  margin-top: 5px;
 }
 
 .condition-rule-icon svg {

@@ -6661,7 +6661,7 @@ function renderEntryConditionRule(condition) {
     { id: "page_id", label: "Page ID da entrada" }
   ];
   return `
-    <article class="condition-rule-card custom-field-condition-rule-card">
+    <article class="condition-rule-card entry-condition-rule-card">
       <select data-condition-rule-field="fieldName" data-condition-id="${attr(condition.id)}">
         ${fields.map((field) => `<option value="${attr(field.id)}" ${condition.fieldName === field.id ? "selected" : ""}>${escapeHtml(field.label)}</option>`).join("")}
       </select>
@@ -6679,26 +6679,61 @@ function renderEntryConditionRule(condition) {
 function renderCustomFieldConditionRule(condition) {
   const fields = customFieldRecordsForPage();
   const selected = findCustomFieldForPage(condition.fieldId || condition.fieldName);
+  const fieldType = normalizeCustomFieldType(selected?.type || "text");
+  if (fieldType === "boolean") {
+    condition.operator = "equals";
+    if (!["true", "false"].includes(String(condition.value))) condition.value = "";
+  }
   const options = selected || !condition.fieldName ? fields : [...fields, { id: "", name: condition.fieldName, type: "text" }];
   return `
     <article class="condition-rule-card custom-field-condition-rule-card">
-      <select data-condition-rule-field="fieldId" data-condition-id="${attr(condition.id)}">
-        <option value="" ${condition.fieldName || condition.fieldId ? "" : "selected"}>Selecionar campo</option>
-        ${options.map((field) => {
-          const value = field.id || field.name;
-          const selectedOption = condition.fieldId ? field.id === condition.fieldId : normalizeCustomFieldKey(field.name) === normalizeCustomFieldKey(condition.fieldName);
-          return `<option value="${attr(value)}" ${selectedOption ? "selected" : ""}>${escapeHtml(field.name)}</option>`;
-        }).join("")}
-      </select>
-      <select data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
-        <option value="equals" ${condition.operator === "equals" ? "selected" : ""}>e exatamente</option>
-        <option value="contains_any" ${condition.operator === "contains_any" ? "selected" : ""}>contem</option>
-        <option value="not_contains" ${condition.operator === "not_contains" ? "selected" : ""}>nao contem</option>
-      </select>
-      <input data-condition-rule-field="value" data-condition-id="${attr(condition.id)}" value="${attr(condition.value || "")}" placeholder="Valor esperado" />
+      <div class="condition-rule-main">
+        <select class="condition-field-select" data-condition-rule-field="fieldId" data-condition-id="${attr(condition.id)}">
+          <option value="" ${condition.fieldName || condition.fieldId ? "" : "selected"}>Selecionar campo</option>
+          ${options.map((field) => {
+            const value = field.id || field.name;
+            const selectedOption = condition.fieldId ? field.id === condition.fieldId : normalizeCustomFieldKey(field.name) === normalizeCustomFieldKey(condition.fieldName);
+            return `<option value="${attr(value)}" ${selectedOption ? "selected" : ""}>${escapeHtml(field.name)}</option>`;
+          }).join("")}
+        </select>
+        ${renderConditionOperatorControl(condition, fieldType)}
+        ${renderConditionValueControl(condition, fieldType)}
+      </div>
       <button class="mini-menu-button" type="button" data-action="remove-condition-rule" data-condition-id="${attr(condition.id)}" title="Remover condicao">&times;</button>
     </article>
   `;
+}
+
+function renderConditionOperatorControl(condition, fieldType = "text") {
+  if (fieldType === "boolean") {
+    return `
+      <select class="condition-rule-operator-select" data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
+        <option value="equals" selected>é</option>
+      </select>
+    `;
+  }
+  return `
+    <select class="condition-rule-operator-select" data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
+      <option value="equals" ${condition.operator === "equals" ? "selected" : ""}>é</option>
+      <option value="contains_any" ${condition.operator === "contains_any" ? "selected" : ""}>contém</option>
+      <option value="not_contains" ${condition.operator === "not_contains" ? "selected" : ""}>não contém</option>
+    </select>
+  `;
+}
+
+function renderConditionValueControl(condition, fieldType = "text") {
+  const common = `class="condition-rule-value-control" data-condition-rule-field="value" data-condition-id="${attr(condition.id)}"`;
+  if (fieldType === "boolean") {
+    return `
+      <select ${common}>
+        <option value="" ${condition.value === "" ? "selected" : ""}>Selecionar valor</option>
+        <option value="true" ${String(condition.value) === "true" ? "selected" : ""}>Verdadeiro</option>
+        <option value="false" ${String(condition.value) === "false" ? "selected" : ""}>Falso</option>
+      </select>
+    `;
+  }
+  const inputType = fieldType === "number" ? "number" : fieldType === "date" ? "date" : fieldType === "datetime" ? "datetime-local" : "text";
+  return `<input type="${attr(inputType)}" ${common} value="${attr(condition.value || "")}" placeholder="Valor esperado" />`;
 }
 
 function renderTagConditionRule(condition) {
@@ -6728,6 +6763,10 @@ function updateConditionRuleField(condition, fieldName, value) {
     const field = findCustomFieldForPage(value);
     condition.fieldId = field?.id || "";
     condition.fieldName = field?.name || value;
+    if (normalizeCustomFieldType(field?.type || "text") === "boolean") {
+      condition.operator = "equals";
+      if (!["true", "false"].includes(String(condition.value))) condition.value = "";
+    }
     return;
   }
 
@@ -6736,6 +6775,10 @@ function updateConditionRuleField(condition, fieldName, value) {
     const field = findCustomFieldForPage(value);
     condition.fieldId = field?.id || "";
     condition.fieldName = field?.name || value;
+    if (normalizeCustomFieldType(field?.type || "text") === "boolean") {
+      condition.operator = "equals";
+      if (!["true", "false"].includes(String(condition.value))) condition.value = "";
+    }
   }
 }
 
@@ -7700,9 +7743,15 @@ function handleWorkspaceInput(event) {
   if (target.dataset.conditionRuleField && node?.type === "condition") {
     const condition = node.conditions?.find((item) => item.id === target.dataset.conditionId);
     if (!condition) return;
-    updateConditionRuleField(condition, target.dataset.conditionRuleField, target.value);
-    if (condition.type === "tag" || condition.type === "message_contains") node.keyword = target.value;
-    if (condition.type === "field") node.fieldValue = target.value;
+    const ruleField = target.dataset.conditionRuleField;
+    updateConditionRuleField(condition, ruleField, target.value);
+    if ((condition.type === "tag" || condition.type === "message_contains") && ruleField === "value") node.keyword = target.value;
+    if (condition.type === "field") {
+      node.fieldId = condition.fieldId || "";
+      node.fieldName = condition.fieldName || "";
+      node.conditionOperator = condition.operator || node.conditionOperator;
+      if (ruleField === "value") node.fieldValue = condition.value || "";
+    }
     flow.updatedAt = new Date().toISOString();
     saveState();
   }
@@ -7909,9 +7958,15 @@ function handleWorkspaceChange(event) {
   if (target.dataset.conditionRuleField && node?.type === "condition") {
     const condition = node.conditions?.find((item) => item.id === target.dataset.conditionId);
     if (condition) {
-      updateConditionRuleField(condition, target.dataset.conditionRuleField, target.value);
-      if (condition.type === "tag" || condition.type === "message_contains") node.keyword = condition.value || "";
-      if (condition.type === "field") node.fieldValue = condition.value || "";
+      const ruleField = target.dataset.conditionRuleField;
+      updateConditionRuleField(condition, ruleField, target.value);
+      if ((condition.type === "tag" || condition.type === "message_contains") && ruleField === "value") node.keyword = condition.value || "";
+      if (condition.type === "field") {
+        node.fieldId = condition.fieldId || "";
+        node.fieldName = condition.fieldName || "";
+        node.conditionOperator = condition.operator || node.conditionOperator;
+        if (ruleField === "value") node.fieldValue = condition.value || "";
+      }
       flow.updatedAt = new Date().toISOString();
       saveState();
     }
