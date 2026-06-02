@@ -314,6 +314,8 @@ let actionPickerNodeId = "";
 let actionPickerCategory = "contact";
 let actionTagPickerStepId = "";
 let actionFieldPickerStepId = "";
+let actionFieldPickerExpanded = false;
+let actionFieldPickerQuery = "";
 let contactTagPickerContactId = "";
 let conditionPickerNodeId = "";
 let conditionPickerCategory = "recommended";
@@ -4098,21 +4100,26 @@ function renderCustomFieldRow(field) {
 
 function openCreateCustomFieldModal(stepId = "") {
   const context = stepId ? actionStepContext(stepId) : null;
+  actionFieldPickerStepId = "";
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
   openFormModal({
-    title: "Criar campo personalizado",
-    description: "O campo ficara disponivel somente nesta Pagina e armazenara um valor especifico para cada contato.",
-    submitLabel: "Criar campo",
+    title: "Criar novo campo do usuário",
+    className: "custom-field-create-modal",
+    intro:
+      "Os atributos personalizados permitem que você salve informações sobre seus contatos. Armazene dados específicos para segmentar o público com mais precisão.",
+    submitLabel: "Criar",
     fields: [
       { name: "name", label: "Nome", value: context?.step.fieldName || "", required: true, placeholder: "Ex: Data de nascimento" },
       {
         name: "type",
-        label: "Tipo",
+        label: "Digite",
         type: "select",
         value: normalizeCustomFieldType(context?.step.fieldType),
         options: customFieldTypes.map((option) => ({ value: option.id, label: option.label }))
       },
-      { name: "folder", label: "Pasta", value: DEFAULT_CUSTOM_FIELD_FOLDER, placeholder: "Ex: Dados do cliente" },
-      { name: "description", label: "Descricao", type: "textarea", rows: 3, value: "", placeholder: "Uso interno deste campo" }
+      { name: "description", label: "Descrição (Opcional)", type: "textarea", rows: 3, value: "", placeholder: "Uso interno deste campo" },
+      { name: "folder", label: "Pasta", value: DEFAULT_CUSTOM_FIELD_FOLDER, placeholder: "Ex: Dados do cliente" }
     ],
     onSubmit: async ({ name, type, folder, description }) => {
       const field = await saveCustomFieldForPage(
@@ -6999,11 +7006,11 @@ function renderCommentSettings(flow, node) {
 function renderActionSettings(flow, node) {
   const pageId = currentFlowPageId();
   if (customFieldStore.pageId !== pageId && !customFieldStore.loading) loadCustomFieldsForPage(pageId);
+  const actionNumber = Math.max(1, flow.nodes.filter((item) => item.type === "action").findIndex((item) => item.id === node.id) + 1);
   return `
     <form class="inspector-form manychat-settings">
       <div class="manychat-action-head">
-        <span>${icons.action}</span>
-        <strong>Ações</strong>
+        <strong>Ações #${actionNumber}</strong>
       </div>
       <div class="action-settings-copy">Realize as seguintes ações:</div>
       <div class="action-step-list">
@@ -7073,23 +7080,51 @@ function renderActionStep(nodeId, step) {
 }
 
 function renderActionCustomFieldControl(step) {
-  const fields = customFieldRecordsForPage();
   const selected = findCustomFieldForPage(step.fieldName);
-  const options = selected || !step.fieldName ? fields : [...fields, normalizeCustomFieldRecord({ name: step.fieldName, type: step.fieldType })];
   return `
-    <div class="action-field-row">
-      <select data-action-step-field="fieldName" data-step-id="${attr(step.id)}">
-        <option value="" ${step.fieldName ? "" : "selected"}>Selecionar campo</option>
-        ${options
-          .map((field) => `<option value="${attr(field.name)}" ${normalizeCustomFieldKey(field.name) === normalizeCustomFieldKey(step.fieldName) ? "selected" : ""}>${escapeHtml(field.name)} - ${escapeHtml(customFieldTypeLabel(field.type))}</option>`)
-          .join("")}
-      </select>
-      <button class="icon-button" type="button" data-action="create-action-custom-field" data-step-id="${attr(step.id)}" title="Criar campo personalizado">${icons.plus}</button>
+    <div class="action-field-control">
+      <button class="action-field-trigger ${selected ? "" : "missing"}" type="button" data-action="open-action-field-picker" data-step-id="${attr(step.id)}">
+        ${escapeHtml(selected?.name || step.fieldName || "Campo desconhecido (undefined)")}
+      </button>
+      ${actionFieldPickerStepId === step.id ? renderActionCustomFieldPicker(step) : ""}
+    </div>
+  `;
+}
+
+function renderActionCustomFieldPicker(step) {
+  const query = normalize(actionFieldPickerQuery);
+  const fields = customFieldRecordsForPage().filter((field) => !query || normalize(field.name).includes(query));
+  return `
+    <div class="action-field-picker">
+      <strong>Campo do Usuário</strong>
+      <input id="action_field_${attr(step.id)}" data-action="expand-action-field-picker" data-action-field-search="true" data-step-id="${attr(step.id)}" value="${attr(actionFieldPickerQuery)}" autocomplete="off" />
+      ${
+        actionFieldPickerExpanded
+          ? `
+            <div class="action-field-picker-menu">
+              <div class="action-field-picker-list">
+                ${
+                  fields.length
+                    ? fields.map((field) => `
+                        <button type="button" data-action="select-action-custom-field" data-step-id="${attr(step.id)}" data-field-name="${attr(field.name)}">
+                          <strong>${escapeHtml(field.name)}</strong>
+                          <small>${escapeHtml(customFieldTypeLabel(field.type))}</small>
+                        </button>
+                      `).join("")
+                    : `<span class="action-field-picker-empty">Configure campos personalizados para coletar e armazenar informações específicas sobre seus clientes.</span>`
+                }
+              </div>
+              <button class="action-field-create" type="button" data-action="create-action-custom-field" data-step-id="${attr(step.id)}">+ Campo do Usuário</button>
+            </div>
+          `
+          : `<small>Primeiro, selecione o campo</small>`
+      }
     </div>
   `;
 }
 
 function renderActionCustomFieldValue(step) {
+  if (!step.fieldName) return "";
   const field = findCustomFieldForPage(step.fieldName);
   const type = normalizeCustomFieldType(field?.type || step.fieldType);
   const common = `data-action-step-field="fieldValue" data-step-id="${attr(step.id)}"`;
@@ -7243,6 +7278,13 @@ function handleWorkspaceClick(event) {
     if (!event.target.closest("[data-action]")) return render();
   }
 
+  if (actionFieldPickerStepId && !event.target.closest(".action-field-picker") && !event.target.closest("[data-action='open-action-field-picker']")) {
+    actionFieldPickerStepId = "";
+    actionFieldPickerExpanded = false;
+    actionFieldPickerQuery = "";
+    if (!event.target.closest("[data-action]")) return render();
+  }
+
   if (contactTagPickerContactId && !event.target.closest(".contact-tag-picker") && !event.target.closest("[data-action='open-contact-tag-picker']")) {
     contactTagPickerContactId = "";
     if (!event.target.closest("[data-action]")) return render();
@@ -7273,6 +7315,9 @@ function handleWorkspaceClick(event) {
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
     actionTagPickerStepId = "";
+    actionFieldPickerStepId = "";
+    actionFieldPickerExpanded = false;
+    actionFieldPickerQuery = "";
     conditionPickerNodeId = "";
     canvasAddMenu = null;
     return render();
@@ -7306,6 +7351,9 @@ function handleWorkspaceClick(event) {
   if (action === "open-action-tag-picker") return openActionTagPicker(button.dataset.stepId);
   if (action === "select-action-tag") return selectActionTag(button.dataset.stepId, button.dataset.tag);
   if (action === "open-create-action-tag") return openCreateActionTagModal(button.dataset.stepId);
+  if (action === "open-action-field-picker") return openActionFieldPicker(button.dataset.stepId);
+  if (action === "expand-action-field-picker") return expandActionFieldPicker(button.dataset.stepId);
+  if (action === "select-action-custom-field") return selectActionCustomField(button.dataset.stepId, button.dataset.fieldName);
   if (action === "create-action-custom-field") return openCreateCustomFieldModal(button.dataset.stepId);
   if (action === "open-condition-picker") return openConditionPicker(id);
   if (action === "close-condition-picker") return closeConditionPicker();
@@ -7341,6 +7389,9 @@ function handleWorkspaceClick(event) {
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
     actionTagPickerStepId = "";
+    actionFieldPickerStepId = "";
+    actionFieldPickerExpanded = false;
+    actionFieldPickerQuery = "";
     canvasAddMenu = null;
     shouldAutoFitCanvas = true;
     localStorage.setItem("messenlead.canvas.flowList", "false");
@@ -7359,6 +7410,10 @@ function handleWorkspaceClick(event) {
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
+    actionTagPickerStepId = "";
+    actionFieldPickerStepId = "";
+    actionFieldPickerExpanded = false;
+    actionFieldPickerQuery = "";
     canvasAddMenu = null;
     localStorage.setItem("messenlead.canvas.flowList", "false");
     return render();
@@ -7542,6 +7597,18 @@ function handleWorkspaceInput(event) {
   if (target.dataset.conditionSearch) {
     conditionPickerQuery = target.value;
     render();
+    return;
+  }
+
+  if (target.dataset.actionFieldSearch) {
+    actionFieldPickerQuery = target.value;
+    actionFieldPickerExpanded = true;
+    render();
+    requestAnimationFrame(() => {
+      const input = document.getElementById(`action_field_${target.dataset.stepId || ""}`);
+      input?.focus();
+      input?.setSelectionRange?.(input.value.length, input.value.length);
+    });
     return;
   }
 
@@ -8644,6 +8711,10 @@ function closeInspectorPanel() {
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  actionTagPickerStepId = "";
+  actionFieldPickerStepId = "";
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
   canvasAddMenu = null;
   render();
 }
@@ -8660,6 +8731,10 @@ function peekInspector() {
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  actionTagPickerStepId = "";
+  actionFieldPickerStepId = "";
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
   canvasAddMenu = null;
   render();
 }
@@ -8672,6 +8747,10 @@ function openTriggerPicker(nodeId) {
   triggerPickerNodeId = node.id;
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  actionTagPickerStepId = "";
+  actionFieldPickerStepId = "";
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
   canvasAddMenu = null;
   showInspector = false;
   render();
@@ -8713,6 +8792,10 @@ function openNextStepPicker(nodeId) {
   nextStepPickerNodeId = node.id;
   triggerPickerNodeId = "";
   actionPickerNodeId = "";
+  actionTagPickerStepId = "";
+  actionFieldPickerStepId = "";
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
   canvasAddMenu = null;
   showInspector = true;
   render();
@@ -8732,6 +8815,10 @@ function openActionPicker(nodeId) {
   actionPickerCategory = "contact";
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
+  actionTagPickerStepId = "";
+  actionFieldPickerStepId = "";
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
   canvasAddMenu = null;
   showInspector = true;
   render();
@@ -9053,6 +9140,38 @@ function selectActionTag(stepId, tagName) {
   context.node.message = summarizeActionSteps(context.node);
   context.flow.updatedAt = new Date().toISOString();
   actionTagPickerStepId = "";
+  saveState();
+  render();
+}
+
+function openActionFieldPicker(stepId) {
+  if (!actionStepContext(stepId)) return;
+  actionFieldPickerStepId = stepId;
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
+  render();
+}
+
+function expandActionFieldPicker(stepId) {
+  if (!actionStepContext(stepId)) return;
+  actionFieldPickerStepId = stepId;
+  actionFieldPickerExpanded = true;
+  render();
+  requestAnimationFrame(() => document.getElementById(`action_field_${stepId}`)?.focus());
+}
+
+function selectActionCustomField(stepId, fieldName) {
+  const context = actionStepContext(stepId);
+  const field = findCustomFieldForPage(fieldName);
+  if (!context || !field) return;
+  context.step.fieldName = field.name;
+  context.step.fieldType = field.type;
+  context.step.fieldValue = "";
+  context.node.message = summarizeActionSteps(context.node);
+  context.flow.updatedAt = new Date().toISOString();
+  actionFieldPickerStepId = "";
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
   saveState();
   render();
 }
@@ -10547,6 +10666,10 @@ function clearCanvasSelection() {
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
+  actionTagPickerStepId = "";
+  actionFieldPickerStepId = "";
+  actionFieldPickerExpanded = false;
+  actionFieldPickerQuery = "";
   canvasAddMenu = null;
   document.querySelector(".canvas-focused")?.classList.remove("show-inspector");
   document.querySelector(".trigger-picker-panel")?.remove();

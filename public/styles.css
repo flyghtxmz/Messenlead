@@ -4390,6 +4390,76 @@ svg {
   border-top: 1px solid var(--line);
 }
 
+.custom-field-create-modal {
+  width: min(384px, 100%);
+  border-radius: 5px;
+}
+
+.custom-field-create-modal .modal-header {
+  position: relative;
+  justify-content: center;
+  padding: 9px 42px 10px;
+}
+
+.custom-field-create-modal .modal-header h2 {
+  font-size: 16px;
+  text-align: center;
+}
+
+.custom-field-create-modal .modal-header .icon-button {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+}
+
+.custom-field-create-modal .modal-fields {
+  grid-template-columns: minmax(0, 1fr) 98px;
+  gap: 10px 12px;
+  padding: 16px 20px 14px;
+}
+
+.custom-field-create-modal .modal-intro,
+.custom-field-create-modal .modal-field:nth-of-type(3),
+.custom-field-create-modal .modal-field:nth-of-type(4),
+.custom-field-create-modal .modal-error {
+  grid-column: 1 / -1;
+}
+
+.custom-field-create-modal .modal-intro {
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.custom-field-create-modal .modal-field {
+  gap: 5px;
+}
+
+.custom-field-create-modal .modal-field > span:first-child {
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.custom-field-create-modal .modal-field input,
+.custom-field-create-modal .modal-field select,
+.custom-field-create-modal .modal-field textarea {
+  min-height: 28px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.custom-field-create-modal .modal-field textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+
+.custom-field-create-modal .modal-actions {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
 .segmented {
   display: inline-flex;
   overflow: hidden;
@@ -5561,10 +5631,13 @@ svg {
 
 .action-step-list {
   display: grid;
-  gap: 9px;
+  align-content: start;
+  gap: 8px;
 }
 
 .action-add-button {
+  height: 40px;
+  min-height: 40px;
   border-color: #f0b84a;
   color: #b66800;
 }
@@ -5572,15 +5645,14 @@ svg {
 .action-step-card {
   position: relative;
   display: grid;
-  gap: 7px;
-  padding: 9px;
-  border: 1px solid #d9e0e7;
-  border-radius: 6px;
-  background: #fff;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .action-step-card.compact {
-  padding: 9px;
+  padding: 0;
 }
 
 .action-step-title {
@@ -5643,6 +5715,136 @@ svg {
 .action-field-row .icon-button svg {
   width: 15px;
   height: 15px;
+}
+
+.action-field-control {
+  position: relative;
+  min-width: 0;
+  padding-left: 27px;
+}
+
+.action-field-trigger {
+  max-width: 100%;
+  padding: 0 0 3px;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid #d8dee7;
+  background: transparent;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-field-trigger.missing {
+  border-bottom-color: #f3aaa4;
+  color: #e33d32;
+}
+
+.action-field-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 70;
+  display: grid;
+  gap: 5px;
+  width: min(234px, calc(100vw - 48px));
+  padding: 10px;
+  border: 1px solid #cfd8e3;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.16);
+}
+
+.action-field-picker > strong {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.action-field-picker > input {
+  min-height: 28px;
+  padding: 5px 7px;
+  border-color: #b9c4d0;
+  border-radius: 4px;
+}
+
+.action-field-picker > small {
+  color: #7a8490;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.action-field-picker-menu {
+  position: absolute;
+  top: calc(100% - 1px);
+  left: -1px;
+  z-index: 71;
+  display: grid;
+  width: calc(100% + 2px);
+  min-height: 142px;
+  overflow: hidden;
+  border: 1px solid #cfd8e3;
+  border-radius: 0 0 5px 5px;
+  background: #fff;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.16);
+}
+
+.action-field-picker-list {
+  display: grid;
+  align-content: start;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.action-field-picker-list button {
+  display: grid;
+  gap: 2px;
+  min-height: 42px;
+  padding: 7px 9px;
+  border: 0;
+  border-bottom: 1px solid #edf1f5;
+  background: #fff;
+  color: #344054;
+  text-align: left;
+}
+
+.action-field-picker-list button:hover {
+  background: #f5f7fa;
+}
+
+.action-field-picker-list strong {
+  font-size: 12px;
+}
+
+.action-field-picker-list small,
+.action-field-picker-empty {
+  color: #7a8490;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.action-field-picker-empty {
+  display: block;
+  padding: 20px 14px;
+  text-align: center;
+}
+
+.action-field-create {
+  align-self: end;
+  min-height: 35px;
+  border: 0;
+  border-top: 1px solid #d7dee8;
+  background: #fff;
+  color: #0069df;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.action-field-create:hover {
+  background: #f7fbff;
 }
 
 .action-tag-combobox {
@@ -5815,6 +6017,7 @@ svg {
 }
 
 .choose-next-step-button {
+  height: 40px;
   min-height: 40px;
   border: 1px dashed #2fb36d;
   border-radius: 6px;
@@ -6149,6 +6352,8 @@ svg {
 }
 
 .manychat-settings {
+  align-content: start;
+  grid-auto-rows: max-content;
   padding-top: 11px;
 }
 
