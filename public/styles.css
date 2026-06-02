@@ -2227,6 +2227,11 @@ svg {
   cursor: pointer;
 }
 
+.published-view .node.comment.published-comment-node {
+  min-height: 0;
+  cursor: default;
+}
+
 .published-view .node-port {
   pointer-events: none;
 }

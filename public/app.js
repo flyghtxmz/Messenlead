@@ -7343,6 +7343,11 @@ function handleWorkspaceClick(event) {
       suppressedNodeClickId = "";
       return;
     }
+    const clickedNode = canvasDisplayFlow(selectedFlow())?.nodes.find((node) => node.id === id);
+    if (flowCanvasMode === "published" && clickedNode?.type === "comment") {
+      selectedNodeId = "";
+      return closeInspectorPanel();
+    }
     selectedNodeId = id;
     messageButtonEditorOptionId = "";
     showInspector = true;
@@ -11355,18 +11360,25 @@ function renderConditionNode(node, selected) {
 }
 
 function renderCommentNode(node, selected) {
+  const viewingPublished = flowCanvasMode === "published";
   return `
-    <article class="node comment ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
-      ${renderNodeHoverActions(node)}
-      <div class="node-head">
-        <div class="node-title">
-          ${icons.comment}
-          <span>
-            <span class="node-type">Comentário</span>
-            <strong>${escapeHtml(node.title || "Comentário")}</strong>
-          </span>
-        </div>
-      </div>
+    <article class="node comment ${viewingPublished ? "published-comment-node" : ""} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
+      ${
+        viewingPublished
+          ? ""
+          : `
+            ${renderNodeHoverActions(node)}
+            <div class="node-head">
+              <div class="node-title">
+                ${icons.comment}
+                <span>
+                  <span class="node-type">Comentário</span>
+                  <strong>${escapeHtml(node.title || "Comentário")}</strong>
+                </span>
+              </div>
+            </div>
+          `
+      }
       <div class="comment-markdown">${renderCommentMarkdown(node.message || "Anotação interna do fluxo.")}</div>
     </article>
   `;
