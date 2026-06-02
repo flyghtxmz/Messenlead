@@ -124,6 +124,7 @@ export async function scheduleFlowContinuation(env, options = {}) {
     pageId,
     psid,
     flowId: flow.id || options.flowId || "",
+    eventId: options.eventId || "",
     delayNodeId: delayNode.id || options.delayNodeId || "",
     resumeNodeId
   });
@@ -802,6 +803,7 @@ function continuationId(parts = {}) {
     normalizePageId(parts.pageId),
     parts.psid || "",
     parts.flowId || "",
+    parts.eventId || "",
     parts.delayNodeId || "",
     parts.resumeNodeId || ""
   ].join(":"))}`;

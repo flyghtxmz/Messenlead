@@ -1434,7 +1434,7 @@ function delayDueAt(node, contact = {}, env = {}) {
   if (node.delayType === "date") {
     due = parseDelayDate(node.specificDate, now);
   } else if (node.delayType === "dynamic_date") {
-    const fieldValue = contact?.customFields?.[node.dynamicField] || contact?.[node.dynamicField] || "";
+    const fieldValue = contactCustomFieldValue(contact, node.dynamicFieldId, node.dynamicField);
     due = parseDelayDate(fieldValue, now);
   } else {
     due = now + delayDurationMs(node);
@@ -1465,14 +1465,22 @@ function applyDelayWindow(date, node, env) {
   const days = String(node.continueDays || "any");
   if (start == null && end == null && days === "any") return date;
 
-  const offsetMinutes = Number(env.MESSENLEAD_FLOW_TIMEZONE_OFFSET_MINUTES || env.MESSENLEAD_TIMEZONE_OFFSET_MINUTES || 0);
-  const offset = Number.isFinite(offsetMinutes) ? offsetMinutes : 0;
+  const offset = delayTimezoneOffsetMinutes(date, env);
   let local = new Date(date.getTime() + offset * 60 * 1000);
 
   for (let guard = 0; guard < 14; guard += 1) {
     if (!dayAllowed(local, days)) {
       local = startOfNextLocalDay(local, start ?? 0);
       continue;
+    }
+
+    if (start != null && end != null && start > end) {
+      const currentMinute = minutesOfDay(local);
+      if (currentMinute > end && currentMinute < start) {
+        local = setLocalMinutes(local, start);
+        continue;
+      }
+      return new Date(local.getTime() - offset * 60 * 1000);
     }
 
     if (start != null && minutesOfDay(local) < start) {
@@ -1488,6 +1496,44 @@ function applyDelayWindow(date, node, env) {
   }
 
   return date;
+}
+
+function delayTimezoneOffsetMinutes(date, env = {}) {
+  const timezone = String(env.MESSENLEAD_FLOW_TIMEZONE || env.MESSENLEAD_TIMEZONE || "").trim();
+  if (timezone) {
+    const ianaOffset = ianaTimezoneOffsetMinutes(date, timezone);
+    if (Number.isFinite(ianaOffset)) return ianaOffset;
+  }
+
+  const offsetMinutes = Number(env.MESSENLEAD_FLOW_TIMEZONE_OFFSET_MINUTES || env.MESSENLEAD_TIMEZONE_OFFSET_MINUTES || 0);
+  return Number.isFinite(offsetMinutes) ? offsetMinutes : 0;
+}
+
+function ianaTimezoneOffsetMinutes(date, timezone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(date);
+    const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const localAsUtc = Date.UTC(
+      Number(map.year),
+      Number(map.month) - 1,
+      Number(map.day),
+      Number(map.hour),
+      Number(map.minute),
+      Number(map.second)
+    );
+    return Math.round((localAsUtc - date.getTime()) / 60000);
+  } catch {
+    return null;
+  }
 }
 
 function timeToMinutes(value) {
@@ -1858,6 +1904,7 @@ function normalizeNodeShape(node) {
     node.continueEnd ||= "";
     node.continueDays ||= "any";
     node.specificDate ||= "";
+    node.dynamicFieldId ||= "";
     node.dynamicField ||= "";
   }
   if (node.type === "user_input") {

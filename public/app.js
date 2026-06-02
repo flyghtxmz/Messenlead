@@ -1304,6 +1304,9 @@ function normalizeNodeStructure(node) {
     node.continueEnd = node.continueEnd || "";
     node.continueDays = node.continueDays || "any";
     node.specificDate = node.specificDate || "";
+    const dynamicField = findCustomFieldForPage(node.dynamicFieldId || node.dynamicField);
+    node.dynamicFieldId = dynamicField?.id || String(node.dynamicFieldId || "");
+    if (dynamicField) node.dynamicField = dynamicField.name;
     node.dynamicField = node.dynamicField || "";
   }
 
@@ -6870,6 +6873,8 @@ function conditionOptionIcon(option) {
 
 function renderDelaySettings(flow, node) {
   normalizeNodeStructure(node);
+  const pageId = currentFlowPageId();
+  if (customFieldStore.pageId !== pageId && !customFieldStore.loading) loadCustomFieldsForPage(pageId);
   return `
     <form class="inspector-form manychat-settings">
       ${settingsSectionHeader("Atraso Inteligente", "Controlar quando o fluxo continua", icons.delay)}
@@ -6894,7 +6899,7 @@ function renderDelaySettings(flow, node) {
               </div>`
             : node.delayType === "date"
               ? `<label class="settings-field"><span>Data e hora</span><input type="datetime-local" data-node-field="specificDate" value="${attr(node.specificDate || "")}" /></label>`
-              : `<label class="settings-field"><span>Campo de data do contato</span><input data-node-field="dynamicField" value="${attr(node.dynamicField || "")}" placeholder="ex: data_agendamento" /></label>`
+              : renderDelayDynamicFieldSelect(node)
         }
         <div class="two-field-row">
           <label class="settings-field"><span>Continuar entre</span><input type="time" data-node-field="continueStart" value="${attr(node.continueStart || "")}" /></label>
@@ -6912,6 +6917,31 @@ function renderDelaySettings(flow, node) {
       ${renderSelectedNextStep(flow, node)}
     </form>
   `;
+}
+
+function renderDelayDynamicFieldSelect(node) {
+  const fields = customFieldRecordsForPage().filter((field) => ["date", "datetime"].includes(normalizeCustomFieldType(field.type)));
+  const selected = findCustomFieldForPage(node.dynamicFieldId || node.dynamicField);
+  const options = selected || !node.dynamicField ? fields : [...fields, { id: "", name: node.dynamicField, type: "text" }];
+  return `
+    <label class="settings-field">
+      <span>Campo de data do contato</span>
+      <select data-node-field="dynamicFieldId">
+        <option value="" ${node.dynamicField || node.dynamicFieldId ? "" : "selected"}>Selecionar campo</option>
+        ${options.map((field) => {
+          const value = field.id || field.name;
+          const isSelected = node.dynamicFieldId ? field.id === node.dynamicFieldId : normalizeCustomFieldKey(field.name) === normalizeCustomFieldKey(node.dynamicField);
+          return `<option value="${attr(value)}" ${isSelected ? "selected" : ""}>${escapeHtml(field.name)}${["date", "datetime"].includes(normalizeCustomFieldType(field.type)) ? "" : " (legado)"}</option>`;
+        }).join("")}
+      </select>
+    </label>
+  `;
+}
+
+function syncDelayDynamicField(node, value) {
+  const field = findCustomFieldForPage(value);
+  node.dynamicFieldId = field?.id || "";
+  node.dynamicField = field?.name || value || "";
 }
 
 function renderUserInputSettings(flow, node) {
@@ -7600,6 +7630,7 @@ function handleWorkspaceInput(event) {
     const fieldName = target.dataset.nodeField;
     node[fieldName] = normalizeFieldValue(fieldName, target.value);
     if (fieldName === "delayValue" || fieldName === "delayUnit") node.delayMinutes = delayToMinutes(node);
+    if (fieldName === "dynamicFieldId") syncDelayDynamicField(node, target.value);
     if (fieldName === "message") syncTextBlockFromLegacyMessage(node);
     flow.updatedAt = new Date().toISOString();
     saveState();
@@ -7839,6 +7870,7 @@ function handleWorkspaceChange(event) {
     } else {
       node[target.dataset.nodeField] = normalizeFieldValue(target.dataset.nodeField, target.value);
       if (target.dataset.nodeField === "delayValue" || target.dataset.nodeField === "delayUnit") node.delayMinutes = delayToMinutes(node);
+      if (target.dataset.nodeField === "dynamicFieldId") syncDelayDynamicField(node, target.value);
       flow.updatedAt = new Date().toISOString();
       saveState();
     }
@@ -8092,6 +8124,7 @@ function addNode(type) {
     delayUnit: type === "delay" ? "minutes" : undefined,
     delayValue: type === "delay" ? 5 : undefined,
     delayMinutes: type === "delay" ? 5 : undefined,
+    dynamicFieldId: type === "delay" ? "" : undefined,
     saveResponse: type === "user_input" ? true : undefined,
     responseField: type === "user_input" ? "ultima_resposta" : undefined,
     timeoutMinutes: type === "link_click_wait" ? 5 : type === "user_input" ? 0 : undefined,
@@ -8191,6 +8224,7 @@ function buildNode(type, x, y) {
     delayUnit: type === "delay" ? "minutes" : undefined,
     delayValue: type === "delay" ? 5 : undefined,
     delayMinutes: type === "delay" ? 5 : undefined,
+    dynamicFieldId: type === "delay" ? "" : undefined,
     saveResponse: type === "user_input" ? true : undefined,
     responseField: type === "user_input" ? "ultima_resposta" : undefined,
     timeoutMinutes: type === "link_click_wait" ? 5 : type === "user_input" ? 0 : undefined,
@@ -10274,7 +10308,10 @@ function messageBlockTypeLabel(type) {
 function smartDelaySummary(node) {
   normalizeNodeStructure(node);
   if (node.delayType === "date") return `Atraso até ${node.specificDate || "data não definida"}`;
-  if (node.delayType === "dynamic_date") return `Atraso até o campo ${node.dynamicField || "não definido"}`;
+  if (node.delayType === "dynamic_date") {
+    const field = findCustomFieldForPage(node.dynamicFieldId || node.dynamicField);
+    return `Atraso até o campo ${field?.name || node.dynamicField || "não definido"}`;
+  }
   return `Atraso de ${node.delayValue || node.delayMinutes || 0} ${node.delayUnit || "minutes"}`;
 }
 

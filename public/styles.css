@@ -6909,9 +6909,10 @@ svg {
 
 .manychat-condition-settings {
   position: relative;
-  margin: -10px -14px 0;
-  min-height: calc(100vh - 54px);
-  overflow-x: hidden;
+  align-content: start;
+  grid-auto-rows: max-content;
+  min-height: 0;
+  overflow: visible;
   background: #fff;
   color: #202833;
   font-size: 12px;
@@ -6922,7 +6923,8 @@ svg {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-height: 48px;
+  margin: -14px -22px 10px;
+  padding: 14px 16px;
   background: #9eeedf;
   color: var(--ink);
   font-size: 14px;
@@ -6938,13 +6940,13 @@ svg {
 .manychat-condition-content {
   position: relative;
   display: grid;
-  gap: 17px;
-  padding: 27px 34px 30px;
+  gap: 10px;
+  padding: 0;
 }
 
 .condition-match-copy {
   display: grid;
-  gap: 1px;
+  gap: 5px;
   color: #26313d;
   font-size: 12px;
   line-height: 1.25;
@@ -6967,13 +6969,14 @@ svg {
 }
 
 .condition-add-button {
-  border-color: #9eeedf;
-  color: #009d72;
+  min-height: 40px;
+  border-color: #2f8cff;
+  color: #0069df;
 }
 
 .manychat-condition-settings .condition-branches {
   display: grid;
-  gap: 16px;
+  gap: 10px;
   margin: 0;
 }
 
@@ -6988,9 +6991,9 @@ svg {
 }
 
 .condition-next-step select {
-  min-height: 36px;
+  min-height: 40px;
   border: 1px dashed #b9dcff;
-  border-radius: 4px;
+  border-radius: 6px;
   background: #fff;
   color: #0069df;
   font-size: 11px;
@@ -7002,7 +7005,7 @@ svg {
 .condition-branch-divider {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 12px;
+  gap: 10px;
   align-items: center;
   color: #4b5563;
   font-size: 12px;
@@ -7023,7 +7026,7 @@ svg {
   grid-template-columns: 20px minmax(0, 1fr) auto;
   gap: 7px;
   align-items: start;
-  padding: 9px;
+  padding: 7px;
   border: 1px solid #d9e0e7;
   border-radius: 7px;
   background: #fff;
@@ -7133,10 +7136,10 @@ svg {
 
 .condition-picker-popover {
   position: absolute;
-  top: 132px;
-  left: 34px;
+  top: 106px;
+  left: 0;
   z-index: 80;
-  width: calc(100% - 68px);
+  width: 100%;
   max-width: 320px;
   overflow: hidden;
   border: 1px solid #d1d7e0;
