@@ -11134,7 +11134,9 @@ function nodeInputPoint(node) {
 }
 
 function canvasNodeWidth(node) {
-  return node?.type === "message" ? 300 : NODE_WIDTH;
+  if (node?.type === "message") return 300;
+  if (node?.type === "trigger") return 370;
+  return NODE_WIDTH;
 }
 
 function canvasPointFromEvent(event, canvas = document.querySelector("#flowCanvas")) {
@@ -11685,10 +11687,6 @@ function renderTriggerNode(node, selected) {
   const triggerItems = activeTriggers
     .map((id, index) => ({ id, option: triggerOptionById(id), index }))
     .filter((item) => item.option);
-  const triggerSummary = triggerItems
-    .map((item) => item.option.title)
-    .filter(Boolean)
-    .join(", ");
 
   return `
     <article class="node trigger trigger-start ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
@@ -11698,11 +11696,9 @@ function renderTriggerNode(node, selected) {
           ${icons.trigger}
           <span>
             <strong>Quando...</strong>
-            <span class="node-type">Gatilho inicial</span>
           </span>
         </div>
       </div>
-      <p title="${attr(triggerSummary || "Nenhum gatilho configurado")}">${escapeHtml(triggerSummary || "Adicione gatilhos para iniciar este fluxo.")}</p>
       <div class="trigger-list">
         ${
           triggerItems.length
@@ -11712,7 +11708,7 @@ function renderTriggerNode(node, selected) {
       </div>
       <button class="trigger-add-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">+ Novo Gatilho</button>
       <div class="node-footer">
-        <span>Entrada</span>
+        <span>Então</span>
       </div>
       ${renderOutputPort(node)}
     </article>
@@ -11724,8 +11720,8 @@ function renderTriggerNodeItem(item) {
     <div class="trigger-node-item" title="${attr(item.option.title)}">
       <span class="trigger-node-item-icon">${icons.message}</span>
       <span>
-        <small>${escapeHtml(item.option.source || "Messenger")} #${item.index + 1}</small>
         <strong>${escapeHtml(item.option.title)}</strong>
+        <small>${escapeHtml(item.option.source || "Messenger")} #${item.index + 1}</small>
       </span>
     </div>
   `;

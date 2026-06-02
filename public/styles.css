@@ -1511,10 +1511,13 @@ svg {
 }
 
 .node.trigger-start {
-  gap: 10px;
+  gap: 14px;
+  width: 370px;
+  min-height: 0;
   border: 1px solid #1fbf78;
   border-left: 1px solid #1fbf78;
-  padding: 13px;
+  border-radius: 16px;
+  padding: 18px 16px 14px;
 }
 
 .node.trigger .node-title svg {
@@ -1523,32 +1526,27 @@ svg {
 }
 
 .node.trigger-start .node-title {
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .node.trigger-start .node-title svg {
-  width: 24px;
-  height: 24px;
-  padding: 4px;
+  width: 26px;
+  height: 26px;
+  padding: 3px;
   background: transparent;
   color: #0f172a;
 }
 
-.node.trigger-start p {
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 0;
-  color: #667085;
-  font-size: 11px;
-  line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+.node.trigger-start .node-title strong {
+  font-size: 16px;
+  line-height: 1.2;
 }
 
 .trigger-list {
   display: grid;
-  gap: 5px;
-  max-height: 116px;
+  gap: 8px;
+  max-height: 206px;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -1563,27 +1561,27 @@ svg {
 
 .trigger-node-item {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
-  min-height: 46px;
-  padding: 8px;
-  border: 1px solid #dde6f0;
-  border-radius: 8px;
-  background: #f8fbff;
+  min-height: 74px;
+  padding: 10px 12px;
+  border: 1px solid #62cf8c;
+  border-radius: 12px;
+  background: #f7f7f7;
 }
 
 .trigger-node-item-icon {
   display: inline-grid;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   color: #0877ff;
 }
 
 .trigger-node-item-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .trigger-node-item small,
@@ -1595,26 +1593,39 @@ svg {
 }
 
 .trigger-node-item small {
-  color: #667085;
-  font-size: 10px;
-  font-weight: 700;
+  margin-top: 4px;
+  color: #8a8f98;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .trigger-node-item strong {
-  color: #1f2937;
-  font-size: 12px;
+  color: #303640;
+  font-size: 15px;
   font-weight: 400;
-  line-height: 1.25;
+  line-height: 1.15;
+  white-space: normal;
 }
 
 .trigger-add-button {
-  min-height: 34px;
-  border: 1px dashed #2f8cff;
-  border-radius: 8px;
+  min-height: 54px;
+  border: 1px dashed #d4d9df;
+  border-radius: 10px;
   background: #fff;
   color: #0069df;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.node.trigger-start .node-footer {
+  justify-content: flex-end;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.node.trigger-start > .node-port {
+  top: auto;
+  bottom: 14px;
 }
 
 .node-port {
