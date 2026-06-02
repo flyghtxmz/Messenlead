@@ -1233,6 +1233,15 @@ svg {
   height: 16px;
 }
 
+.publish-flow-button.published,
+.publish-flow-button.published:disabled {
+  border-color: #a8d8bf;
+  background: #e8f7ef;
+  color: var(--green-dark);
+  cursor: default;
+  opacity: 1;
+}
+
 .canvas-panel-controls svg,
 .canvas-actions svg {
   width: 17px;

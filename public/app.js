@@ -246,6 +246,7 @@ const icons = {
   edit: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"/></svg>`,
   upload: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0-4 4m4-4 4 4"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg>`,
   download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg>`,
   refresh: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v6h-6"/><path d="M4 18v-6h6"/><path d="M19 12a7 7 0 0 0-12-5l-3 3"/><path d="M5 12a7 7 0 0 0 12 5l3-3"/></svg>`,
   message: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/></svg>`,
   condition: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9 9-9Z"/><path d="M12 8v4l3 3"/></svg>`,
@@ -1979,7 +1980,7 @@ function renderFlows() {
                   <button class="primary-button edit-published-flow-button" type="button" data-action="edit-published-flow">${icons.edit}<span>Editar automação</span></button>
                 `
                 : `
-                  <button class="primary-button publish-flow-button" type="button" data-action="publish-flow">${icons.upload}<span>Publicar</span></button>
+                  ${renderPublishFlowButton(sourceFlow)}
                   <button class="icon-button canvas-file-button" type="button" data-action="export-flow-json" title="Exportar fluxo JSON" aria-label="Exportar fluxo JSON">${icons.upload}</button>
                   <button class="icon-button canvas-file-button" type="button" data-action="import-flow-json" title="Importar fluxo JSON" aria-label="Importar fluxo JSON">${icons.download}</button>
                   <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
@@ -2104,6 +2105,15 @@ function renderFlowLibrary(flows) {
       }
     </section>
   `;
+}
+
+function renderPublishFlowButton(flow) {
+  const needsPublish = !hasPublishedFlow(flow) || Boolean(flow?.hasDraftChanges);
+  if (needsPublish) {
+    return `<button class="primary-button publish-flow-button" type="button" data-action="publish-flow">${icons.upload}<span>Publicar</span></button>`;
+  }
+
+  return `<button class="primary-button publish-flow-button published" type="button" disabled aria-disabled="true">${icons.check}<span>Publicado</span></button>`;
 }
 
 function renderFlowCard(flow) {
@@ -8201,9 +8211,6 @@ async function publishSelectedFlow() {
 
   const synced = flowStore.loading ? false : await syncFlowToServer(flow, { force: true });
   toastMessage(synced ? "Fluxo publicado." : `Fluxo publicado localmente: ${flowStore.status}`);
-  flowCanvasMode = "published";
-  selectedNodeId = flow.publishedNodes.find((node) => node.type === "message")?.id || flow.publishedNodes[0]?.id || "";
-  showInspector = Boolean(selectedNodeId);
   flowMetricState = { pageId: "", flowId: "", loading: false, metrics: null, error: "" };
   render();
 }
