@@ -302,6 +302,7 @@ const storedCanvasZoom = localStorage.getItem("messenlead.canvas.zoom");
 let canvasZoom = Number(storedCanvasZoom) || 0.78;
 let shouldAutoFitCanvas = !storedCanvasZoom;
 let flowCanvasOpen = false;
+let flowCanvasMode = "edit";
 let showFlowList = false;
 let showInspector = false;
 let canvasScrollState = null;
@@ -351,6 +352,13 @@ let flowLogState = {
   filter: "all",
   loading: false,
   logs: [],
+  error: ""
+};
+let flowMetricState = {
+  pageId: "",
+  flowId: "",
+  loading: false,
+  metrics: null,
   error: ""
 };
 let flowAdTestState = {
@@ -439,6 +447,7 @@ mainNav.addEventListener("click", (event) => {
   }
   if (activeView === "flows") {
     flowCanvasOpen = false;
+    flowCanvasMode = "edit";
     showInspector = false;
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
@@ -487,6 +496,7 @@ window.addEventListener("hashchange", () => {
   activeView = getInitialView();
   if (activeView === "flows") {
     flowCanvasOpen = false;
+    flowCanvasMode = "edit";
     showInspector = false;
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
@@ -1166,6 +1176,26 @@ function markCurrentFlowDraftChange() {
 
 function hasPublishedFlow(flow) {
   return Array.isArray(flow?.publishedNodes);
+}
+
+function canvasDisplayFlow(flow = selectedFlow()) {
+  if (!flow || flowCanvasMode !== "published" || !hasPublishedFlow(flow)) return flow;
+  return {
+    ...flow,
+    ...(flow.publishedMeta || {}),
+    nodes: flow.publishedNodes
+  };
+}
+
+function editPublishedFlow() {
+  const flow = selectedFlow();
+  if (!flow) return;
+  flowCanvasMode = "edit";
+  selectedNodeId = flow.nodes.find((node) => node.id === selectedNodeId)?.id || flow.nodes.find((node) => node.type === "message")?.id || flow.nodes[0]?.id;
+  messageButtonEditorOptionId = "";
+  showInspector = false;
+  shouldAutoFitCanvas = true;
+  render();
 }
 
 function normalizeNodeStructure(node) {
@@ -1881,39 +1911,59 @@ function renderFlows() {
     return;
   }
 
-  const flow = selectedFlow();
-  if (!flow) {
+  const sourceFlow = selectedFlow();
+  if (!sourceFlow) {
     flowCanvasOpen = false;
     workspace.innerHTML = emptyState("Nenhum fluxo", "Crie um fluxo do Messenger para começar.", "workflow", "Novo fluxo", "new-flow");
     return;
   }
 
-  ensureFlowUndoBaseline();
-  pruneInvalidFlowConnections(flow);
+  const viewingPublished = flowCanvasMode === "published" && hasPublishedFlow(sourceFlow);
+  const flow = canvasDisplayFlow(sourceFlow);
+  if (viewingPublished && !flowMetricState.loading && (flowMetricState.pageId !== pageId || flowMetricState.flowId !== sourceFlow.id)) {
+    loadFlowMetrics(pageId, sourceFlow.id);
+  }
+  if (!viewingPublished) {
+    ensureFlowUndoBaseline();
+    pruneInvalidFlowConnections(flow);
+  }
 
   const node = showInspector ? selectedNode(flow) : null;
   if (showInspector && node) selectedNodeId = node.id;
-  const messageButtonOption = selectedMessageButtonOption(node);
+  const messageButtonOption = viewingPublished ? null : selectedMessageButtonOption(node);
   canvasZoom = clamp(canvasZoom, ZOOM_MIN, ZOOM_MAX);
 
   workspace.innerHTML = `
-    <div class="page-grid canvas-focused ${showInspector ? "show-inspector" : ""}">
+    <div class="page-grid canvas-focused ${showInspector ? "show-inspector" : ""} ${viewingPublished ? "published-view" : "edit-view"}">
       <section class="panel canvas-shell">
         <div class="canvas-toolbar">
           <div class="tight-stack">
-            <input class="field-input" data-flow-field="name" value="${attr(flow.name)}" aria-label="Nome do fluxo" />
+            ${
+              viewingPublished
+                ? `<strong class="published-flow-name">${escapeHtml(flow.name)}</strong>`
+                : `<input class="field-input" data-flow-field="name" value="${attr(flow.name)}" aria-label="Nome do fluxo" />`
+            }
             <span class="muted">${escapeHtml(flow.goal)}</span>
           </div>
-          ${statusBadge(flow, "flow-status-pill")}
+          ${statusBadge(sourceFlow, "flow-status-pill")}
           <span class="sync-pill ${flowStore.serverAvailable ? "synced" : "local"}">${escapeHtml(flowStore.loading ? "Carregando D1" : flowStore.status)}</span>
           <div class="canvas-panel-controls" aria-label="Painéis do canvas">
             <button class="secondary-button" type="button" data-action="back-to-flows">${icons.workflow}<span>Fluxos</span></button>
           </div>
           <div class="canvas-actions">
-            <button class="primary-button publish-flow-button" type="button" data-action="publish-flow">${icons.upload}<span>Publicar</span></button>
-            <button class="icon-button canvas-file-button" type="button" data-action="export-flow-json" title="Exportar fluxo JSON" aria-label="Exportar fluxo JSON">${icons.upload}</button>
-            <button class="icon-button canvas-file-button" type="button" data-action="import-flow-json" title="Importar fluxo JSON" aria-label="Importar fluxo JSON">${icons.download}</button>
-            <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
+            ${
+              viewingPublished
+                ? `
+                  <button class="secondary-button" type="button" data-action="refresh-flow-metrics" title="Atualizar métricas">${icons.refresh}<span>Atualizar</span></button>
+                  <button class="primary-button edit-published-flow-button" type="button" data-action="edit-published-flow">${icons.edit}<span>Editar automação</span></button>
+                `
+                : `
+                  <button class="primary-button publish-flow-button" type="button" data-action="publish-flow">${icons.upload}<span>Publicar</span></button>
+                  <button class="icon-button canvas-file-button" type="button" data-action="export-flow-json" title="Exportar fluxo JSON" aria-label="Exportar fluxo JSON">${icons.upload}</button>
+                  <button class="icon-button canvas-file-button" type="button" data-action="import-flow-json" title="Importar fluxo JSON" aria-label="Importar fluxo JSON">${icons.download}</button>
+                  <button class="secondary-button" type="button" data-action="duplicate-flow">${icons.copy}<span>Duplicar</span></button>
+                `
+            }
             <input id="flowImportFile" type="file" accept="application/json,.json" hidden />
           </div>
           <div class="canvas-zoom" aria-label="Zoom do canvas">
@@ -1926,6 +1976,11 @@ function renderFlows() {
         <button class="canvas-peek-button ${showInspector ? "active" : ""}" type="button" data-action="peek-inspector" title="${showInspector ? "Fechar configurações" : "Mostrar configurações do bloco"}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${showInspector ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"}" /></svg>
         </button>
+        ${
+          viewingPublished
+            ? `<div class="published-view-banner">Você está visualizando uma versão publicada <button type="button" data-action="edit-published-flow">Editar</button></div>`
+            : ""
+        }
         <div class="flow-canvas" id="flowCanvas" style="--canvas-zoom:${canvasZoom}">
           <div class="canvas-world" style="width:${CANVAS_WIDTH * canvasZoom}px; height:${CANVAS_HEIGHT * canvasZoom}px">
             <div class="canvas-stage" style="width:${CANVAS_WIDTH}px; height:${CANVAS_HEIGHT}px">
@@ -1936,40 +1991,48 @@ function renderFlows() {
             </div>
           </div>
         </div>
-        <div class="canvas-floating-tools" aria-label="Adicionar blocos">
-          ${nodeAddButton("message", "Mensagem")}
-          ${nodeAddButton("condition", "Condição")}
-          ${nodeAddButton("user_input", "Aguardar resposta")}
-          ${nodeAddButton("link_click_wait", "Aguardar link")}
-          ${nodeAddButton("delay", "Espera")}
-          ${nodeAddButton("action", "Ação")}
-        </div>
+        ${
+          viewingPublished
+            ? ""
+            : `
+              <div class="canvas-floating-tools" aria-label="Adicionar blocos">
+                ${nodeAddButton("message", "Mensagem")}
+                ${nodeAddButton("condition", "Condição")}
+                ${nodeAddButton("user_input", "Aguardar resposta")}
+                ${nodeAddButton("link_click_wait", "Aguardar link")}
+                ${nodeAddButton("delay", "Espera")}
+                ${nodeAddButton("action", "Ação")}
+              </div>
+            `
+        }
         <div class="canvas-minimap" id="canvasMinimap">
           ${renderMiniMapContent(flow)}
         </div>
-        ${renderCanvasAddMenu()}
+        ${viewingPublished ? "" : renderCanvasAddMenu()}
       </section>
 
       <aside class="panel inspector flow-config-drawer">
         <div class="flow-config-header">
-          <span>${messageButtonOption ? "Mensagem" : "Configurações do bloco"}</span>
-          <strong>${messageButtonOption ? "Editar botão" : escapeHtml(node?.title || "Bloco")}</strong>
-          <button class="icon-button" type="button" data-action="${messageButtonOption ? "close-message-button-editor" : "peek-inspector"}" title="${messageButtonOption ? "Voltar para mensagem" : "Fechar configurações"}">&times;</button>
+          <span>${viewingPublished ? "Versão publicada" : messageButtonOption ? "Mensagem" : "Configurações do bloco"}</span>
+          <strong>${viewingPublished ? escapeHtml(flow.name) : messageButtonOption ? "Editar botão" : escapeHtml(node?.title || "Bloco")}</strong>
+          <button class="icon-button" type="button" data-action="${!viewingPublished && messageButtonOption ? "close-message-button-editor" : "peek-inspector"}" title="${!viewingPublished && messageButtonOption ? "Voltar para mensagem" : "Fechar painel"}">&times;</button>
         </div>
         <div class="panel-body stack" data-inspector-scroll data-inspector-node-id="${attr(`${node?.id || ""}:${messageButtonOption?.id || ""}`)}">
-          ${node ? (messageButtonOption ? renderMessageButtonEditor(flow, node, messageButtonOption) : renderInspector(flow, node)) : ""}
+          ${node ? (viewingPublished ? renderPublishedNodeMetrics(flow, node) : messageButtonOption ? renderMessageButtonEditor(flow, node, messageButtonOption) : renderInspector(flow, node)) : ""}
         </div>
       </aside>
-      ${renderTriggerPicker(flow)}
-      ${renderNextStepPicker(flow)}
-      ${renderActionPicker(flow)}
+      ${viewingPublished ? "" : renderTriggerPicker(flow)}
+      ${viewingPublished ? "" : renderNextStepPicker(flow)}
+      ${viewingPublished ? "" : renderActionPicker(flow)}
     </div>
   `;
 
-  enableNodeDragging(flow);
-  enableConnectionDragging(flow);
+  if (!viewingPublished) {
+    enableNodeDragging(flow);
+    enableConnectionDragging(flow);
+    enableCanvasDoubleClickMenu();
+  }
   enableCanvasPanning();
-  enableCanvasDoubleClickMenu();
   enableCanvasWheelZoom();
   enableMiniMapNavigation();
   if (shouldAutoFitCanvas) {
@@ -4606,6 +4669,7 @@ function selectSidebarPage(pageId) {
   setActiveFlowsForPage(page.id);
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
   flowCanvasOpen = false;
+  flowCanvasMode = "edit";
   showInspector = false;
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
@@ -4769,6 +4833,47 @@ async function loadFlowsForPage(pageId) {
     if (currentFlowPageId() === normalizedPageId) {
       flowStore.loading = false;
       if (activeView === "flows" || activeView === "settings" || activeView === "pages" || activeView === "broadcasts") render();
+    }
+  }
+}
+
+async function loadFlowMetrics(pageId, flowId, options = {}) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const normalizedFlowId = String(flowId || "").trim();
+  if (!normalizedFlowId || (flowMetricState.loading && !options.force)) return;
+  const keepCurrentMetrics = flowMetricState.pageId === normalizedPageId && flowMetricState.flowId === normalizedFlowId;
+
+  flowMetricState = {
+    ...flowMetricState,
+    pageId: normalizedPageId,
+    flowId: normalizedFlowId,
+    loading: true,
+    metrics: keepCurrentMetrics ? flowMetricState.metrics : null,
+    error: ""
+  };
+
+  try {
+    const result = await apiGet(`/api/flow-metrics?pageId=${encodeURIComponent(normalizedPageId)}&flowId=${encodeURIComponent(normalizedFlowId)}`);
+    if (selectedFlowId !== normalizedFlowId || currentFlowPageId() !== normalizedPageId) return;
+    flowMetricState = {
+      pageId: normalizedPageId,
+      flowId: normalizedFlowId,
+      loading: false,
+      metrics: result.metrics || null,
+      error: ""
+    };
+  } catch (error) {
+    if (selectedFlowId !== normalizedFlowId || currentFlowPageId() !== normalizedPageId) return;
+    flowMetricState = {
+      pageId: normalizedPageId,
+      flowId: normalizedFlowId,
+      loading: false,
+      metrics: null,
+      error: error.message || "Não foi possível carregar as métricas."
+    };
+  } finally {
+    if (selectedFlowId === normalizedFlowId && currentFlowPageId() === normalizedPageId && activeView === "flows" && flowCanvasOpen && flowCanvasMode === "published") {
+      render();
     }
   }
 }
@@ -5568,6 +5673,105 @@ function renderInspector(flow, node) {
   if (node.type === "randomizer") return renderRandomizerSettings(flow, node);
   if (node.type === "comment") return renderCommentSettings(flow, node);
   return renderActionSettings(flow, node);
+}
+
+function renderPublishedNodeMetrics(flow, node) {
+  const flowStarted = flowMetricValue("", "flow_started");
+  const sent = flowMetricValue(node.id, "node_sent");
+  const clicked = flowMetricValue(node.id, "node_clicked");
+  const reached = node.type === "message" ? sent : node.type === "trigger" ? flowStarted : { total: 0, unique: 0 };
+  const reachRate = metricPercent(reached.unique, flowStarted.unique);
+  const text = node.type === "message"
+    ? String(node.contentBlocks?.find((block) => block.type === "text" && block.text)?.text || node.message || "").trim()
+    : node.message || node.title || nodeLabels[node.type] || "Bloco";
+
+  return `
+    <section class="published-metrics-panel">
+      <label class="published-metric-filter">
+        <span>Desempenho</span>
+        <select disabled>
+          <option>Todos os gatilhos</option>
+        </select>
+      </label>
+      <div class="published-reach-summary">
+        <div>
+          <strong>${reached.unique ? `${reached.unique} contato${reached.unique === 1 ? "" : "s"}` : "Nenhum contato"}</strong>
+          <span>chegaram a esta etapa</span>
+        </div>
+        <b>${reachRate}%</b>
+      </div>
+      ${flowMetricState.loading ? `<span class="muted">Atualizando métricas...</span>` : ""}
+      ${flowMetricState.error ? `<span class="published-metric-error">${escapeHtml(flowMetricState.error)}</span>` : ""}
+      <div class="published-metric-table">
+        <div class="published-metric-table-head"><span>Evento</span><span>Total</span><span>Exclusivo</span></div>
+        ${renderPublishedMetricRow("Enviado", sent)}
+        ${renderPublishedMetricRow("Entregue", { total: 0, unique: 0 }, "A Meta ainda não envia confirmação de entrega para este painel.")}
+        ${renderPublishedMetricRow("Aberto", { total: 0, unique: 0 }, "A Meta ainda não envia confirmação de abertura para este painel.")}
+        ${renderPublishedMetricRow("Cliques", clicked)}
+      </div>
+      <div class="published-metric-preview">
+        <strong>${escapeHtml(node.title || nodeLabels[node.type] || "Bloco")}</strong>
+        <p>${escapeHtml(text || "Sem conteúdo textual.")}</p>
+      </div>
+      ${node.type === "message" ? renderPublishedButtonMetrics(node) : ""}
+    </section>
+  `;
+}
+
+function renderPublishedMetricRow(label, metric, title = "") {
+  return `
+    <div class="published-metric-row" ${title ? `title="${attr(title)}"` : ""}>
+      <span>${escapeHtml(label)}</span>
+      <strong>${metric.total || 0}</strong>
+      <strong>${metric.unique || 0}</strong>
+    </div>
+  `;
+}
+
+function renderPublishedButtonMetrics(node) {
+  const buttons = [...(node.buttons || []), ...(node.quickReplies || []), ...(node.contentBlocks || []).flatMap((block) => block.buttons || [])];
+  if (!buttons.length) return "";
+  const sent = flowMetricValue(node.id, "node_sent");
+
+  return `
+    <div class="published-button-metrics">
+      <strong>CTR dos botões</strong>
+      ${buttons
+        .map((button) => {
+          const clicked = flowButtonMetricValue(node.id, button.id, "button_clicked");
+          return `
+            <div>
+              <span>${escapeHtml(button.title || "Botão")}</span>
+              <b>CTR ${metricPercent(clicked.unique, sent.unique)}%</b>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function flowMetricValue(nodeId, metric) {
+  const metrics = flowMetricState.metrics || {};
+  const value = nodeId ? metrics.nodes?.[nodeId]?.metrics?.[metric] : metrics.summary?.[metric];
+  return {
+    total: Number(value?.total || 0),
+    unique: Number(value?.unique || 0)
+  };
+}
+
+function flowButtonMetricValue(nodeId, optionId, metric) {
+  const value = flowMetricState.metrics?.nodes?.[nodeId]?.buttons?.[optionId]?.[metric];
+  return {
+    total: Number(value?.total || 0),
+    unique: Number(value?.unique || 0)
+  };
+}
+
+function metricPercent(value, total) {
+  const count = Number(value || 0);
+  const denominator = Number(total || 0);
+  return denominator ? Math.min(100, Math.round((count / denominator) * 100)) : 0;
 }
 
 function renderTriggerSettings(flow, node) {
@@ -6809,6 +7013,7 @@ function handleWorkspaceClick(event) {
   if (action === "go-setup") return navigate("setup");
   if (action === "back-to-flows") {
     flowCanvasOpen = false;
+    flowCanvasMode = "edit";
     showInspector = false;
     messageButtonEditorOptionId = "";
     triggerPickerNodeId = "";
@@ -6822,6 +7027,8 @@ function handleWorkspaceClick(event) {
   if (action === "toggle-flow-list") return toggleFlowList();
   if (action === "toggle-inspector") return toggleInspector();
   if (action === "peek-inspector") return peekInspector();
+  if (action === "edit-published-flow") return editPublishedFlow();
+  if (action === "refresh-flow-metrics") return loadFlowMetrics(currentFlowPageId(), selectedFlowId, { force: true });
   if (action === "open-trigger-picker") return openTriggerPicker(id);
   if (action === "close-trigger-picker") {
     triggerPickerNodeId = "";
@@ -6871,11 +7078,12 @@ function handleWorkspaceClick(event) {
   if (action === "new-flow") return createFlow();
   if (action === "select-flow") {
     selectedFlowId = id;
-    selectedNodeId = selectedFlow()?.nodes[0]?.id;
+    flowCanvasMode = hasPublishedFlow(selectedFlow()) ? "published" : "edit";
+    selectedNodeId = canvasDisplayFlow(selectedFlow())?.nodes.find((node) => node.type === "message")?.id || canvasDisplayFlow(selectedFlow())?.nodes[0]?.id;
     messageButtonEditorOptionId = "";
     flowCanvasOpen = true;
     showFlowList = false;
-    showInspector = false;
+    showInspector = flowCanvasMode === "published";
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
@@ -7371,12 +7579,14 @@ function handleGlobalKeydown(event) {
 
 function shouldHandleFlowShortcut(event) {
   if (modalState) return false;
+  if (flowCanvasMode === "published") return false;
   if (activeView !== "flows" || !flowCanvasOpen || !selectedNodeId) return false;
   return !isEditableTarget(event.target);
 }
 
 function shouldHandleFlowUndoShortcut(event) {
   if (modalState) return false;
+  if (flowCanvasMode === "published") return false;
   if (activeView !== "flows" || !flowCanvasOpen) return false;
   return !isEditableTarget(event.target);
 }
@@ -7464,6 +7674,7 @@ function createFlowFromName(name) {
   selectedFlowId = flow.id;
   selectedNodeId = triggerId;
   flowCanvasOpen = true;
+  flowCanvasMode = "edit";
   showFlowList = false;
   showInspector = false;
   shouldAutoFitCanvas = true;
@@ -7656,6 +7867,10 @@ async function publishSelectedFlow() {
 
   const synced = flowStore.loading ? false : await syncFlowToServer(flow, { force: true });
   toastMessage(synced ? "Fluxo publicado." : `Fluxo publicado localmente: ${flowStore.status}`);
+  flowCanvasMode = "published";
+  selectedNodeId = flow.publishedNodes.find((node) => node.type === "message")?.id || flow.publishedNodes[0]?.id || "";
+  showInspector = Boolean(selectedNodeId);
+  flowMetricState = { pageId: "", flowId: "", loading: false, metrics: null, error: "" };
   render();
 }
 
@@ -7725,6 +7940,7 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
   selectedFlowId = copy.id;
   selectedNodeId = copy.nodes[0]?.id;
   flowCanvasOpen = options.openCanvas ?? true;
+  flowCanvasMode = "edit";
   showInspector = false;
   shouldAutoFitCanvas = true;
   saveState();
@@ -7761,6 +7977,7 @@ async function importFlowJson(file) {
     selectedFlowId = imported[0].id;
     selectedNodeId = imported[0].nodes[0]?.id;
     flowCanvasOpen = true;
+    flowCanvasMode = "edit";
     showInspector = false;
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
@@ -8176,7 +8393,7 @@ function closeInspectorPanel() {
 }
 
 function peekInspector() {
-  const flow = selectedFlow();
+  const flow = canvasDisplayFlow(selectedFlow());
   if (!flow) return;
   if (showInspector) {
     closeInspectorPanel();
@@ -8698,7 +8915,7 @@ function nextStepType(type) {
 
 function fitCanvasToViewport() {
   const canvas = document.querySelector("#flowCanvas");
-  const flow = selectedFlow();
+  const flow = canvasDisplayFlow(selectedFlow());
   if (!canvas || !flow?.nodes?.length) return;
 
   const bounds = flow.nodes.reduce(
@@ -10127,7 +10344,7 @@ function updateLiveConnections(flow) {
   layer.innerHTML = renderConnections(flow);
 }
 
-function updateMiniMap(flow = selectedFlow()) {
+function updateMiniMap(flow = canvasDisplayFlow(selectedFlow())) {
   const miniMap = document.querySelector("#canvasMinimap");
   if (!miniMap || !flow) return;
   miniMap.innerHTML = renderMiniMapContent(flow);
@@ -10587,7 +10804,8 @@ function renderNode(node, selected) {
 }
 
 function renderMessageNode(node, selected) {
-  const flow = selectedFlow();
+  const flow = canvasDisplayFlow(selectedFlow());
+  const viewingPublished = flowCanvasMode === "published";
   normalizeNodeStructure(node);
   const summary = nodeCardSummary(node);
   const text = String(node.contentBlocks.find((block) => block.type === "text" && block.text)?.text || node.message || "").trim();
@@ -10604,8 +10822,9 @@ function renderMessageNode(node, selected) {
           <small>Facebook</small>
           <strong>${escapeHtml(node.title || "Mensagem")}</strong>
         </span>
-        <button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>
+        ${viewingPublished ? "" : `<button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>`}
       </div>
+      ${viewingPublished ? renderPublishedMessageNodeMetrics(node) : ""}
       <div class="messenger-preview-bubble">
         <p>${escapeHtml(text || "Digite uma mensagem.")}</p>
         ${node.buttons.map((option) => renderMessengerPreviewButton(node, option)).join("")}
@@ -10623,10 +10842,28 @@ function renderMessageNode(node, selected) {
 
 function renderMessengerPreviewButton(node, option) {
   const output = messageOutputItems(node).find((item) => item.kind === "button" && item.optionId === option.id);
+  const ctr = flowCanvasMode === "published" ? metricPercent(flowButtonMetricValue(node.id, option.id, "button_clicked").unique, flowMetricValue(node.id, "node_sent").unique) : null;
   return `
     <div class="messenger-preview-button ${output?.targetId ? "connected" : ""}">
       <span>${escapeHtml(option.title || "Novo botão")}</span>
+      ${ctr == null ? "" : `<small>CTR ${ctr}%</small>`}
       ${output ? renderMessageNodePort(node, output) : ""}
+    </div>
+  `;
+}
+
+function renderPublishedMessageNodeMetrics(node) {
+  const sent = flowMetricValue(node.id, "node_sent");
+  const clicked = flowMetricValue(node.id, "node_clicked");
+  const items = [
+    ["Enviado", sent.unique],
+    ["Entregue", 0],
+    ["Aberto", 0],
+    ["Clicado", `${metricPercent(clicked.unique, sent.unique)}%`]
+  ];
+  return `
+    <div class="published-node-metrics">
+      ${items.map(([label, value]) => `<span><b>${escapeHtml(value)}</b><small>${escapeHtml(label)}</small></span>`).join("")}
     </div>
   `;
 }
@@ -11132,6 +11369,7 @@ function renderLinkClickWaitOutputPorts(node) {
 }
 
 function renderNodeHoverActions(node) {
+  if (flowCanvasMode === "published") return "";
   if (isLockedTriggerNode(node)) return "";
   return `
     <div class="node-hover-actions" aria-label="Ações do bloco">
@@ -11717,6 +11955,7 @@ function navigate(view) {
   activeView = view;
   if (view === "flows") {
     flowCanvasOpen = false;
+    flowCanvasMode = "edit";
     showInspector = false;
     messageButtonEditorOptionId = "";
     triggerPickerNodeId = "";

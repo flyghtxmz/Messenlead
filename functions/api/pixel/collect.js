@@ -1,4 +1,5 @@
 import { addPixelEvent } from "../../_lib/pixel.js";
+import { recordTrackedFlowLinkClick } from "../../_lib/flowMetrics.js";
 import { processMessengerLinkClickWait } from "../messenger/webhook.js";
 
 const CORS_HEADERS = {
@@ -24,6 +25,7 @@ export async function onRequestPost({ request, env }) {
 
   try {
     const event = await addPixelEvent(env, body || {}, request);
+    await recordTrackedFlowLinkClick(env, event).catch(() => null);
     await processMessengerLinkClickWait(env, event).catch(() => null);
     return pixelJson({ ok: true, id: event?.id || "" });
   } catch (error) {
@@ -61,6 +63,8 @@ export async function onRequestGet({ request, env }) {
     data: {
       contactSource: url.searchParams.get("contactSource"),
       contactButton: url.searchParams.get("contactButton"),
+      contactButtonId: url.searchParams.get("contactButtonId"),
+      contactFlowId: url.searchParams.get("contactFlowId"),
       contactNodeId: url.searchParams.get("contactNodeId"),
       contactNodeNumber: url.searchParams.get("contactNodeNumber"),
       contactNodeTitle: url.searchParams.get("contactNodeTitle"),
@@ -70,7 +74,10 @@ export async function onRequestGet({ request, env }) {
   };
 
   const savedEvent = await addPixelEvent(env, event, request).catch(() => null);
-  if (savedEvent) await processMessengerLinkClickWait(env, savedEvent).catch(() => null);
+  if (savedEvent) {
+    await recordTrackedFlowLinkClick(env, savedEvent).catch(() => null);
+    await processMessengerLinkClickWait(env, savedEvent).catch(() => null);
+  }
   return url.searchParams.get("format") === "json" ? pixelJson({ ok: true }) : transparentGif();
 }
 

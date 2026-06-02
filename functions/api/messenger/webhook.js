@@ -3,6 +3,7 @@ import { getStoredPageAccessToken } from "../../_lib/pages.js";
 import { applyContactActions, getContact, normalizeActionSteps, upsertContact } from "../../_lib/contacts.js";
 import { coerceCustomFieldValue } from "../../_lib/customFields.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
+import { safeRecordFlowMetric } from "../../_lib/flowMetrics.js";
 import { attributionSourceKey, messengerEntryFromContext, recordMessengerAttribution } from "../../_lib/messengerAttribution.js";
 import { createMessengerContactToken } from "../../_lib/pixel.js";
 import {
@@ -781,7 +782,8 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const flow =
     selectedFlowId
       ? activeFlows[0]
-      : activeFlows.find((item) => flowMatchesInput(item, context));
+      : activeFlows.find((item) => matchingFlowMessageOption(item, context)) ||
+        activeFlows.find((item) => flowMatchesInput(item, context));
 
   if (!flow) {
     const allFlows = pageId ? await listFlows(env, pageId) : [];
@@ -818,6 +820,20 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     hasAdReferral: Boolean(context.hasAdReferral),
     adId: context.adId || ""
   }, flow);
+
+  if (!context.dryRun) {
+    const clickedOptionFlow = flows.find((item) => item.status === "active" && matchingFlowMessageOption(item, context)) || flow;
+    await Promise.all([
+      safeRecordFlowMetric(env, {
+        pageId,
+        flowId: flow.id,
+        psid: contact?.psid || "",
+        metric: "flow_started",
+        eventKey: `${context.eventId || "runtime"}:flow_started:${flow.id}`
+      }),
+      recordIncomingMessageOptionClick(env, pageId, clickedOptionFlow, contact, context)
+    ]);
+  }
 
   await log?.("info", "flow_started", `Fluxo iniciado: ${flow.name || flow.id}.`, {
     flowId: flow.id,
@@ -1238,6 +1254,16 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
       const nodeReplies = repliesForMessageNode(current, stepContext);
       replies.push(...nodeReplies);
       if (messageNodeTrackedLinks(current).length) lastMessageLinkNode = current;
+      if (!context.dryRun) {
+        await safeRecordFlowMetric(env, {
+          pageId,
+          flowId: flow.id,
+          nodeId: current.id,
+          psid: runtimeContact.psid || contact?.psid || "",
+          metric: "node_sent",
+          eventKey: `${context.eventId || "runtime"}:node_sent:${flow.id}:${current.id}`
+        });
+      }
       await log?.("info", "message_prepared", "Mensagem preparada para envio.", {
         nodeId: current.id,
         replyCount: nodeReplies.length,
@@ -1681,6 +1707,43 @@ function matchingMessageOption(node, context = {}) {
   });
 }
 
+async function recordIncomingMessageOptionClick(env, pageId, flow, contact, context = {}) {
+  if (!["postback", "quick_reply"].includes(context.eventType)) return;
+  const match = matchingFlowMessageOption(flow, context);
+  if (!match) return;
+
+  const common = {
+    pageId,
+    flowId: flow.id,
+    nodeId: match.node.id,
+    psid: contact?.psid || ""
+  };
+  const eventKey = `${context.eventId || "runtime"}:button_clicked:${flow.id}:${match.node.id}:${match.option.id}`;
+  await Promise.all([
+    safeRecordFlowMetric(env, {
+      ...common,
+      metric: "node_clicked",
+      eventKey: `${eventKey}:node`
+    }),
+    safeRecordFlowMetric(env, {
+      ...common,
+      optionId: match.option.id,
+      metric: "button_clicked",
+      eventKey: `${eventKey}:button`
+    })
+  ]);
+}
+
+function matchingFlowMessageOption(flow, context = {}) {
+  for (const node of flow?.nodes || []) {
+    if (node.type !== "message") continue;
+    normalizeNodeShape(node);
+    const option = matchingMessageOption(node, context);
+    if (option) return { node, option };
+  }
+  return null;
+}
+
 function normalizeNodeShape(node) {
   if (node.type === "trigger") {
     node.triggerConfigs = node.triggerConfigs && typeof node.triggerConfigs === "object" && !Array.isArray(node.triggerConfigs)
@@ -2122,6 +2185,7 @@ function messageNodeTracking(flow, node) {
   const messageNodes = Array.isArray(flow?.nodes) ? flow.nodes.filter((item) => item.type === "message") : [];
   const index = messageNodes.findIndex((item) => item.id === node.id);
   return {
+    flowId: flow?.id || "",
     nodeId: node.id || "",
     nodeNumber: index >= 0 ? index + 1 : "",
     nodeTitle: node.title || node.name || ""

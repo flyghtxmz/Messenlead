@@ -102,6 +102,8 @@ export function onRequestGet() {
       contactPageId: params.get("ml_page_id") || "",
       source: params.get("ml_source") || "",
       button: params.get("ml_button") || "",
+      buttonId: params.get("ml_button_id") || "",
+      flowId: params.get("ml_flow_id") || "",
       nodeId: params.get("ml_node_id") || "",
       nodeNumber: params.get("ml_node_number") || "",
       nodeTitle: params.get("ml_node_title") || "",
@@ -164,6 +166,8 @@ export function onRequestGet() {
         viewport: window.innerWidth + "x" + window.innerHeight,
         contactSource: contact.source || "",
         contactButton: contact.button || "",
+        contactButtonId: contact.buttonId || "",
+        contactFlowId: contact.flowId || "",
         contactNodeId: contact.nodeId || "",
         contactNodeNumber: contact.nodeNumber || "",
         contactNodeTitle: contact.nodeTitle || "",
@@ -242,6 +246,8 @@ export function onRequestGet() {
       [
         "contactSource",
         "contactButton",
+        "contactButtonId",
+        "contactFlowId",
         "contactNodeId",
         "contactNodeNumber",
         "contactNodeTitle",
@@ -297,7 +303,7 @@ export function onRequestGet() {
 
   window.MessenleadPixel = {
     loaded: true,
-    version: "5",
+    version: "6",
     endpoint: endpoint,
     config: config,
     track: function (eventName, data) {

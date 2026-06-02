@@ -2138,6 +2138,36 @@ svg {
   text-align: center;
 }
 
+.messenger-preview-button small {
+  margin-left: 5px;
+  color: #0877ff;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.published-node-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.published-node-metrics span {
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.published-node-metrics b {
+  color: #0877ff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.published-node-metrics small {
+  color: #667085;
+  font-size: 10px;
+}
+
 .messenger-preview-button.connected,
 .messenger-preview-quick-reply.connected,
 .messenger-preview-aux-output.connected,
@@ -2191,6 +2221,19 @@ svg {
 
 .messenger-preview-button .message-node-port {
   right: 6px;
+}
+
+.published-view .node {
+  cursor: pointer;
+}
+
+.published-view .node-port {
+  pointer-events: none;
+}
+
+.published-view .node-action,
+.published-view .trigger-add-button {
+  display: none;
 }
 
 .node-footer {
@@ -4554,6 +4597,179 @@ svg {
   font-size: 11px;
   line-height: 1.25;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.canvas-mode .published-flow-name {
+  display: block;
+  min-height: 30px;
+  padding: 5px 8px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.published-view-banner {
+  position: absolute;
+  top: 53px;
+  left: 50%;
+  z-index: 45;
+  display: flex;
+  min-height: 27px;
+  align-items: center;
+  gap: 20px;
+  padding: 4px 12px;
+  border: 1px solid #efc57f;
+  border-top: 0;
+  border-radius: 0 0 4px 4px;
+  background: #fff8e9;
+  color: #a66a18;
+  font-size: 11px;
+  transform: translateX(-50%);
+}
+
+.published-view-banner button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0067d9;
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+.published-metrics-panel {
+  display: grid;
+  gap: 15px;
+  padding-top: 14px;
+  font-size: 12px;
+}
+
+.published-metric-filter {
+  display: grid;
+  gap: 6px;
+}
+
+.published-metric-filter span,
+.published-button-metrics > strong {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.published-metric-filter select {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid #d7e0ea;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #344054;
+}
+
+.published-reach-summary {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.published-reach-summary div {
+  display: grid;
+  gap: 3px;
+}
+
+.published-reach-summary strong {
+  color: #17212b;
+  font-size: 15px;
+}
+
+.published-reach-summary span {
+  color: #667085;
+  font-size: 11px;
+}
+
+.published-reach-summary b {
+  color: #079447;
+  font-size: 15px;
+}
+
+.published-metric-error {
+  color: #b42318;
+  font-size: 11px;
+}
+
+.published-metric-table {
+  display: grid;
+  gap: 0;
+}
+
+.published-metric-table-head,
+.published-metric-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px 62px;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px dashed #d8dee7;
+}
+
+.published-metric-table-head {
+  color: #667085;
+  font-size: 10px;
+}
+
+.published-metric-row span {
+  color: #475467;
+}
+
+.published-metric-row strong {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.published-metric-preview {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid #e2e8ef;
+  border-bottom: 1px solid #e2e8ef;
+  color: #475467;
+}
+
+.published-metric-preview p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.published-button-metrics {
+  display: grid;
+  gap: 7px;
+}
+
+.published-button-metrics div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #e2e8ef;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.published-button-metrics span {
+  min-width: 0;
+  overflow: hidden;
+  color: #344054;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.published-button-metrics b {
+  color: #0877ff;
+  font-size: 11px;
   white-space: nowrap;
 }
 
