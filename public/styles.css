@@ -1539,7 +1539,7 @@ svg {
 }
 
 .node.trigger-start .node-title strong {
-  font-size: 16px;
+  font-size: 17px;
   line-height: 1.2;
 }
 
@@ -1554,7 +1554,7 @@ svg {
 .trigger-list > span {
   overflow: hidden;
   color: #475467;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1595,13 +1595,13 @@ svg {
 .trigger-node-item small {
   margin-top: 4px;
   color: #8a8f98;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
 }
 
 .trigger-node-item strong {
   color: #303640;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 400;
   line-height: 1.15;
   white-space: normal;
@@ -1613,7 +1613,7 @@ svg {
   border-radius: 10px;
   background: #fff;
   color: #0069df;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 400;
 }
 
@@ -1676,7 +1676,7 @@ svg {
   background: #fff0bd;
   color: #344054;
   font-family: var(--node-font);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 400;
   border-radius: 7px 7px 0 0;
 }
@@ -1706,7 +1706,7 @@ svg {
   border: 1px dashed #d7dde6;
   border-radius: 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .action-node-list {
@@ -1722,7 +1722,7 @@ svg {
   padding: 0 0 8px;
   border-bottom: 1px solid #edf1f4;
   color: #344054;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.3;
 }
 
@@ -1771,6 +1771,7 @@ svg {
   background: #9eeedf;
   color: #11343a;
   font-family: var(--node-font);
+  font-size: 15px;
   font-weight: 400;
 }
 
@@ -1799,7 +1800,7 @@ svg {
   border: 1px dashed #d7dde6;
   border-radius: 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .condition-node-list {
@@ -1813,7 +1814,7 @@ svg {
   padding: 0 0 8px;
   border-bottom: 1px solid #edf1f4;
   color: #344054;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1823,7 +1824,7 @@ svg {
   min-height: 43px;
   padding: 8px 16px 12px;
   color: #737b85;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
   text-align: center;
 }
@@ -1917,7 +1918,7 @@ svg {
   overflow: visible;
   overflow-wrap: anywhere;
   color: #344054;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -1945,7 +1946,7 @@ svg {
 .node.comment .comment-markdown h4 {
   margin: 8px 0 5px;
   color: #1f2937;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.25;
 }
 
@@ -1975,7 +1976,7 @@ svg {
   padding: 1px 3px;
   border-radius: 3px;
   background: #f3f6f8;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .node.comment .comment-markdown a {
@@ -2072,7 +2073,7 @@ svg {
 
 .node-title strong {
   overflow: hidden;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2080,7 +2081,7 @@ svg {
 
 .node-type {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -2091,7 +2092,7 @@ svg {
   margin: 0;
   overflow: hidden;
   color: #344054;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -2113,7 +2114,7 @@ svg {
   border-radius: 999px;
   background: #f1fbf5;
   color: var(--green-dark);
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 800;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -2137,7 +2138,7 @@ svg {
   border-radius: 7px;
   background: #fbfdff;
   color: #344054;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -2203,12 +2204,12 @@ svg {
 
 .messenger-preview-head small {
   color: #667085;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .messenger-preview-head strong {
   color: #344054;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 400;
 }
 
@@ -2226,7 +2227,7 @@ svg {
   margin: 0;
   overflow: hidden;
   color: #344054;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -2248,14 +2249,14 @@ svg {
   border-radius: 8px;
   background: #fff;
   color: #17212b;
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
 }
 
 .messenger-preview-button small {
   margin-left: 5px;
   color: #0877ff;
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -2273,13 +2274,13 @@ svg {
 
 .published-node-metrics b {
   color: #0877ff;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
 }
 
 .published-node-metrics small {
   color: #667085;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .messenger-preview-button.connected,
@@ -2292,7 +2293,7 @@ svg {
 .messenger-preview-meta {
   overflow: hidden;
   color: #667085;
-  font-size: 10.5px;
+  font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2312,7 +2313,7 @@ svg {
   border: 1px solid #dbe4ee;
   border-radius: 999px;
   color: #344054;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .messenger-preview-aux-output {
@@ -2326,7 +2327,7 @@ svg {
   justify-content: flex-end;
   padding-right: 8px;
   color: #667085;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .messenger-preview-node .message-node-port {
@@ -2361,7 +2362,7 @@ svg {
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   padding-top: 8px;
   border-top: 1px solid #eef2f5;
 }

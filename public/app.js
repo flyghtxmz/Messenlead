@@ -11083,7 +11083,7 @@ function messageOutputY(node, output = {}) {
 }
 
 function nodeOutputPoint(node, output = {}) {
-  const portPoint = nodePortDomPoint(node, output);
+  const portPoint = nodePortDomPoint(node, node.type === "randomizer" ? { field: "next" } : output);
   if (portPoint) return portPoint;
 
   const outputY =
@@ -11792,7 +11792,7 @@ function renderMessageOutputPorts(node) {
 
 function renderOutputPort(node) {
   if (node.type === "comment") return "";
-  return `<button class="node-port" type="button" data-port-source="${attr(node.id)}" aria-label="Conectar próximo passo"></button>`;
+  return `<button class="node-port" type="button" data-port-source="${attr(node.id)}" data-port-field="next" aria-label="Conectar próximo passo"></button>`;
 }
 
 function renderConditionOutputPorts(node) {
