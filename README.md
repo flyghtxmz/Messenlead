@@ -151,6 +151,18 @@ MESSENLEAD_PRIMARY_QUEUE_TOKEN=o-mesmo-valor-do-MESSENLEAD_OPERATOR_TOKEN-do-Pag
 
 Assim o cron do relay chama a fila principal a cada 1 minuto e os fluxos pausados continuam mesmo com o dashboard fechado. Sem esse token no relay, a espera ainda fica salva no D1, mas so retoma quando `/api/messenger/queue` for chamado manualmente ou por outro cron externo.
 
+Para reduzir a latencia dos blocos `Espera`, o relay pode manter o cron ativo durante quase todo o minuto e chamar a fila principal em intervalos curtos:
+
+```txt
+MESSENLEAD_RELAY_SCHEDULED_PUMP_MS=52000
+MESSENLEAD_RELAY_SCHEDULED_POLL_MS=5000
+MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT=25
+MESSENLEAD_PRIMARY_CONTINUATION_LIMIT=25
+MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT=25
+```
+
+Com essa configuracao, um delay de 1 minuto ainda depende do cron de 1 minuto da Cloudflare, mas depois que o cron acorda o relay passa a verificar continuacoes vencidas a cada 5 segundos. Na pratica isso reduz a folga comum de espera de ate quase 1 minuto para poucos segundos, desde que o Worker relay esteja implantado e `MESSENLEAD_PRIMARY_QUEUE_TOKEN` esteja configurado.
+
 ## Configurar na Meta
 
 No Meta for Developers:

@@ -104,14 +104,19 @@ POST /queue/process
 
 ```txt
 MESSENLEAD_RELAY_SENDS_PER_MINUTE=50
-MESSENLEAD_RELAY_DRAIN_LIMIT=8
-MESSENLEAD_RELAY_CRON_DRAIN_LIMIT=20
+MESSENLEAD_RELAY_DRAIN_LIMIT=25
+MESSENLEAD_RELAY_CRON_DRAIN_LIMIT=25
 MESSENLEAD_RELAY_MAX_ATTEMPTS=4
 MESSENLEAD_RELAY_DAILY_SEND_SOFT_LIMIT=15000
 MESSENLEAD_RELAY_MAX_QUEUED=5000
+MESSENLEAD_RELAY_SCHEDULED_PUMP_MS=52000
+MESSENLEAD_RELAY_SCHEDULED_POLL_MS=5000
+MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT=25
+MESSENLEAD_PRIMARY_CONTINUATION_LIMIT=25
+MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT=25
 ```
 
-O cron roda a cada 5 minutos para processar retries pendentes.
+O cron roda a cada 1 minuto. Com `MESSENLEAD_RELAY_SCHEDULED_PUMP_MS=52000`, cada execucao continua drenando a fila principal e a fila do relay durante quase todo o minuto, com pausa de `MESSENLEAD_RELAY_SCHEDULED_POLL_MS` entre as passagens. Isso reduz a latencia percebida dos blocos `Espera` sem criar outro servico.
 
 Quando o relay chega em `MESSENLEAD_RELAY_SENDS_PER_MINUTE`, `MESSENLEAD_RELAY_DAILY_SEND_SOFT_LIMIT` ou `MESSENLEAD_RELAY_MAX_QUEUED`, ele responde `429 capacity_full`. O projeto principal entende isso e tenta outro relay configurado.
 

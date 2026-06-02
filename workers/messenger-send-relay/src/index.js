@@ -2,6 +2,8 @@ const DEFAULT_GRAPH_URL = "https://graph.facebook.com/v23.0/me/messages";
 const DEFAULT_MAX_ATTEMPTS = 4;
 const DEFAULT_DRAIN_LIMIT = 8;
 const DEFAULT_SENDS_PER_MINUTE = 50;
+const DEFAULT_SCHEDULED_PUMP_MS = 0;
+const DEFAULT_SCHEDULED_POLL_MS = 5000;
 const RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export default {
@@ -53,12 +55,51 @@ export default {
   },
 
   async scheduled(_controller, env) {
-    await drainPrimaryQueue(env);
-    await processQueue(env, {
-      limit: env.MESSENLEAD_RELAY_CRON_DRAIN_LIMIT || env.MESSENLEAD_RELAY_DRAIN_LIMIT || DEFAULT_DRAIN_LIMIT
-    });
+    await runScheduledPump(env);
   }
 };
+
+async function runScheduledPump(env) {
+  const startedAt = Date.now();
+  const configuredPumpMs = clampNumber(env.MESSENLEAD_RELAY_SCHEDULED_PUMP_MS, 0, 55000, DEFAULT_SCHEDULED_PUMP_MS);
+  const pumpMs = primaryQueueConfigured(env) ? configuredPumpMs : 0;
+  const pollMs = clampNumber(env.MESSENLEAD_RELAY_SCHEDULED_POLL_MS, 1000, 15000, DEFAULT_SCHEDULED_POLL_MS);
+  const deadline = startedAt + pumpMs;
+  const totals = {
+    passes: 0,
+    primary: { ok: 0, failed: 0, skipped: 0 },
+    relay: { processed: 0, sent: 0, retried: 0, skipped: 0, failed: 0 }
+  };
+
+  do {
+    totals.passes += 1;
+
+    const primary = await drainPrimaryQueue(env);
+    if (primary.skipped) totals.primary.skipped += 1;
+    else if (primary.ok) totals.primary.ok += 1;
+    else totals.primary.failed += 1;
+
+    const relay = await processQueue(env, {
+      limit: env.MESSENLEAD_RELAY_CRON_DRAIN_LIMIT || env.MESSENLEAD_RELAY_DRAIN_LIMIT || DEFAULT_DRAIN_LIMIT
+    });
+    mergeStats(totals.relay, relay);
+
+    if (pumpMs <= 0 || Date.now() + pollMs > deadline) break;
+    await sleep(pollMs);
+  } while (Date.now() <= deadline);
+
+  return {
+    ...totals,
+    elapsedMs: Date.now() - startedAt
+  };
+}
+
+function primaryQueueConfigured(env) {
+  return Boolean(
+    clean(env.MESSENLEAD_PRIMARY_QUEUE_URL || env.MESSENLEAD_MAIN_QUEUE_URL, 500) &&
+      clean(env.MESSENLEAD_PRIMARY_QUEUE_TOKEN || env.MESSENLEAD_OPERATOR_TOKEN, 500)
+  );
+}
 
 async function drainPrimaryQueue(env) {
   const queueUrl = clean(env.MESSENLEAD_PRIMARY_QUEUE_URL || env.MESSENLEAD_MAIN_QUEUE_URL, 500);
@@ -74,12 +115,15 @@ async function drainPrimaryQueue(env) {
       },
       body: JSON.stringify({
         limit: env.MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT || 12,
-        continuationLimit: env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8
+        continuationLimit: env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8,
+        linkClickTimeoutLimit: env.MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT || env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8
       })
     });
+    const body = await response.json().catch(() => ({}));
     return {
       ok: response.ok,
-      status: response.status
+      status: response.status,
+      body
     };
   } catch (error) {
     return {
@@ -87,6 +131,17 @@ async function drainPrimaryQueue(env) {
       error: error.message || "primary_queue_failed"
     };
   }
+}
+
+function mergeStats(target, source = {}) {
+  for (const key of Object.keys(target)) {
+    target[key] += Number(source[key] || 0);
+  }
+  return target;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function handleSend(request, env) {

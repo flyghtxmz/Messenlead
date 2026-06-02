@@ -14,13 +14,18 @@ database_id = "ef0f4f6a-e932-46fe-b1a9-954ad009d80f"
 # Configure this as a secret in production:
 # wrangler secret put MESSENLEAD_SEND_RELAY_SECRET
 MESSENLEAD_RELAY_SENDS_PER_MINUTE = "50"
-MESSENLEAD_RELAY_DRAIN_LIMIT = "8"
-MESSENLEAD_RELAY_CRON_DRAIN_LIMIT = "20"
+MESSENLEAD_RELAY_DRAIN_LIMIT = "25"
+MESSENLEAD_RELAY_CRON_DRAIN_LIMIT = "25"
 MESSENLEAD_RELAY_MAX_ATTEMPTS = "4"
 MESSENLEAD_RELAY_DAILY_SEND_SOFT_LIMIT = "15000"
 MESSENLEAD_RELAY_MAX_QUEUED = "5000"
+# Keeps the every-minute cron actively draining due continuations during most of the minute.
+# With a 5s poll, a 1-minute delay normally resumes within a few seconds after due_at.
+MESSENLEAD_RELAY_SCHEDULED_PUMP_MS = "52000"
+MESSENLEAD_RELAY_SCHEDULED_POLL_MS = "5000"
 # Optional: lets this Worker cron drain the main Pages queue, including delayed flow continuations.
 # Configure MESSENLEAD_PRIMARY_QUEUE_TOKEN as a secret with the same value as MESSENLEAD_OPERATOR_TOKEN.
 MESSENLEAD_PRIMARY_QUEUE_URL = "https://messenlead.pages.dev/api/messenger/queue"
-MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT = "12"
-MESSENLEAD_PRIMARY_CONTINUATION_LIMIT = "8"
+MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT = "25"
+MESSENLEAD_PRIMARY_CONTINUATION_LIMIT = "25"
+MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT = "25"
