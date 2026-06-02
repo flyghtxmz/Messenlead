@@ -4773,6 +4773,112 @@ svg {
   white-space: nowrap;
 }
 
+.published-trigger-panel {
+  min-height: 100%;
+  margin: 0 -14px -14px;
+  background: #ffffff;
+}
+
+.published-trigger-head {
+  display: grid;
+  min-height: 46px;
+  place-items: center;
+  background: #dcf7e8;
+  color: #17212b;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.published-trigger-body {
+  display: grid;
+  gap: 22px;
+  padding: 22px 14px;
+}
+
+.published-trigger-list {
+  display: grid;
+  gap: 10px;
+}
+
+.published-trigger-card,
+.published-next-step-card {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 11px;
+  border: 1px solid #d7dce4;
+  border-radius: 6px;
+}
+
+.published-trigger-card {
+  background: #f4f4f4;
+}
+
+.published-trigger-card > span:last-child,
+.published-next-step-card > span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.published-trigger-icon,
+.published-next-step-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  color: #0877ff;
+}
+
+.published-trigger-icon svg,
+.published-next-step-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.published-trigger-card small,
+.published-next-step-card small {
+  color: #667085;
+  font-size: 10px;
+}
+
+.published-trigger-card strong,
+.published-next-step-card strong {
+  color: #17212b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.published-trigger-card em {
+  margin-top: 5px;
+  color: #98a2b3;
+  font-size: 10px;
+  font-style: normal;
+}
+
+.published-trigger-divider {
+  border-top: 1px solid #d7dce4;
+}
+
+.published-trigger-then {
+  display: grid;
+  gap: 10px;
+}
+
+.published-trigger-then > strong {
+  color: #344054;
+  font-size: 12px;
+}
+
+.published-next-step-card {
+  background: #ffffff;
+}
+
+.published-next-step-card small {
+  font-size: 11px;
+}
+
 .app-shell.canvas-mode .field-input {
   width: min(440px, 100%);
   min-height: 30px;

@@ -5676,10 +5676,12 @@ function renderInspector(flow, node) {
 }
 
 function renderPublishedNodeMetrics(flow, node) {
+  if (node.type === "trigger") return renderPublishedTriggerMetrics(flow, node);
+
   const flowStarted = flowMetricValue("", "flow_started");
   const sent = flowMetricValue(node.id, "node_sent");
   const clicked = flowMetricValue(node.id, "node_clicked");
-  const reached = node.type === "message" ? sent : node.type === "trigger" ? flowStarted : { total: 0, unique: 0 };
+  const reached = node.type === "message" ? sent : { total: 0, unique: 0 };
   const reachRate = metricPercent(reached.unique, flowStarted.unique);
   const text = node.type === "message"
     ? String(node.contentBlocks?.find((block) => block.type === "text" && block.text)?.text || node.message || "").trim()
@@ -5715,6 +5717,67 @@ function renderPublishedNodeMetrics(flow, node) {
       </div>
       ${node.type === "message" ? renderPublishedButtonMetrics(node) : ""}
     </section>
+  `;
+}
+
+function renderPublishedTriggerMetrics(flow, node) {
+  const started = flowMetricValue("", "flow_started");
+  const events = nodeTriggerEvents(node);
+
+  return `
+    <section class="published-trigger-panel">
+      <div class="published-trigger-head">Quando...</div>
+      <div class="published-trigger-body">
+        <div class="published-trigger-list">
+          ${
+            events.length
+              ? events.map((triggerId, index) => renderPublishedTriggerCard(triggerId, index, started.total)).join("")
+              : `<span class="muted">Nenhum gatilho publicado.</span>`
+          }
+        </div>
+        <div class="published-trigger-divider"></div>
+        <div class="published-trigger-then">
+          <strong>Ent&atilde;o...</strong>
+          ${renderPublishedNextStep(flow, node)}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderPublishedTriggerCard(triggerId, index, executions) {
+  const option = triggerOptionById(triggerId);
+  const count = Number(executions || 0);
+  const resultLabel = triggerId === "facebook_ad"
+    ? `${count} ${count === 1 ? "clicado" : "clicados"}`
+    : `${count} ${count === 1 ? "execu\u00e7\u00e3o" : "execu\u00e7\u00f5es"}`;
+
+  return `
+    <article class="published-trigger-card">
+      <span class="published-trigger-icon">${icons.message}</span>
+      <span>
+        <small>${escapeHtml(option?.source || "Messenger")} #${index + 1}</small>
+        <strong>${escapeHtml(option?.title || triggerId)}</strong>
+        <em>${escapeHtml(resultLabel)}</em>
+      </span>
+    </article>
+  `;
+}
+
+function renderPublishedNextStep(flow, node) {
+  const next = flow.nodes.find((item) => item.id === node.next);
+  if (!next || !canAcceptIncomingConnection(next)) return `<span class="muted">Sem pr&oacute;ximo passo.</span>`;
+  const title = next.type === "message" ? "Messenger" : nodeLabels[next.type] || next.title || "Pr\u00f3ximo passo";
+  const subtitle = next.type === "message" ? "Enviar Mensagem" : next.title || nodeLabels[next.type] || "Bloco";
+
+  return `
+    <article class="published-next-step-card">
+      <span class="published-next-step-icon">${icons[next.type] || icons.message}</span>
+      <span>
+        <strong>${escapeHtml(title)}</strong>
+        <small>${escapeHtml(subtitle)}</small>
+      </span>
+    </article>
   `;
 }
 
@@ -10857,8 +10920,8 @@ function renderPublishedMessageNodeMetrics(node) {
   const clicked = flowMetricValue(node.id, "node_clicked");
   const items = [
     ["Enviado", sent.unique],
-    ["Entregue", 0],
-    ["Aberto", 0],
+    ["Entregue", "0%"],
+    ["Aberto", "0%"],
     ["Clicado", `${metricPercent(clicked.unique, sent.unique)}%`]
   ];
   return `
