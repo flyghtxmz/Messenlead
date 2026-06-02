@@ -1299,7 +1299,7 @@ function normalizeNodeStructure(node) {
 
   if (node.type === "delay") {
     node.delayType = node.delayType || "duration";
-    node.delayUnit = node.delayUnit || "minutes";
+    node.delayUnit = normalizeDelayUnit(node.delayUnit);
     node.delayMinutes = Math.max(0, Number(node.delayMinutes) || 0);
     node.delayValue = Math.max(0, Number(node.delayValue ?? node.delayMinutes) || 0);
     node.continueStart = node.continueStart || "";
@@ -6951,7 +6951,7 @@ function renderDelaySettings(flow, node) {
           node.delayType === "duration"
             ? `<div class="two-field-row">
                 <label class="settings-field"><span>Quantidade</span><input type="number" min="0" data-node-field="delayValue" value="${attr(node.delayValue || node.delayMinutes || 0)}" /></label>
-                <label class="settings-field"><span>Unidade</span><select data-node-field="delayUnit">${optionSelect("minutes", "Minutos", node.delayUnit)}${optionSelect("hours", "Horas", node.delayUnit)}${optionSelect("days", "Dias", node.delayUnit)}</select></label>
+                <label class="settings-field"><span>Unidade</span><select data-node-field="delayUnit">${optionSelect("seconds", "Segundos", node.delayUnit)}${optionSelect("minutes", "Minutos", node.delayUnit)}${optionSelect("hours", "Horas", node.delayUnit)}${optionSelect("days", "Dias", node.delayUnit)}</select></label>
               </div>`
             : node.delayType === "date"
               ? `<label class="settings-field"><span>Data e hora</span><input type="datetime-local" data-node-field="specificDate" value="${attr(node.specificDate || "")}" /></label>`
@@ -10381,7 +10381,7 @@ function smartDelaySummary(node) {
     const field = findCustomFieldForPage(node.dynamicFieldId || node.dynamicField);
     return `Atraso até o campo ${field?.name || node.dynamicField || "não definido"}`;
   }
-  return `Atraso de ${node.delayValue || node.delayMinutes || 0} ${node.delayUnit || "minutes"}`;
+  return `Atraso de ${node.delayValue || node.delayMinutes || 0} ${delayUnitLabel(node.delayUnit)}`;
 }
 
 function triggerMatchesSimulation(node, flow, normalizedText) {
@@ -12543,15 +12543,31 @@ function normalizeFieldValue(fieldName, value) {
   }
   if (fieldName === "delayMinutes") return Math.max(0, Number(value) || 0);
   if (fieldName === "delayValue") return Math.max(0, Number(value) || 0);
+  if (fieldName === "delayUnit") return normalizeDelayUnit(value);
   if (fieldName === "timeoutMinutes") return Math.max(0, Number(value) || 0);
   if (fieldName === "next") return value || null;
   return value;
 }
 
+function normalizeDelayUnit(unit) {
+  const normalized = String(unit || "minutes").trim();
+  return ["seconds", "minutes", "hours", "days"].includes(normalized) ? normalized : "minutes";
+}
+
+function delayUnitLabel(unit) {
+  const normalized = normalizeDelayUnit(unit);
+  if (normalized === "seconds") return "segundos";
+  if (normalized === "hours") return "horas";
+  if (normalized === "days") return "dias";
+  return "minutos";
+}
+
 function delayToMinutes(node) {
   const value = Math.max(0, Number(node.delayValue ?? node.delayMinutes) || 0);
-  if (node.delayUnit === "hours") return value * 60;
-  if (node.delayUnit === "days") return value * 24 * 60;
+  const unit = normalizeDelayUnit(node.delayUnit);
+  if (unit === "seconds") return value / 60;
+  if (unit === "hours") return value * 60;
+  if (unit === "days") return value * 24 * 60;
   return value;
 }
 

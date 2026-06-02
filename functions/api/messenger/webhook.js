@@ -4,6 +4,7 @@ import { applyContactActions, getContact, normalizeActionSteps, upsertContact } 
 import { coerceCustomFieldValue, getCustomFieldById, getCustomFieldByName } from "../../_lib/customFields.js";
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { safeRecordFlowMetric } from "../../_lib/flowMetrics.js";
+import { scheduleDelayWorkflow } from "../../_lib/flowDelayScheduler.js";
 import { attributionSourceKey, messengerEntryFromContext, recordMessengerAttribution } from "../../_lib/messengerAttribution.js";
 import { createMessengerContactToken } from "../../_lib/pixel.js";
 import {
@@ -1151,6 +1152,36 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
         policyExpiresAt: context.policyExpiresAt || ""
       }, flow);
 
+      if (continuation?.id) {
+        const workflowSchedule = await scheduleDelayWorkflow(env, {
+          continuationId: continuation.id,
+          pageId,
+          psid: runtimeContact.psid || contact?.psid || "",
+          flowId: flow.id || "",
+          delayNodeId: current.id,
+          resumeNodeId: next.id,
+          dueAt,
+          policyExpiresAt: context.policyExpiresAt || ""
+        });
+
+        if (workflowSchedule.configured) {
+          await log?.(
+            workflowSchedule.ok ? "info" : "warn",
+            workflowSchedule.ok ? "delay_workflow_scheduled" : "delay_workflow_schedule_failed",
+            workflowSchedule.ok ? "Espera enviada para Cloudflare Workflows." : "Nao foi possivel enviar a espera para Cloudflare Workflows; fallback permanece ativo.",
+            {
+              continuationId: continuation.id,
+              workflowInstanceId: workflowSchedule.workflowInstanceId || "",
+              status: workflowSchedule.status || 0,
+              reason: workflowSchedule.reason || "",
+              error: workflowSchedule.error || "",
+              body: workflowSchedule.body || {}
+            },
+            flow
+          );
+        }
+      }
+
       return { replies, actions, flow, continuation, responseWait: null, linkClickWait: null };
     }
 
@@ -1455,10 +1486,16 @@ function delayDueAt(node, contact = {}, env = {}) {
 
 function delayDurationMs(node) {
   const value = Math.max(0, Number(node.delayValue ?? node.delayMinutes) || 0);
-  const unit = String(node.delayUnit || "minutes");
+  const unit = normalizeDelayUnit(node.delayUnit);
+  if (unit === "seconds") return value * 1000;
   if (unit === "days") return value * 24 * 60 * 60 * 1000;
   if (unit === "hours") return value * 60 * 60 * 1000;
   return value * 60 * 1000;
+}
+
+function normalizeDelayUnit(unit) {
+  const normalized = String(unit || "minutes").trim();
+  return ["seconds", "minutes", "hours", "days"].includes(normalized) ? normalized : "minutes";
 }
 
 function parseDelayDate(value, fallback) {
@@ -1907,7 +1944,7 @@ function normalizeNodeShape(node) {
   }
   if (node.type === "delay") {
     node.delayType ||= "duration";
-    node.delayUnit ||= "minutes";
+    node.delayUnit = normalizeDelayUnit(node.delayUnit);
     node.delayMinutes = Math.max(0, Number(node.delayMinutes) || 0);
     node.delayValue = Math.max(0, Number(node.delayValue ?? node.delayMinutes) || 0);
     node.continueStart ||= "";

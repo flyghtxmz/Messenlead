@@ -494,14 +494,23 @@ export async function processFlowContinuations(env, processor, options = {}) {
   await cleanupFlowContinuations(env);
 
   const limit = clampNumber(options.limit || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT, 1, 25, DEFAULT_LIMIT);
-  const pageFilter = options.pageId ? "AND page_id = ?" : "";
-  const params = options.pageId ? [new Date().toISOString(), normalizePageId(options.pageId), limit] : [new Date().toISOString(), limit];
+  const filters = [];
+  const params = [new Date().toISOString()];
+  if (options.pageId) {
+    filters.push("AND page_id = ?");
+    params.push(normalizePageId(options.pageId));
+  }
+  if (options.continuationId) {
+    filters.push("AND id = ?");
+    params.push(String(options.continuationId || "").trim());
+  }
+  params.push(limit);
   const rows = await env.DB.prepare(`
     SELECT *
     FROM flow_continuations
     WHERE status = 'scheduled'
       AND datetime(due_at) <= datetime(?)
-      ${pageFilter}
+      ${filters.join("\n      ")}
     ORDER BY datetime(due_at) ASC, datetime(created_at) ASC
     LIMIT ?
   `)

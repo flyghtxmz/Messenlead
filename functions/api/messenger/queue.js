@@ -15,6 +15,7 @@ export async function onRequestPost({ request, env }) {
 
   const continuations = await processMessengerFlowContinuations(env, {
     pageId: body.pageId || "",
+    continuationId: body.continuationId || "",
     limit: body.continuationLimit || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT || 8
   });
   const linkClickTimeouts = await processMessengerLinkClickTimeouts(env, {
@@ -36,6 +37,7 @@ export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const continuations = await processMessengerFlowContinuations(env, {
     pageId: url.searchParams.get("pageId") || "",
+    continuationId: url.searchParams.get("continuationId") || "",
     limit: url.searchParams.get("continuationLimit") || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT || 8
   });
   const linkClickTimeouts = await processMessengerLinkClickTimeouts(env, {
