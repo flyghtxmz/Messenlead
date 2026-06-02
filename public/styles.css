@@ -4782,20 +4782,25 @@ svg {
   left: 8px;
   z-index: 80;
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   place-items: center;
-  border: 1px solid #d7e0ea;
+  border: 1px solid #cfd9e4;
   border-radius: 50%;
   background: #ffffff;
   color: #64748b;
-  opacity: 0.9;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
+  opacity: 0.86;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
   transform: translateY(-50%);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector .canvas-peek-button {
-  left: calc(var(--canvas-drawer-width) - 17px);
+  left: calc(var(--canvas-drawer-width) + 6px);
   opacity: 1;
 }
 
@@ -4806,9 +4811,42 @@ svg {
   color: var(--green-dark);
 }
 
+.app-shell.canvas-mode .canvas-peek-button:hover {
+  border-color: #a8d8bf;
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.16);
+}
+
+.app-shell.canvas-mode .canvas-peek-button::after {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  width: max-content;
+  max-width: 180px;
+  padding: 5px 7px;
+  border-radius: 4px;
+  background: rgba(23, 33, 43, 0.92);
+  color: #ffffff;
+  content: attr(data-tooltip);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+.app-shell.canvas-mode .canvas-peek-button:hover::after,
+.app-shell.canvas-mode .canvas-peek-button:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .app-shell.canvas-mode .canvas-peek-button svg {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
 }
 
 .app-shell.canvas-mode .canvas-toolbar .tight-stack {
