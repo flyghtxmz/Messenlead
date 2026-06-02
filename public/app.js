@@ -3557,6 +3557,7 @@ function renderSettings() {
             <button class="secondary-button ${flowLogState.scope === "all" ? "active" : ""}" type="button" data-action="set-flow-log-scope" data-scope="all"><span>Todas</span></button>
             <button class="secondary-button" type="button" data-action="refresh-flow-logs">${icons.refresh}<span>Atualizar</span></button>
             <button class="secondary-button" type="button" data-action="test-flow-log">${icons.play}<span>Testar D1</span></button>
+            <button class="secondary-button" type="button" data-action="process-messenger-queue">${icons.refresh}<span>Processar fila</span></button>
             <button class="secondary-button" type="button" data-action="check-webhook-subscription">${icons.plug}<span>Verificar webhook</span></button>
             <button class="secondary-button" type="button" data-action="subscribe-page-webhook">${icons.workflow}<span>Inscrever app/Página</span></button>
             <button class="secondary-button danger" type="button" data-action="clear-flow-logs">${icons.trash}<span>Limpar</span></button>
@@ -5516,6 +5517,19 @@ async function testFlowLog() {
     await loadFlowLogsForPage(pageId);
   } catch (error) {
     toastMessage(error.message || "Não foi possível criar log de teste.");
+  }
+}
+
+async function processMessengerQueue() {
+  const pageId = currentFlowPageId();
+  try {
+    const result = await apiPost("/api/messenger/queue", { pageId });
+    const continuations = Number(result?.continuations?.resumed || 0);
+    const sent = Number(result?.result?.sent || 0);
+    toastMessage(`Fila processada: ${continuations} espera(s) retomada(s), ${sent} envio(s) local(is).`);
+    await loadFlowLogsForPage(currentFlowLogPageId());
+  } catch (error) {
+    toastMessage(error.message || "Nao foi possivel processar a fila.");
   }
 }
 
@@ -7609,6 +7623,7 @@ function handleWorkspaceClick(event) {
   if (action === "set-flow-log-filter") return setFlowLogFilter(button.dataset.filter);
   if (action === "refresh-flow-logs") return refreshFlowLogs();
   if (action === "test-flow-log") return testFlowLog();
+  if (action === "process-messenger-queue") return processMessengerQueue();
   if (action === "test-ad-flow") return testAdFlow("messaging");
   if (action === "test-ad-flow-standby") return testAdFlow("standby");
   if (action === "check-webhook-subscription") return checkWebhookSubscription();
