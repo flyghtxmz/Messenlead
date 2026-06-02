@@ -12,6 +12,16 @@ export function onRequestGet({ request, env }) {
     metaAppSecretLength: appSecret.length,
     metaAppSecretLast4: appSecret ? appSecret.slice(-4) : null,
     hasSessionSecret: Boolean(config.sessionSecret),
-    hasD1: Boolean(env.DB)
+    hasD1: Boolean(env.DB),
+    sendRelayUrls: env.MESSENLEAD_SEND_RELAY_URLS || env.MESSENLEAD_SEND_RELAY_URL || null,
+    hasSendRelaySecret: Boolean(env.MESSENLEAD_SEND_RELAY_SECRET),
+    delayWorkflowUrl: env.MESSENLEAD_DELAY_WORKFLOW_URL || env.MESSENLEAD_FLOW_DELAY_WORKFLOW_URL || null,
+    hasDelayWorkflowSecret: Boolean(
+      env.MESSENLEAD_DELAY_WORKFLOW_SECRET ||
+        env.MESSENLEAD_FLOW_DELAY_WORKFLOW_SECRET ||
+        env.MESSENLEAD_SEND_RELAY_SECRET
+    ),
+    sendRelayFailover: env.MESSENLEAD_SEND_RELAY_FAILOVER || null,
+    relayLocalFallback: env.MESSENLEAD_RELAY_LOCAL_FALLBACK || null
   });
 }
