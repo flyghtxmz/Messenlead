@@ -251,6 +251,8 @@ const icons = {
   user_input: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/><path d="M17 21v-4h4"/></svg>`,
   link_click_wait: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4.93"/><path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 19.07"/><path d="M12 8v8"/></svg>`,
   action: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h8l-1 8 11-13h-8l1-7Z"/></svg>`,
+  phone: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.69 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.28-1.28a2 2 0 0 1 2.11-.45c.9.33 1.84.56 2.8.69A2 2 0 0 1 22 16.92Z"/></svg>`,
+  randomizer: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5"/><path d="m4 20 17-17"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="m4 4 5 5"/></svg>`,
   trigger: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0"/><path d="M12 13V5m0 8 4-4m-4 4-4-4"/><path d="M5 19h14"/></svg>`,
   comment: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/></svg>`
 };
@@ -314,6 +316,7 @@ let contactTagPickerContactId = "";
 let conditionPickerNodeId = "";
 let conditionPickerCategory = "recommended";
 let conditionPickerQuery = "";
+let messageButtonEditorOptionId = "";
 let canvasAddMenu = null;
 let suppressedNodeClickId = "";
 let subscriberTagFilter = "";
@@ -1295,6 +1298,7 @@ function normalizeMessageOptions(options, prefix) {
         type: option.type || "next",
         url: option.url || "",
         phone: option.phone || "",
+        flowId: option.flowId || "",
         next: option.next || null
       };
     })
@@ -1889,6 +1893,7 @@ function renderFlows() {
 
   const node = showInspector ? selectedNode(flow) : null;
   if (showInspector && node) selectedNodeId = node.id;
+  const messageButtonOption = selectedMessageButtonOption(node);
   canvasZoom = clamp(canvasZoom, ZOOM_MIN, ZOOM_MAX);
 
   workspace.innerHTML = `
@@ -1947,12 +1952,12 @@ function renderFlows() {
 
       <aside class="panel inspector flow-config-drawer">
         <div class="flow-config-header">
-          <span>Configurações do bloco</span>
-          <strong>${escapeHtml(node?.title || "Bloco")}</strong>
-          <button class="icon-button" type="button" data-action="peek-inspector" title="Fechar configurações">&times;</button>
+          <span>${messageButtonOption ? "Mensagem" : "Configurações do bloco"}</span>
+          <strong>${messageButtonOption ? "Editar botão" : escapeHtml(node?.title || "Bloco")}</strong>
+          <button class="icon-button" type="button" data-action="${messageButtonOption ? "close-message-button-editor" : "peek-inspector"}" title="${messageButtonOption ? "Voltar para mensagem" : "Fechar configurações"}">&times;</button>
         </div>
-        <div class="panel-body stack" data-inspector-scroll data-inspector-node-id="${attr(node?.id || "")}">
-          ${node ? renderInspector(flow, node) : ""}
+        <div class="panel-body stack" data-inspector-scroll data-inspector-node-id="${attr(`${node?.id || ""}:${messageButtonOption?.id || ""}`)}">
+          ${node ? (messageButtonOption ? renderMessageButtonEditor(flow, node, messageButtonOption) : renderInspector(flow, node)) : ""}
         </div>
       </aside>
       ${renderTriggerPicker(flow)}
@@ -5680,16 +5685,6 @@ function renderMessageSettings(flow, node) {
         </div>
         <div class="settings-card">
           <div class="settings-card-title">
-            <strong>Botões</strong>
-            <span>Até 3 botões fixos. Cada botão pode abrir site, telefone ou seguir para um passo.</span>
-          </div>
-          <div class="message-option-list">
-            ${node.buttons.map((option) => renderMessageOption(flow, node, option, "button")).join("")}
-            <button class="dashed-add-button" type="button" data-action="add-message-button" data-id="${node.id}">+ Botão</button>
-          </div>
-        </div>
-        <div class="settings-card">
-          <div class="settings-card-title">
             <strong>Respostas rápidas</strong>
             <span>Até 11 opções que somem depois que o contato escolhe.</span>
           </div>
@@ -5713,10 +5708,12 @@ function renderMessageContentBlock(flow, node, block) {
   const removeButton = `<button class="mini-menu-button" type="button" data-action="remove-message-block" data-block-id="${attr(block.id)}" title="Remover bloco">&times;</button>`;
 
   if (block.type === "text") {
+    const firstTextBlock = node.contentBlocks.find((item) => item.type === "text");
     return `
-      <article class="message-content-block">
+      <article class="message-content-block manychat-text-message-block">
         <div class="message-content-head">${icons[type.icon] || icons.message}<strong>Texto</strong>${removeButton}</div>
         <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Adicionar texto">${escapeHtml(block.text || "")}</textarea>
+        ${firstTextBlock?.id === block.id ? renderInlineMessageButtons(node) : ""}
       </article>
     `;
   }
@@ -5769,6 +5766,104 @@ function renderMessageContentBlock(flow, node, block) {
       <input data-message-block-field="endpoint" data-block-id="${attr(block.id)}" value="${attr(block.endpoint || "")}" placeholder="Endpoint que retornará a mensagem" />
       <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Fallback se o endpoint falhar">${escapeHtml(block.text || "")}</textarea>
     </article>
+  `;
+}
+
+function renderInlineMessageButtons(node) {
+  const buttons = Array.isArray(node.buttons) ? node.buttons : [];
+  return `
+    <div class="inline-message-button-list">
+      ${buttons
+        .map(
+          (option) => `
+            <button class="inline-message-button" type="button" data-action="edit-message-button" data-option-id="${attr(option.id)}">
+              <span>${escapeHtml(option.title || "Novo botão")}</span>
+              ${icons.edit}
+            </button>
+          `
+        )
+        .join("")}
+      <button class="inline-message-button-add" type="button" data-action="add-message-button" data-id="${attr(node.id)}" ${buttons.length >= 3 ? "disabled" : ""}>+ Botão Adicionar</button>
+    </div>
+  `;
+}
+
+function renderMessageButtonEditor(flow, node, option) {
+  const behavior = messageButtonBehavior(flow, option);
+  return `
+    <form class="message-button-editor manychat-settings">
+      <label class="settings-field">
+        <span>Título do botão</span>
+        <input data-message-option-field="title" data-option-kind="button" data-option-id="${attr(option.id)}" value="${attr(option.title || "")}" placeholder="Novo botão" />
+      </label>
+      <div class="message-button-behavior">
+        <strong>Quando este botão é pressionado</strong>
+        <div class="message-button-behavior-list">
+          ${messageButtonBehaviorChoice("message", "Messenger", icons.message, behavior)}
+          ${messageButtonBehaviorChoice("url", "Abrir Site", icons.link_click_wait, behavior)}
+          ${messageButtonBehaviorChoice("phone", "Número de chamada", icons.phone, behavior)}
+          ${messageButtonBehaviorChoice("action", "Executar Ações", icons.action, behavior)}
+          ${messageButtonBehaviorChoice("condition", "Condição", icons.condition, behavior)}
+          ${messageButtonBehaviorChoice("randomizer", "Randomizador", icons.randomizer, behavior)}
+          ${messageButtonBehaviorChoice("delay", "Atraso Inteligente", icons.delay, behavior)}
+          ${messageButtonBehaviorChoice("start_flow", "Iniciar outra automação", icons.workflow, behavior)}
+          ${messageButtonBehaviorChoice("existing", "Selecionar Passo Existente", icons.workflow, behavior)}
+        </div>
+      </div>
+      ${
+        option.type === "url"
+          ? `<label class="settings-field"><span>URL</span><input data-message-option-field="url" data-option-kind="button" data-option-id="${attr(option.id)}" value="${attr(option.url || "")}" placeholder="https://..." /></label>`
+          : option.type === "phone"
+            ? `<label class="settings-field"><span>Número de chamada</span><input data-message-option-field="phone" data-option-kind="button" data-option-id="${attr(option.id)}" value="${attr(option.phone || "")}" placeholder="+5511999999999" /></label>`
+            : option.type === "start_flow"
+              ? renderMessageButtonFlowSelect(flow, option)
+              : targetSelectField(flow, node, option.next, "Próximo passo", { kind: "button", id: option.id })
+      }
+      <div class="message-button-editor-footer">
+        <button class="text-button danger" type="button" data-action="remove-message-option" data-option-kind="button" data-option-id="${attr(option.id)}">${icons.trash}<span>Excluir</span></button>
+        <button class="primary-button" type="button" data-action="close-message-button-editor">Concluído</button>
+      </div>
+    </form>
+  `;
+}
+
+function messageButtonBehaviorChoice(id, label, icon, current) {
+  return `
+    <button class="message-button-behavior-choice ${id === current ? "active" : ""}" type="button" data-action="set-message-button-behavior" data-behavior="${attr(id)}">
+      <span>${icon}</span>
+      <strong>${escapeHtml(label)}</strong>
+    </button>
+  `;
+}
+
+function selectedMessageButtonOption(node) {
+  if (!messageButtonEditorOptionId || node?.type !== "message") return null;
+  return node.buttons?.find((option) => option.id === messageButtonEditorOptionId) || null;
+}
+
+function messageButtonBehavior(flow, option) {
+  if (option.type === "url") return "url";
+  if (option.type === "phone") return "phone";
+  if (option.type === "start_flow") return "start_flow";
+  const target = flow.nodes.find((node) => node.id === option.next);
+  if (["message", "action", "condition", "randomizer", "delay"].includes(target?.type)) return target.type;
+  return target ? "existing" : "message";
+}
+
+function renderMessageButtonFlowSelect(flow, option) {
+  const pageId = normalizeFlowPageId(flow.pageId || currentFlowPageId());
+  const options = state.flows
+    .filter((item) => item.id !== flow.id && normalizeFlowPageId(item.pageId || pageId) === pageId)
+    .map((item) => `<option value="${attr(item.id)}" ${item.id === option.flowId ? "selected" : ""}>${escapeHtml(item.name || "Fluxo sem nome")}</option>`)
+    .join("");
+  return `
+    <label class="settings-field">
+      <span>Automação</span>
+      <select data-message-option-field="flowId" data-option-kind="button" data-option-id="${attr(option.id)}">
+        <option value="">Selecione um fluxo</option>
+        ${options}
+      </select>
+    </label>
   `;
 }
 
@@ -6714,6 +6809,7 @@ function handleWorkspaceClick(event) {
   if (action === "back-to-flows") {
     flowCanvasOpen = false;
     showInspector = false;
+    messageButtonEditorOptionId = "";
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
@@ -6775,6 +6871,7 @@ function handleWorkspaceClick(event) {
   if (action === "select-flow") {
     selectedFlowId = id;
     selectedNodeId = selectedFlow()?.nodes[0]?.id;
+    messageButtonEditorOptionId = "";
     flowCanvasOpen = true;
     showFlowList = false;
     showInspector = false;
@@ -6794,6 +6891,7 @@ function handleWorkspaceClick(event) {
       return;
     }
     selectedNodeId = id;
+    messageButtonEditorOptionId = "";
     showInspector = true;
     showFlowList = false;
     triggerPickerNodeId = "";
@@ -6810,6 +6908,9 @@ function handleWorkspaceClick(event) {
   if (action === "add-message-block-button") return addMessageBlockButton(button.dataset.blockId);
   if (action === "remove-message-block-button") return removeMessageBlockButton(button.dataset.blockId, button.dataset.buttonId);
   if (action === "add-message-button") return addMessageButton();
+  if (action === "edit-message-button") return editMessageButton(button.dataset.optionId);
+  if (action === "close-message-button-editor") return closeMessageButtonEditor();
+  if (action === "set-message-button-behavior") return setMessageButtonBehavior(button.dataset.behavior);
   if (action === "add-quick-reply") return addQuickReply();
   if (action === "remove-message-option") return removeMessageOption(button.dataset.optionKind, button.dataset.optionId);
   if (action === "add-random-variation") return addRandomVariation();
@@ -8060,6 +8161,7 @@ function toggleInspector() {
 
 function closeInspectorPanel() {
   showInspector = false;
+  messageButtonEditorOptionId = "";
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
@@ -8327,6 +8429,53 @@ function addMessageButton() {
     return;
   }
   node.buttons.push({ id: makeId("btn"), title: "Novo botao", type: "next", url: "", phone: "", next: null });
+  messageButtonEditorOptionId = node.buttons.at(-1).id;
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function editMessageButton(optionId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || node?.type !== "message" || !node.buttons?.some((option) => option.id === optionId)) return;
+  messageButtonEditorOptionId = optionId;
+  showInspector = true;
+  render();
+}
+
+function closeMessageButtonEditor() {
+  messageButtonEditorOptionId = "";
+  render();
+}
+
+function setMessageButtonBehavior(behavior) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  const option = selectedMessageButtonOption(node);
+  if (!flow || node?.type !== "message" || !option) return;
+  if (!["message", "url", "phone", "action", "condition", "randomizer", "delay", "start_flow", "existing"].includes(behavior)) return;
+
+  if (behavior === "url" || behavior === "phone" || behavior === "start_flow") {
+    option.type = behavior;
+    option.next = null;
+    if (behavior !== "start_flow") option.flowId = "";
+  } else {
+    option.type = "next";
+    option.flowId = "";
+    if (["action", "condition", "randomizer", "delay"].includes(behavior)) {
+      const currentTarget = flow.nodes.find((item) => item.id === option.next);
+      if (currentTarget?.type !== behavior) {
+        const buttonIndex = Math.max(0, node.buttons.findIndex((item) => item.id === option.id));
+        const target = buildNode(behavior, node.x + 360, node.y + buttonIndex * 170);
+        flow.nodes.push(target);
+        option.next = target.id;
+      }
+    } else if (behavior === "message") {
+      option.next = null;
+    }
+  }
+
   flow.updatedAt = new Date().toISOString();
   saveState();
   render();
@@ -8353,6 +8502,7 @@ function removeMessageOption(kind, optionId) {
   if (!flow || !node || node.type !== "message") return;
   if (kind === "button") node.buttons = node.buttons.filter((option) => option.id !== optionId);
   else node.quickReplies = node.quickReplies.filter((option) => option.id !== optionId);
+  if (messageButtonEditorOptionId === optionId) messageButtonEditorOptionId = "";
   flow.updatedAt = new Date().toISOString();
   saveState();
   render();
@@ -9882,6 +10032,7 @@ function clearCanvasSelection() {
   if (!showInspector && !selectedNodeId && !triggerPickerNodeId && !nextStepPickerNodeId && !actionPickerNodeId) return;
   showInspector = false;
   selectedNodeId = "";
+  messageButtonEditorOptionId = "";
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
@@ -10224,7 +10375,7 @@ function messageOutputItems(node) {
     }
   ];
 
-  node.buttons.forEach((option) => {
+  node.buttons.filter((option) => !["url", "phone", "start_flow"].includes(option.type)).forEach((option) => {
     items.push({
       targetId: option.next || null,
       label: `Botao: ${option.title || "sem titulo"}`,
@@ -10243,7 +10394,7 @@ function messageOutputItems(node) {
   });
 
   node.contentBlocks.forEach((block) => {
-    block.buttons?.forEach((option) => {
+    block.buttons?.filter((option) => !["url", "phone", "start_flow"].includes(option.type)).forEach((option) => {
       items.push({
         targetId: option.next || null,
         label: `Imagem: ${option.title || "sem titulo"}`,
@@ -11317,6 +11468,7 @@ function navigate(view) {
   if (view === "flows") {
     flowCanvasOpen = false;
     showInspector = false;
+    messageButtonEditorOptionId = "";
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";

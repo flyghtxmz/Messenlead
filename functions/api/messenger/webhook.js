@@ -761,7 +761,8 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const deadline = startedAt + timeoutMs;
   const testFlowId = context.dryRun ? String(context.testFlowId || "").trim() : "";
   const manualFlowId = !context.dryRun ? String(context.manualFlowId || "").trim() : "";
-  const selectedFlowId = testFlowId || manualFlowId;
+  const buttonFlowId = !context.dryRun && !manualFlowId ? requestedButtonFlowId(context) : "";
+  const selectedFlowId = testFlowId || manualFlowId || buttonFlowId;
   const useDraftForTest = context.dryRun && selectedFlowId && context.testVersion === "draft";
   const dbFlows = pageId ? await listFlows(env, pageId, useDraftForTest ? {} : { status: "active" }) : [];
   const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
@@ -774,6 +775,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     selectedFlowId,
     testFlowId,
     manualFlowId,
+    buttonFlowId,
     testVersion: context.testVersion || ""
   });
   const flow =
@@ -810,7 +812,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   await log?.("info", "flow_route_selected", `Fluxo selecionado: ${flow.name || flow.id}.`, {
     flowId: flow.id,
     flowName: flow.name || "",
-    routingMode: manualFlowId ? "manual" : testFlowId ? "test" : "trigger_match",
+    routingMode: manualFlowId ? "manual" : testFlowId ? "test" : buttonFlowId ? "button_flow" : "trigger_match",
     eventType: context.eventType || "",
     sourceLabel: context.sourceLabel || "",
     hasAdReferral: Boolean(context.hasAdReferral),
@@ -824,7 +826,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     nodeCount: flow.nodes?.length || 0
   }, flow);
 
-  const start = manualFlowId
+  const start = manualFlowId || buttonFlowId
     ? flow.nodes?.find((node) => node.type === "trigger") || flow.nodes?.[0]
     : interactiveStartNode(flow, context) ||
       flow.nodes?.find((node) => node.type === "trigger" && triggerMatchesEvent(node, flow, context));
@@ -1756,7 +1758,8 @@ function normalizeMessageOptions(options, prefix) {
         type: String(option.type || "next"),
         next: option.next || null,
         url: option.url || "",
-        phone: option.phone || ""
+        phone: option.phone || "",
+        flowId: option.flowId || ""
       };
     })
     .filter((option) => option.title);
@@ -1942,6 +1945,13 @@ function eventContext(event, options = {}) {
   };
 }
 
+function requestedButtonFlowId(context = {}) {
+  if (!["postback", "quick_reply"].includes(context.eventType)) return "";
+  const prefix = "MESSENLEAD_START_FLOW:";
+  const payload = String(context.text || "").trim();
+  return payload.startsWith(prefix) ? payload.slice(prefix.length).trim() : "";
+}
+
 function triggerMatchesEvent(node, flow, context) {
   if (!node) return false;
   const triggers = Array.isArray(node.triggerEvents) && node.triggerEvents.length ? node.triggerEvents : [node.triggerKind || "messenger_message"];
@@ -2033,6 +2043,7 @@ function normalizeTags(value) {
 function repliesForMessageNode(node, context = {}) {
   normalizeNodeShape(node);
   const tracking = messageNodeTracking(context.flow, node);
+  const lastTextBlockIndex = node.contentBlocks.reduce((lastIndex, block, index) => (block.type === "text" ? index : lastIndex), -1);
   const quickReplies = node.quickReplies.map((option) => ({
     title: option.title,
     payload: option.id || option.title
@@ -2042,7 +2053,7 @@ function repliesForMessageNode(node, context = {}) {
     type: option.type || "next",
     url: resolveTemplate(option.url, context.contact, context.entry),
     phone: option.phone || "",
-    payload: option.id || option.title,
+    payload: option.type === "start_flow" && option.flowId ? `MESSENLEAD_START_FLOW:${option.flowId}` : option.id || option.title,
     tracking
   }));
 
@@ -2053,7 +2064,7 @@ function repliesForMessageNode(node, context = {}) {
           type: "text",
           text: resolveTemplate(block.text || node.message || "", context.contact, context.entry),
           quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : [],
-          buttons: index === node.contentBlocks.length - 1 ? buttons : []
+          buttons: index === lastTextBlockIndex ? buttons : []
         };
       }
       if (block.type === "image" && block.url && block.buttons?.length) {

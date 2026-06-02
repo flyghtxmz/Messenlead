@@ -5713,6 +5713,150 @@ svg {
   padding-top: 4px;
 }
 
+.manychat-text-message-block {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-style: dashed;
+  background: #f7f7f7;
+}
+
+.manychat-text-message-block .message-content-head {
+  padding: 7px 8px 0;
+}
+
+.manychat-text-message-block textarea {
+  min-height: 74px;
+  padding: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.manychat-text-message-block textarea:focus {
+  outline: 2px solid rgba(0, 119, 255, 0.24);
+  outline-offset: -2px;
+}
+
+.inline-message-button-list {
+  display: grid;
+  border-top: 1px dashed #ccd5df;
+  background: #fff;
+}
+
+.inline-message-button,
+.inline-message-button-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 31px;
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px dashed #d6dde6;
+  background: #fff;
+  color: #5f6b78;
+  font-size: 11px;
+}
+
+.inline-message-button:hover,
+.inline-message-button-add:hover {
+  background: #f8fbff;
+  color: #006fe8;
+}
+
+.inline-message-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.inline-message-button-add {
+  border-bottom: 0;
+}
+
+.message-button-editor {
+  display: grid;
+  gap: 14px;
+  min-height: 100%;
+  padding: 12px 0 64px;
+}
+
+.message-button-behavior {
+  display: grid;
+  gap: 8px;
+}
+
+.message-button-behavior > strong {
+  color: #344054;
+  font-size: 12px;
+}
+
+.message-button-behavior-list {
+  display: grid;
+  gap: 6px;
+}
+
+.message-button-behavior-choice {
+  display: grid;
+  grid-template-columns: 23px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 1px dashed #d3d9e0;
+  border-radius: 8px;
+  background: #fff;
+  color: #344054;
+  text-align: left;
+}
+
+.message-button-behavior-choice:hover,
+.message-button-behavior-choice.active {
+  border-color: #0077ff;
+  background: #f6faff;
+}
+
+.message-button-behavior-choice > span {
+  display: grid;
+  place-items: center;
+  color: #0077ff;
+}
+
+.message-button-behavior-choice svg {
+  width: 21px;
+  height: 21px;
+}
+
+.message-button-behavior-choice strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-button-editor-footer {
+  position: sticky;
+  bottom: -14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px -14px -14px;
+  padding: 10px 14px;
+  border-top: 1px solid #d9e0e7;
+  background: #fff;
+}
+
+.message-button-editor-footer .text-button {
+  gap: 5px;
+  color: #d92d20;
+}
+
+.message-button-editor-footer svg {
+  width: 15px;
+  height: 15px;
+}
+
 .block-button-card {
   background: #fbfdff;
 }
