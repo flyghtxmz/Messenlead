@@ -2443,6 +2443,84 @@ svg {
   text-align: right;
 }
 
+.origins-panel {
+  overflow: hidden;
+}
+
+.origins-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfa;
+}
+
+.origins-search-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.origins-search-hint svg {
+  width: 17px;
+  height: 17px;
+  color: #087443;
+}
+
+.origins-error {
+  margin: 12px 14px 0;
+}
+
+.origins-table {
+  min-width: 1040px;
+}
+
+.origins-table td {
+  vertical-align: middle;
+}
+
+.origins-table strong,
+.origin-table-detail {
+  display: block;
+}
+
+.origin-table-detail {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.origin-source-key {
+  padding: 4px 6px;
+  border: 1px solid #cce7d6;
+  border-radius: 4px;
+  background: #f2fbf5;
+  color: #087443;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.origin-table-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.origin-table-actions .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.origin-table-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
 .unread-divider {
   display: flex;
   align-items: center;
@@ -6806,6 +6884,10 @@ svg {
   .pixel-grid,
   .json-template-grid,
   .pixel-event-row {
+    grid-template-columns: 1fr;
+  }
+
+  .origins-summary {
     grid-template-columns: 1fr;
   }
 

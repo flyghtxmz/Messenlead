@@ -1,3 +1,5 @@
+import { ensurePageSchema } from "./pages.js";
+
 const DEFAULT_PAGE_ID = "__global__";
 
 export async function ensureMessengerAttributionSchema(env) {
@@ -158,6 +160,83 @@ export async function listMessengerAttributions(env, pageId, options = {}) {
       `).bind(normalizedPageId, limit).all();
 
   return (rows.results || []).map(rowToAttribution);
+}
+
+export async function listMessengerAttributionSources(env, options = {}) {
+  const hasAttributionDb = await ensureMessengerAttributionSchema(env);
+  const hasPageDb = await ensurePageSchema(env);
+  if (!hasAttributionDb || !hasPageDb) return [];
+
+  const userId = cleanText(options.userId, 180);
+  if (!userId) return [];
+
+  const query = cleanText(options.query, 250);
+  const pageId = cleanText(options.pageId, 160);
+  const limit = clampNumber(options.limit, 1, 1000, 500);
+  const clauses = ["pages.user_id = ?"];
+  const params = [userId];
+
+  if (pageId) {
+    clauses.push("sources.page_id = ?");
+    params.push(pageId);
+  }
+
+  if (query) {
+    clauses.push(`(
+      sources.source_key LIKE ?
+      OR sources.ad_id LIKE ?
+      OR sources.ad_title LIKE ?
+      OR pages.name LIKE ?
+      OR sources.page_id LIKE ?
+    )`);
+    const pattern = `%${query}%`;
+    params.push(pattern, pattern, pattern, pattern, pattern);
+  }
+
+  params.push(limit);
+  const rows = await env.DB.prepare(`
+    SELECT
+      sources.page_id,
+      pages.name AS page_name,
+      sources.ad_id,
+      sources.source_key,
+      sources.ad_title,
+      sources.first_seen_at,
+      sources.last_seen_at,
+      COUNT(events.id) AS entry_count,
+      COUNT(DISTINCT events.psid) AS contact_count
+    FROM messenger_attribution_sources sources
+    INNER JOIN connected_pages pages
+      ON pages.page_id = sources.page_id
+    LEFT JOIN messenger_attribution_events events
+      ON events.page_id = sources.page_id
+      AND events.ad_id = sources.ad_id
+    WHERE ${clauses.join(" AND ")}
+    GROUP BY
+      sources.page_id,
+      pages.name,
+      sources.ad_id,
+      sources.source_key,
+      sources.ad_title,
+      sources.first_seen_at,
+      sources.last_seen_at
+    ORDER BY datetime(sources.last_seen_at) DESC
+    LIMIT ?
+  `)
+    .bind(...params)
+    .all();
+
+  return (rows.results || []).map((row) => ({
+    pageId: row.page_id || "",
+    pageName: row.page_name || "",
+    adId: row.ad_id || "",
+    sourceKey: row.source_key || "",
+    adTitle: row.ad_title || "",
+    firstSeenAt: row.first_seen_at || "",
+    lastSeenAt: row.last_seen_at || "",
+    entries: Number(row.entry_count || 0),
+    contacts: Number(row.contact_count || 0)
+  }));
 }
 
 function rowToAttribution(row) {

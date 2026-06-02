@@ -783,7 +783,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     selectedFlowId
       ? activeFlows[0]
       : activeFlows.find((item) => matchingFlowMessageOption(item, context)) ||
-        activeFlows.find((item) => flowMatchesInput(item, context));
+        matchingFlowByTriggerPriority(activeFlows, context);
 
   if (!flow) {
     const allFlows = pageId ? await listFlows(env, pageId) : [];
@@ -1934,6 +1934,43 @@ function flowStatusCounts(flows = []) {
 function flowMatchesInput(flow, context) {
   const triggerNode = flow.nodes?.find((node) => node.type === "trigger");
   return triggerMatchesEvent(triggerNode, flow, context);
+}
+
+function matchingFlowByTriggerPriority(flows = [], context = {}) {
+  return flows
+    .map((flow, index) => ({
+      flow,
+      index,
+      priority: flowTriggerMatchPriority(flow, context)
+    }))
+    .filter((item) => item.priority >= 0)
+    .sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.flow;
+}
+
+function flowTriggerMatchPriority(flow, context) {
+  const node = flow.nodes?.find((item) => item.type === "trigger");
+  if (!node) return -1;
+  const triggers = Array.isArray(node.triggerEvents) && node.triggerEvents.length ? node.triggerEvents : [node.triggerKind || "messenger_message"];
+
+  return triggers.reduce((priority, trigger) => {
+    if (!triggerEventMatches(trigger, context) || !triggerKeywordMatches(trigger, node, flow, context)) return priority;
+    return Math.max(priority, triggerMatchPriority(trigger));
+  }, -1);
+}
+
+function triggerMatchPriority(trigger) {
+  return {
+    facebook_ad: 100,
+    facebook_comment: 95,
+    facebook_shop_message: 90,
+    qr_code: 85,
+    referral_link: 80,
+    get_started: 75,
+    messenger_optin: 70,
+    message_contains_keyword: 65,
+    messenger_postback: 60,
+    messenger_message: 10
+  }[trigger] || 50;
 }
 
 function eventContext(event, options = {}) {

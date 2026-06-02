@@ -17,6 +17,7 @@ const navItems = [
   { id: "subscribers", label: "Assinantes", icon: "users" },
   { id: "broadcasts", label: "Disparos", icon: "send" },
   { id: "json_templates", label: "JSON Template", icon: "pages" },
+  { id: "origins", label: "Origens", icon: "pixel" },
   { id: "pixel", label: "Pixel", icon: "pixel" },
   { id: "media", label: "Mídia", icon: "upload" },
   { id: "image", label: "Imagem", icon: "image" },
@@ -394,6 +395,14 @@ let attributionState = {
   events: [],
   error: ""
 };
+let attributionSourceState = {
+  initialized: false,
+  loading: false,
+  query: "",
+  sources: [],
+  error: ""
+};
+let attributionSourceSearchTimer = null;
 let jsonTemplateState = {
   pageId: "",
   loading: false,
@@ -486,6 +495,10 @@ modalRoot.addEventListener("submit", handleModalSubmit);
 globalSearch.addEventListener("input", (event) => {
   searchQuery = event.target.value.trim().toLowerCase();
   render();
+  if (activeView === "origins") {
+    window.clearTimeout(attributionSourceSearchTimer);
+    attributionSourceSearchTimer = window.setTimeout(() => loadAttributionSources({ query: searchQuery, silent: true }), 260);
+  }
 });
 
 exportButton.addEventListener("click", exportWorkspace);
@@ -1470,6 +1483,7 @@ function render() {
     subscribers: renderSubscribers,
     broadcasts: renderBroadcasts,
     json_templates: renderJsonTemplates,
+    origins: renderOrigins,
     pixel: renderPixel,
     media: renderMediaLibrary,
     image: renderImageTool,
@@ -1492,6 +1506,7 @@ function renderNav() {
     subscribers: pageContacts.length,
     broadcasts: state.campaigns.filter((campaign) => campaign.status !== "sent").length,
     json_templates: jsonTemplateState.pageId === currentFlowPageId() ? jsonTemplateState.templates.length || "" : "",
+    origins: attributionSourceState.initialized ? attributionSourceState.sources.length || "" : "",
     pixel: pixelState.summary?.linkClicks || "",
     image: "",
     video: "",
@@ -2813,6 +2828,136 @@ function renderJsonTemplateCard(template) {
       <pre class="code-block json-template-code">${escapeHtml(template.jsonText || "{}")}</pre>
     </article>
   `;
+}
+
+function renderOrigins() {
+  if (!metaState.authChecked) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="empty-state">
+          ${icons.pixel}
+          <strong>Verificando conexao com a Meta</strong>
+          <span>O painel vai carregar as origens registradas para sua conta.</span>
+        </div>
+      </section>
+    `;
+    loadMetaProfile();
+    return;
+  }
+
+  if (!metaState.profile) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Consultar origens</h2>
+            <span>Entre com Facebook para consultar as chaves curtas registradas.</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <button class="primary-button" type="button" data-action="connect-facebook">${icons.plug}<span>Entrar com Facebook</span></button>
+        </div>
+      </section>
+    `;
+    return;
+  }
+
+  if (!metaState.pages) {
+    workspace.innerHTML = `
+      <section class="panel">
+        <div class="empty-state">
+          ${icons.pages}
+          <strong>Carregando Paginas</strong>
+          <span>Atualizando as Paginas vinculadas antes de consultar as origens.</span>
+        </div>
+      </section>
+    `;
+    loadMetaPages();
+    return;
+  }
+
+  if ((!attributionSourceState.initialized || attributionSourceState.query !== searchQuery) && !attributionSourceState.loading) {
+    loadAttributionSources({ query: searchQuery, silent: true });
+  }
+
+  const sources = filterBySearch(attributionSourceState.sources, originSourceSearchText);
+  const totalEntries = sources.reduce((sum, source) => sum + Number(source.entries || 0), 0);
+  const totalContacts = sources.reduce((sum, source) => sum + Number(source.contacts || 0), 0);
+
+  workspace.innerHTML = `
+    <section class="panel origins-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Origens dos anuncios</h2>
+          <span>Consulte qual Pagina e anuncio correspondem a uma chave curta como src_1lcurop1u8.</span>
+        </div>
+        <button class="secondary-button" type="button" data-action="refresh-origin-sources">${icons.refresh}<span>Atualizar</span></button>
+      </div>
+      <div class="origins-summary">
+        ${metricInline("Origens encontradas", sources.length)}
+        ${metricInline("Contatos vinculados", totalContacts)}
+        ${metricInline("Entradas registradas", totalEntries)}
+      </div>
+      <div class="origins-search-hint">
+        ${icons.pixel}
+        <span>Use a busca superior para localizar por <strong>src_...</strong>, ID do anuncio, titulo ou Pagina.</span>
+      </div>
+      ${attributionSourceState.error ? `<div class="modal-error origins-error">${escapeHtml(attributionSourceState.error)}</div>` : ""}
+      <div class="table-wrap">
+        <table class="data-table origins-table">
+          <thead>
+            <tr>
+              <th>Chave curta</th>
+              <th>Pagina</th>
+              <th>Anuncio</th>
+              <th>Contatos</th>
+              <th>Entradas</th>
+              <th>Ultima entrada</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              attributionSourceState.loading && !sources.length
+                ? `<tr><td colspan="7">Carregando origens...</td></tr>`
+                : sources.length
+                  ? sources.map(renderOriginSourceRow).join("")
+                  : `<tr><td colspan="7">Nenhuma origem encontrada.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderOriginSourceRow(source) {
+  return `
+    <tr>
+      <td><code class="origin-source-key">${escapeHtml(source.sourceKey || "-")}</code></td>
+      <td>
+        <strong>${escapeHtml(source.pageName || "Pagina sem nome")}</strong>
+        <small class="origin-table-detail">${escapeHtml(source.pageId || "-")}</small>
+      </td>
+      <td>
+        <strong>${escapeHtml(source.adTitle || "Anuncio sem titulo retornado pela Meta")}</strong>
+        <small class="origin-table-detail">Ad ID: ${escapeHtml(source.adId || "-")}</small>
+      </td>
+      <td>${Number(source.contacts || 0)}</td>
+      <td>${Number(source.entries || 0)}</td>
+      <td>${escapeHtml(formatDate(source.lastSeenAt) || "-")}</td>
+      <td>
+        <div class="origin-table-actions">
+          <button class="icon-button" type="button" data-action="copy-origin-key" data-value="${attr(source.sourceKey || "")}" title="Copiar chave curta">${icons.copy}</button>
+          <button class="icon-button" type="button" data-action="copy-origin-ad-id" data-value="${attr(source.adId || "")}" title="Copiar ID do anuncio">${icons.pages}</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function originSourceSearchText(source) {
+  return `${source.sourceKey || ""} ${source.pageName || ""} ${source.pageId || ""} ${source.adTitle || ""} ${source.adId || ""}`;
 }
 
 function safeTrackingToken(value) {
@@ -4615,6 +4760,13 @@ async function logoutFacebook() {
     loadingMessages: false,
     error: ""
   };
+  attributionSourceState = {
+    initialized: false,
+    loading: false,
+    query: "",
+    sources: [],
+    error: ""
+  };
   render();
 }
 
@@ -5133,6 +5285,35 @@ async function loadAttributionsForPage(pageId = currentFlowPageId(), options = {
     if (attributionState.pageId === normalizedPageId) {
       attributionState.loading = false;
       if (activeView === "settings") render();
+    }
+  }
+}
+
+async function loadAttributionSources(options = {}) {
+  const query = String(options.query ?? searchQuery ?? "").trim().toLowerCase();
+  attributionSourceState = {
+    ...attributionSourceState,
+    loading: true,
+    query,
+    error: ""
+  };
+  if (activeView === "origins" && !options.silent) render();
+
+  try {
+    const result = await apiGet(`/api/messenger-attributions?view=sources&limit=500&q=${encodeURIComponent(query)}`);
+    if (attributionSourceState.query !== query) return;
+    attributionSourceState.sources = Array.isArray(result.sources) ? result.sources : [];
+    attributionSourceState.initialized = true;
+    attributionSourceState.error = "";
+  } catch (error) {
+    if (attributionSourceState.query !== query) return;
+    attributionSourceState.sources = [];
+    attributionSourceState.initialized = true;
+    attributionSourceState.error = error.message || "Erro ao carregar origens";
+  } finally {
+    if (attributionSourceState.query === query) {
+      attributionSourceState.loading = false;
+      if (activeView === "origins") render();
     }
   }
 }
@@ -7246,6 +7427,9 @@ function handleWorkspaceClick(event) {
   if (action === "clear-flow-logs") return clearFlowLogs();
   if (action === "refresh-pixel-events") return loadPixelEventsForPage(currentFlowPageId());
   if (action === "refresh-attributions") return loadAttributionsForPage(currentFlowPageId());
+  if (action === "refresh-origin-sources") return loadAttributionSources({ query: searchQuery });
+  if (action === "copy-origin-key") return copyText(button.dataset.value || "", "Chave curta copiada.");
+  if (action === "copy-origin-ad-id") return copyText(button.dataset.value || "", "ID do anuncio copiado.");
   if (action === "copy-ad-entry-template") return copyText(adEntryTemplateJson(), "Template JSON copiado.");
   if (action === "open-json-templates") return navigate("json_templates");
   if (action === "refresh-json-templates") return loadJsonTemplatesForPage(currentFlowPageId());
@@ -12038,6 +12222,7 @@ function placeholderForView(view) {
     subscribers: "Buscar assinante ou PSID",
     broadcasts: "Buscar disparo",
     json_templates: "Buscar JSON Template",
+    origins: "Buscar src_, anuncio ou Pagina",
     pixel: "Buscar evento, link ou visitante",
     image: "Limpar metadados de imagem",
     video: "Trocar áudio de vídeo",
