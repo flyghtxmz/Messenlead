@@ -1954,7 +1954,9 @@ function triggerMatchesEvent(node, flow, context) {
 
 function triggerEventMatches(trigger, context) {
   if (trigger === "messenger_message") return ["message", "quick_reply", "postback", "optin"].includes(context.eventType);
-  if (trigger === "facebook_ad") return context.hasAdReferral;
+  if (trigger === "facebook_ad") {
+    return context.hasAdReferral && ["message", "quick_reply", "postback", "optin"].includes(context.eventType);
+  }
   if (trigger === "facebook_comment") return context.referralSource.includes("comment");
   if (trigger === "referral_link") return context.hasReferral;
   if (trigger === "qr_code") return context.referralRef.includes("qr") || context.referralSource.includes("qr");

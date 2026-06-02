@@ -53,9 +53,9 @@ const triggerOptions = [
   {
     id: "facebook_ad",
     group: "Messenger",
-    source: "Facebook Ads do Messenger",
-    title: "O usuario clica no anuncio do Facebook",
-    description: "Dispara quando a Meta envia a referencia de um anuncio Click-to-Messenger."
+    source: "Facebook Ad JSON",
+    title: "O usuario interage com o template JSON do anuncio",
+    description: "Dispara somente quando a Meta envia uma interacao com o template JSON de um anuncio Click-to-Messenger."
   },
   {
     id: "facebook_comment",
@@ -5618,7 +5618,7 @@ function renderTriggerSettingCard(node, triggerId, index) {
           ? `
             <label class="trigger-config-field">
               <span>ID do anuncio <small>opcional</small></span>
-              <input data-trigger-config-field="adId" data-trigger-id="facebook_ad" value="${attr(adId)}" placeholder="Vazio = qualquer anuncio Click-to-Messenger" />
+              <input data-trigger-config-field="adId" data-trigger-id="facebook_ad" value="${attr(adId)}" placeholder="Vazio = qualquer template JSON de anuncio" />
             </label>
           `
           : ""
@@ -5628,7 +5628,7 @@ function renderTriggerSettingCard(node, triggerId, index) {
 }
 
 function triggerExecutionLabel(triggerId) {
-  if (triggerId === "facebook_ad") return "Referencia do anuncio recebida pelo Messenger";
+  if (triggerId === "facebook_ad") return "Interacao recebida pelo template JSON do anuncio";
   return "0 execuções";
 }
 
