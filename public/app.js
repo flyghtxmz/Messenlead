@@ -213,6 +213,7 @@ const CANVAS_ORIGIN_Y = 2600;
 const NODE_WIDTH = 260;
 const NODE_CENTER_Y = 70;
 const NODE_CONNECT_Y = 112;
+const NODE_INPUT_Y = 54;
 const MESSAGE_OUTPUT_START_Y = 106;
 const MESSAGE_OUTPUT_GAP_Y = 31;
 const CANVAS_MIN_X = -CANVAS_ORIGIN_X + 80;
@@ -10799,7 +10800,7 @@ function renderMiniMapContent(flow) {
 }
 
 function renderConnections(flow) {
-  return flow.nodes
+  const links = flow.nodes
     .flatMap((node) =>
       connectionTargets(flow, node).map((connection, index) => {
       const { target, label } = connection;
@@ -10815,7 +10816,7 @@ function renderConnections(flow) {
       return `
         <g class="connection-link" ${dataAttrs}>
           <path class="connection-hit" d="${attr(path)}" />
-          <path class="connection-line" d="${attr(path)}" />
+          <path class="connection-line" d="${attr(path)}" marker-end="url(#connection-arrow)" />
           <text class="connection-label" x="${miniNumber(middleX)}" y="${miniNumber(middleY - 6)}">${escapeHtml(label || "")}</text>
           <foreignObject class="connection-delete-object" x="${miniNumber(middleX - 14)}" y="${miniNumber(middleY - 14)}" width="28" height="28">
             <button class="connection-delete-button" type="button" data-action="disconnect-connection" ${dataAttrs} title="Desconectar linha" aria-label="Desconectar linha">${icons.trash}</button>
@@ -10825,6 +10826,15 @@ function renderConnections(flow) {
       })
     )
     .join("");
+
+  return `
+    <defs>
+      <marker id="connection-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+        <path class="connection-arrow-path" d="M0,0 L8,4 L0,8 Z" />
+      </marker>
+    </defs>
+    ${links}
+  `;
 }
 
 function connectionDataAttributes(source, connection) {
@@ -11156,12 +11166,12 @@ function nodeInputPoint(node) {
     const zoom = canvasZoom || 1;
     return {
       x: (canvas.scrollLeft + nodeRect.left - canvasRect.left) / zoom,
-      y: (canvas.scrollTop + nodeRect.top + nodeRect.height / 2 - canvasRect.top) / zoom
+      y: (canvas.scrollTop + nodeRect.top + NODE_INPUT_Y * zoom - canvasRect.top) / zoom
     };
   }
   return {
     x: canvasNodeLeft(node),
-    y: canvasNodeTop(node) + NODE_CONNECT_Y
+    y: canvasNodeTop(node) + NODE_INPUT_Y
   };
 }
 
@@ -11318,7 +11328,7 @@ function renderMessengerPreviewQuickReply(node, option) {
 function renderMessageNodePort(node, item = {}) {
   return `
     <button
-      class="node-port message-node-port"
+      class="node-port message-node-port ${item?.targetId ? "connected" : ""}"
       type="button"
       data-port-source="${attr(node.id)}"
       data-port-field="${attr(item?.field || "")}"
@@ -11773,7 +11783,7 @@ function renderMessageOutputPorts(node) {
             <div class="message-node-output-row ${item.targetId ? "connected" : ""}">
               <span>${escapeHtml(item.label)}</span>
               <button
-                class="node-port message-node-port"
+                class="node-port message-node-port ${item.targetId ? "connected" : ""}"
                 type="button"
                 data-port-source="${attr(node.id)}"
                 data-port-field="${attr(item.field || "")}"
@@ -11792,20 +11802,21 @@ function renderMessageOutputPorts(node) {
 
 function renderOutputPort(node) {
   if (node.type === "comment") return "";
-  return `<button class="node-port" type="button" data-port-source="${attr(node.id)}" data-port-field="next" aria-label="Conectar próximo passo"></button>`;
+  const connected = node.type === "randomizer" ? node.variations?.some((variation) => variation.next) : node.next;
+  return `<button class="node-port ${connected ? "connected" : ""}" type="button" data-port-source="${attr(node.id)}" data-port-field="next" aria-label="Conectar próximo passo"></button>`;
 }
 
 function renderConditionOutputPorts(node) {
   return `
-    <button class="node-port condition-node-port yes" type="button" data-port-source="${attr(node.id)}" data-port-field="yesNext" aria-label="Conectar quando corresponde"></button>
-    <button class="node-port condition-node-port no" type="button" data-port-source="${attr(node.id)}" data-port-field="noNext" aria-label="Conectar quando não corresponde"></button>
+    <button class="node-port condition-node-port yes ${node.yesNext ? "connected" : ""}" type="button" data-port-source="${attr(node.id)}" data-port-field="yesNext" aria-label="Conectar quando corresponde"></button>
+    <button class="node-port condition-node-port no ${node.noNext ? "connected" : ""}" type="button" data-port-source="${attr(node.id)}" data-port-field="noNext" aria-label="Conectar quando não corresponde"></button>
   `;
 }
 
 function renderLinkClickWaitOutputPorts(node) {
   return `
-    <button class="node-port link-click-node-port yes" type="button" data-port-source="${attr(node.id)}" data-port-field="clickedNext" aria-label="Conectar quando clicou"></button>
-    <button class="node-port link-click-node-port no" type="button" data-port-source="${attr(node.id)}" data-port-field="noClickNext" aria-label="Conectar quando nao clicou"></button>
+    <button class="node-port link-click-node-port yes ${node.clickedNext ? "connected" : ""}" type="button" data-port-source="${attr(node.id)}" data-port-field="clickedNext" aria-label="Conectar quando clicou"></button>
+    <button class="node-port link-click-node-port no ${node.noClickNext ? "connected" : ""}" type="button" data-port-source="${attr(node.id)}" data-port-field="noClickNext" aria-label="Conectar quando nao clicou"></button>
   `;
 }
 

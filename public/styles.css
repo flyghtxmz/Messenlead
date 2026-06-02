@@ -1330,6 +1330,10 @@ svg {
   pointer-events: none;
 }
 
+.connection-arrow-path {
+  fill: #8aa2b4;
+}
+
 .connection-link {
   pointer-events: auto;
 }
@@ -1898,6 +1902,13 @@ svg {
 .node.link_click_wait .link-click-node-port.no:focus-visible {
   border-color: #e84b4b;
   box-shadow: 0 0 0 4px rgba(232, 75, 75, 0.16);
+}
+
+.node-port.connected,
+.condition-node .condition-node-port.connected,
+.node.link_click_wait .link-click-node-port.connected {
+  border-color: #8ba0b2;
+  background: #8ba0b2;
 }
 
 .node.comment {
