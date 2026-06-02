@@ -4724,6 +4724,9 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused {
+  --canvas-toolbar-height: 54px;
+  --canvas-drawer-width: 292px;
+  position: relative;
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: none;
   gap: 0;
@@ -4734,7 +4737,7 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
-  grid-template-columns: 292px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .canvas-shell {
@@ -4750,25 +4753,32 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector > .canvas-shell {
-  grid-area: 1 / 2;
+  grid-area: 1 / 1;
 }
 
 .app-shell.canvas-mode .canvas-toolbar {
   position: relative;
   z-index: 25;
-  min-height: 46px;
+  height: var(--canvas-toolbar-height);
+  min-height: var(--canvas-toolbar-height);
   padding: 6px 12px;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
   border-bottom: 1px solid #d5dde6;
   background: #ffffff;
 }
 
+.app-shell.canvas-mode .canvas-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
 .app-shell.canvas-mode .canvas-peek-button {
   position: absolute;
-  top: 50%;
+  top: calc(var(--canvas-toolbar-height) + (100% - var(--canvas-toolbar-height)) / 2);
   left: 8px;
   z-index: 80;
   display: grid;
@@ -4785,7 +4795,7 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector .canvas-peek-button {
-  left: 8px;
+  left: calc(var(--canvas-drawer-width) - 17px);
   opacity: 1;
 }
 
@@ -4803,7 +4813,7 @@ svg {
 
 .app-shell.canvas-mode .canvas-toolbar .tight-stack {
   flex: 1 1 260px;
-  min-width: 0;
+  min-width: 190px;
   gap: 1px;
 }
 
@@ -5123,9 +5133,15 @@ svg {
 
 .app-shell.canvas-mode .canvas-panel-controls .secondary-button,
 .app-shell.canvas-mode .canvas-actions .chip-button,
-.app-shell.canvas-mode .canvas-actions .secondary-button {
+.app-shell.canvas-mode .canvas-actions .secondary-button,
+.app-shell.canvas-mode .canvas-actions .primary-button {
+  height: 30px;
   min-height: 30px;
   padding: 0 9px;
+}
+
+.app-shell.canvas-mode .canvas-panel-controls .secondary-button {
+  height: 30px;
 }
 
 .app-shell.canvas-mode .canvas-actions .icon-button {
@@ -5133,7 +5149,14 @@ svg {
   height: 30px;
 }
 
+.app-shell.canvas-mode .flow-status-pill {
+  min-height: 28px;
+  padding: 0 9px;
+}
+
 .app-shell.canvas-mode .canvas-zoom {
+  height: 36px;
+  box-sizing: border-box;
   padding: 3px;
 }
 
@@ -5143,6 +5166,7 @@ svg {
 }
 
 .app-shell.canvas-mode .canvas-zoom .secondary-button {
+  height: 28px;
   min-height: 28px;
 }
 
@@ -5158,6 +5182,10 @@ svg {
   background-size: 32px 32px;
   scrollbar-width: none;
   user-select: none;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused.show-inspector > .canvas-shell > .flow-canvas {
+  margin-left: var(--canvas-drawer-width);
 }
 
 .app-shell.canvas-mode .flow-canvas::-webkit-scrollbar {
@@ -5336,16 +5364,15 @@ svg {
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
-  position: relative;
-  top: auto;
-  left: auto;
+  position: absolute;
+  top: var(--canvas-toolbar-height);
+  left: 0;
   right: auto;
-  z-index: 20;
-  grid-area: 1 / 1;
+  z-index: 40;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: auto;
-  height: 100vh;
+  width: var(--canvas-drawer-width);
+  height: calc(100vh - var(--canvas-toolbar-height));
   max-height: none;
   overflow: hidden;
   border: 0;
@@ -5359,6 +5386,10 @@ svg {
 
 .app-shell.canvas-mode .page-grid.canvas-focused:not(.show-inspector) > .inspector {
   display: none;
+}
+
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector.no-drawer-header {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-header {
@@ -5385,6 +5416,10 @@ svg {
   overflow-x: hidden;
 }
 
+.app-shell.canvas-mode .page-grid.canvas-focused > .inspector .panel-body.without-drawer-header {
+  padding-top: 14px;
+}
+
 .app-shell.canvas-mode .flow-config-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -5394,6 +5429,11 @@ svg {
   align-items: center;
   padding: 10px 12px 10px 16px;
   border-bottom: 1px solid #eef2f5;
+}
+
+.app-shell.canvas-mode .flow-config-header.compact {
+  min-height: 44px;
+  padding: 7px 10px 7px 14px;
 }
 
 .app-shell.canvas-mode .flow-config-header > span {
@@ -7131,26 +7171,11 @@ svg {
 
 @media (max-width: 1180px) {
   .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector {
-    grid-template-columns: 292px minmax(0, 1fr);
-  }
-
-  .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
-    position: relative;
-    top: auto;
-    left: auto;
-    right: auto;
-    width: auto;
-    height: 100vh;
-    max-height: none;
-    border: 0;
-    border-right: 1px solid #d5dde6;
-    border-radius: 0;
-    box-shadow: none;
-    transform: none;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .app-shell.canvas-mode .canvas-toolbar {
-    align-items: flex-start;
+    align-items: center;
   }
 }
 
@@ -7202,6 +7227,10 @@ svg {
     height: auto;
   }
 
+  .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector > .canvas-shell > .flow-canvas {
+    margin-left: 0;
+  }
+
   .app-shell.canvas-mode .page-grid.canvas-focused > .inspector {
     position: absolute;
     top: 58px;
@@ -7219,5 +7248,9 @@ svg {
 
   .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector > .canvas-shell {
     grid-column: 1;
+  }
+
+  .app-shell.canvas-mode .page-grid.canvas-focused.show-inspector .canvas-peek-button {
+    left: 8px;
   }
 }

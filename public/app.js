@@ -2028,13 +2028,18 @@ function renderFlows() {
         ${viewingPublished ? "" : renderCanvasAddMenu()}
       </section>
 
-      <aside class="panel inspector flow-config-drawer">
-        <div class="flow-config-header">
-          <span>${viewingPublished ? "Versão publicada" : messageButtonOption ? "Mensagem" : "Configurações do bloco"}</span>
-          <strong>${viewingPublished ? escapeHtml(flow.name) : messageButtonOption ? "Editar botão" : escapeHtml(node?.title || "Bloco")}</strong>
-          <button class="icon-button" type="button" data-action="${!viewingPublished && messageButtonOption ? "close-message-button-editor" : "peek-inspector"}" title="${!viewingPublished && messageButtonOption ? "Voltar para mensagem" : "Fechar painel"}">&times;</button>
-        </div>
-        <div class="panel-body stack" data-inspector-scroll data-inspector-node-id="${attr(`${node?.id || ""}:${messageButtonOption?.id || ""}`)}">
+      <aside class="panel inspector flow-config-drawer ${!viewingPublished && messageButtonOption ? "has-drawer-header" : "no-drawer-header"}">
+        ${
+          !viewingPublished && messageButtonOption
+            ? `
+              <div class="flow-config-header compact">
+                <strong>Editar botão</strong>
+                <button class="icon-button" type="button" data-action="close-message-button-editor" title="Voltar para mensagem" aria-label="Voltar para mensagem">&larr;</button>
+              </div>
+            `
+            : ""
+        }
+        <div class="panel-body stack ${!viewingPublished && messageButtonOption ? "with-drawer-header" : "without-drawer-header"}" data-inspector-scroll data-inspector-node-id="${attr(`${node?.id || ""}:${messageButtonOption?.id || ""}`)}">
           ${node ? (viewingPublished ? renderPublishedNodeMetrics(flow, node) : messageButtonOption ? renderMessageButtonEditor(flow, node, messageButtonOption) : renderInspector(flow, node)) : ""}
         </div>
       </aside>
