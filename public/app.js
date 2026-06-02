@@ -307,6 +307,8 @@ let flowCanvasMode = "edit";
 let showFlowList = false;
 let showInspector = false;
 let canvasScrollState = null;
+let canvasGeometryFrame = 0;
+let renderingCanvasMarkup = false;
 let inspectorScrollState = null;
 let triggerPickerNodeId = "";
 let nextStepPickerNodeId = "";
@@ -1950,6 +1952,7 @@ function renderFlows() {
   const messageButtonOption = viewingPublished ? null : selectedMessageButtonOption(node);
   canvasZoom = clamp(canvasZoom, ZOOM_MIN, ZOOM_MAX);
 
+  renderingCanvasMarkup = true;
   workspace.innerHTML = `
     <div class="page-grid canvas-focused ${showInspector ? "show-inspector" : ""} ${viewingPublished ? "published-view" : "edit-view"}">
       <section class="panel canvas-shell">
@@ -2048,6 +2051,7 @@ function renderFlows() {
       ${viewingPublished ? "" : renderActionPicker(flow)}
     </div>
   `;
+  renderingCanvasMarkup = false;
 
   if (!viewingPublished) {
     enableNodeDragging(flow);
@@ -2057,6 +2061,7 @@ function renderFlows() {
   enableCanvasPanning();
   enableCanvasWheelZoom();
   enableMiniMapNavigation();
+  scheduleCanvasGeometryRefresh(flow);
   if (shouldAutoFitCanvas) {
     shouldAutoFitCanvas = false;
     requestAnimationFrame(() => fitCanvasToViewport());
@@ -10728,6 +10733,18 @@ function updateLiveConnections(flow) {
   layer.innerHTML = renderConnections(flow);
 }
 
+function scheduleCanvasGeometryRefresh(flow) {
+  if (canvasGeometryFrame) cancelAnimationFrame(canvasGeometryFrame);
+  canvasGeometryFrame = requestAnimationFrame(() => {
+    canvasGeometryFrame = 0;
+    if (activeView !== "flows" || !flowCanvasOpen) return;
+    const renderedFlow = canvasDisplayFlow(selectedFlow());
+    if (!renderedFlow || renderedFlow.id !== flow?.id) return;
+    updateLiveConnections(renderedFlow);
+    updateMiniMap(renderedFlow);
+  });
+}
+
 function updateMiniMap(flow = canvasDisplayFlow(selectedFlow())) {
   const miniMap = document.querySelector("#canvasMinimap");
   if (!miniMap || !flow) return;
@@ -10757,7 +10774,8 @@ function renderMiniMapContent(flow) {
     .flatMap((node) =>
       connectionTargets(flow, node).map((connection) => {
         const start = nodeOutputPoint(node, connection);
-        return `<line class="minimap-link" x1="${miniX(start.x)}" y1="${miniY(start.y)}" x2="${miniX(canvasNodeLeft(connection.target))}" y2="${miniY(canvasNodeTop(connection.target) + NODE_CONNECT_Y)}" />`;
+        const end = nodeInputPoint(connection.target);
+        return `<line class="minimap-link" x1="${miniX(start.x)}" y1="${miniY(start.y)}" x2="${miniX(end.x)}" y2="${miniY(end.y)}" />`;
       })
     )
     .join("");
@@ -11083,9 +11101,10 @@ function nodeOutputPoint(node, output = {}) {
 }
 
 function nodePortDomPoint(node, output = {}) {
+  if (renderingCanvasMarkup) return null;
   const canvas = document.querySelector("#flowCanvas");
   if (!canvas || !node?.id) return null;
-  const port = Array.from(document.querySelectorAll(".node-port")).find((item) => {
+  const port = Array.from(canvas.querySelectorAll(".node-port")).find((item) => {
     if (item.dataset.portSource !== node.id) return false;
     return portMatchesOutput(item, output);
   });
@@ -11127,6 +11146,19 @@ function linkClickOutputY(field) {
 }
 
 function nodeInputPoint(node) {
+  const canvas = document.querySelector("#flowCanvas");
+  const element = canvas
+    ? Array.from(canvas.querySelectorAll(".node")).find((item) => item.dataset.id === node?.id)
+    : null;
+  if (!renderingCanvasMarkup && canvas && element) {
+    const canvasRect = canvas.getBoundingClientRect();
+    const nodeRect = element.getBoundingClientRect();
+    const zoom = canvasZoom || 1;
+    return {
+      x: (canvas.scrollLeft + nodeRect.left - canvasRect.left) / zoom,
+      y: (canvas.scrollTop + nodeRect.top + nodeRect.height / 2 - canvasRect.top) / zoom
+    };
+  }
   return {
     x: canvasNodeLeft(node),
     y: canvasNodeTop(node) + NODE_CONNECT_Y
