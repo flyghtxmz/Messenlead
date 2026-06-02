@@ -1974,8 +1974,7 @@ function triggerKeywordMatches(trigger, node, flow, context) {
     return true;
   }
   if (trigger === "facebook_ad") {
-    const configuredAdId = String(node?.triggerConfigs?.facebook_ad?.adId || "").trim();
-    return !configuredAdId || configuredAdId === String(context.adId || "").trim();
+    return true;
   }
   if (trigger === "facebook_comment" || trigger === "facebook_shop_message") {
     return true;

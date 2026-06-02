@@ -1173,12 +1173,7 @@ function normalizeNodeStructure(node) {
       node.triggerConfigs && typeof node.triggerConfigs === "object" && !Array.isArray(node.triggerConfigs)
         ? node.triggerConfigs
         : {};
-    if (node.triggerConfigs.facebook_ad) {
-      node.triggerConfigs.facebook_ad = {
-        ...node.triggerConfigs.facebook_ad,
-        adId: String(node.triggerConfigs.facebook_ad.adId || "").trim()
-      };
-    }
+    delete node.triggerConfigs.facebook_ad;
   }
 
   if (node.type === "message") {
@@ -5193,8 +5188,6 @@ async function testAdFlow(channel = "messaging") {
   const pageId = currentFlowPageId();
   const flowId = currentAdTestFlowId(pageId);
   const testVersion = currentAdTestVersion();
-  const testFlow = adTestFlowsForPage(pageId).find((flow) => flow.id === flowId);
-  const adId = facebookAdIdForFlow(testFlow, testVersion);
   const psid = currentAdTestContactPsid(pageId);
   const selectedAdTestValue = psid;
   const selectedTag = currentAdTestTag(pageId);
@@ -5242,7 +5235,6 @@ async function testAdFlow(channel = "messaging") {
       testTagMode: tagMode,
       referralLocation,
       channel,
-      adId,
       text: "Hola"
     });
     const logsResult = await apiGet(`/api/flow-logs?pageId=${encodeURIComponent(pageId)}&limit=160`);
@@ -5286,12 +5278,6 @@ async function testAdFlow(channel = "messaging") {
   } finally {
     if (activeView === "settings") render();
   }
-}
-
-function facebookAdIdForFlow(flow, version = "published") {
-  const nodes = version === "published" && Array.isArray(flow?.publishedNodes) ? flow.publishedNodes : flow?.nodes || [];
-  const trigger = nodes.find((node) => node.type === "trigger" && nodeTriggerEvents(node).includes("facebook_ad"));
-  return String(trigger?.triggerConfigs?.facebook_ad?.adId || "").trim();
 }
 
 async function checkWebhookSubscription() {
@@ -5603,9 +5589,8 @@ function renderTriggerSettings(flow, node) {
 function renderTriggerSettingCard(node, triggerId, index) {
   const option = triggerOptionById(triggerId);
   normalizeNodeStructure(node);
-  const adId = node.triggerConfigs?.facebook_ad?.adId || "";
   return `
-    <article class="trigger-setting-card ${triggerId === "facebook_ad" ? "has-config" : ""}">
+    <article class="trigger-setting-card">
       <span class="trigger-card-icon">${icons.message}</span>
       <div class="trigger-setting-copy">
         <span class="trigger-setting-source">${escapeHtml(option?.source || "Messenger")} #${index + 1}</span>
@@ -5613,16 +5598,6 @@ function renderTriggerSettingCard(node, triggerId, index) {
         <small>${triggerExecutionLabel(triggerId)}</small>
       </div>
       <button class="mini-menu-button" type="button" data-action="open-trigger-picker" data-id="${node.id}" title="Editar gatilho">⋮</button>
-      ${
-        triggerId === "facebook_ad"
-          ? `
-            <label class="trigger-config-field">
-              <span>ID do anuncio <small>opcional</small></span>
-              <input data-trigger-config-field="adId" data-trigger-id="facebook_ad" value="${attr(adId)}" placeholder="Vazio = qualquer template JSON de anuncio" />
-            </label>
-          `
-          : ""
-      }
     </article>
   `;
 }
