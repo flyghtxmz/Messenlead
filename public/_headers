@@ -3,3 +3,15 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/
+  Cache-Control: no-store, max-age=0
+
+/index.html
+  Cache-Control: no-store, max-age=0
+
+/app.js
+  Cache-Control: no-store, max-age=0
+
+/styles.css
+  Cache-Control: no-store, max-age=0
