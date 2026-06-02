@@ -5858,6 +5858,7 @@ function renderInspector(flow, node) {
 
 function renderPublishedNodeMetrics(flow, node) {
   if (node.type === "trigger") return renderPublishedTriggerMetrics(flow, node);
+  if (node.type === "comment") return renderPublishedComment(node);
 
   const flowStarted = flowMetricValue("", "flow_started");
   const sent = flowMetricValue(node.id, "node_sent");
@@ -5897,6 +5898,14 @@ function renderPublishedNodeMetrics(flow, node) {
         <p>${escapeHtml(text || "Sem conteúdo textual.")}</p>
       </div>
       ${node.type === "message" ? renderPublishedButtonMetrics(node) : ""}
+    </section>
+  `;
+}
+
+function renderPublishedComment(node) {
+  return `
+    <section class="published-comment-panel">
+      ${renderCommentMarkdown(node.message || "Anotacao interna do fluxo.")}
     </section>
   `;
 }
@@ -7342,11 +7351,6 @@ function handleWorkspaceClick(event) {
     if (suppressedNodeClickId === id) {
       suppressedNodeClickId = "";
       return;
-    }
-    const clickedNode = canvasDisplayFlow(selectedFlow())?.nodes.find((node) => node.id === id);
-    if (flowCanvasMode === "published" && clickedNode?.type === "comment") {
-      selectedNodeId = "";
-      return closeInspectorPanel();
     }
     selectedNodeId = id;
     messageButtonEditorOptionId = "";

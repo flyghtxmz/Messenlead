@@ -1935,6 +1935,70 @@ svg {
   text-decoration: underline;
 }
 
+.published-comment-panel {
+  padding-top: 14px;
+  overflow-wrap: anywhere;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.published-comment-panel > :first-child {
+  margin-top: 0;
+}
+
+.published-comment-panel > :last-child {
+  margin-bottom: 0;
+}
+
+.published-comment-panel p {
+  margin: 0 0 7px;
+}
+
+.published-comment-panel h1,
+.published-comment-panel h2,
+.published-comment-panel h3,
+.published-comment-panel h4 {
+  margin: 8px 0 5px;
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.published-comment-panel ul,
+.published-comment-panel ol {
+  margin: 5px 0 7px;
+  padding-left: 20px;
+}
+
+.published-comment-panel blockquote {
+  margin: 5px 0 7px;
+  padding-left: 8px;
+  border-left: 3px solid #d7dce4;
+  color: #667085;
+}
+
+.published-comment-panel pre {
+  margin: 5px 0 7px;
+  padding: 6px;
+  overflow-x: auto;
+  border-radius: 5px;
+  background: #f3f6f8;
+  white-space: pre-wrap;
+}
+
+.published-comment-panel code {
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: #f3f6f8;
+  font-size: 11px;
+}
+
+.published-comment-panel a {
+  color: #0067d9;
+  text-decoration: underline;
+}
+
 .node-head {
   display: flex;
   align-items: flex-start;
