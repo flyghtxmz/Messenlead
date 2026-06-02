@@ -944,6 +944,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     }
 
     if (current.type === "condition") {
+      await resolveConditionNodeFields(env, pageId, current);
       const matched = conditionMatchesNode(current, stepContext);
       await log?.(matched ? "info" : "warn", "condition_result", `Condição ${matched ? "correspondeu" : "não correspondeu"}.`, {
         nodeId: current.id,
@@ -1283,6 +1284,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
     }
 
     if (current.type === "condition") {
+      await resolveConditionNodeFields(env, pageId, current);
       const matched = conditionMatchesNode(current, stepContext);
       await log?.(matched ? "info" : "warn", "condition_result", `Condicao ${matched ? "correspondeu" : "nao correspondeu"}.`, {
         nodeId: current.id,
@@ -1624,12 +1626,17 @@ function applyRuntimeContactActions(contact, actions = []) {
       const tagKey = normalizeTagKey(action.tag);
       contact.tags = normalizeTags(contact.tags).filter((tag) => normalizeTagKey(tag) !== tagKey);
     }
-    if (action.type === "set_user_field" && action.fieldName) {
+    if (action.type === "set_user_field" && (action.fieldName || action.fieldId)) {
+      if (!action.fieldName) return;
+      const value = coerceCustomFieldValue(action.fieldValue, action.fieldType);
       contact.customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
-      contact.customFields[action.fieldName] = coerceCustomFieldValue(action.fieldValue, action.fieldType);
+      contact.customFieldsById = contact.customFieldsById && typeof contact.customFieldsById === "object" ? contact.customFieldsById : {};
+      contact.customFields[action.fieldName] = value;
+      if (action.fieldId) contact.customFieldsById[action.fieldId] = value;
     }
-    if (action.type === "clear_custom_field" && action.fieldName && contact.customFields) {
-      delete contact.customFields[action.fieldName];
+    if (action.type === "clear_custom_field" && (action.fieldName || action.fieldId)) {
+      if (action.fieldName && contact.customFields) delete contact.customFields[action.fieldName];
+      if (action.fieldId && contact.customFieldsById) delete contact.customFieldsById[action.fieldId];
     }
     if (action.type === "delete_contact") {
       contact.status = "deleted";
@@ -1681,6 +1688,30 @@ async function resolveRuntimeCustomField(env, pageId, action = {}) {
   }
 
   return null;
+}
+
+async function resolveConditionNodeFields(env, pageId, node = {}) {
+  if (!env?.DB || !pageId || node.type !== "condition") return;
+  normalizeNodeShape(node);
+
+  if (node.conditionType === "field") {
+    const field = await resolveRuntimeCustomField(env, pageId, {
+      fieldId: node.fieldId || "",
+      fieldName: node.fieldName || ""
+    });
+    if (field) {
+      node.fieldId = field.id;
+      node.fieldName = field.name;
+    }
+  }
+
+  for (const condition of node.conditions || []) {
+    if (condition.type !== "field") continue;
+    const field = await resolveRuntimeCustomField(env, pageId, condition);
+    if (!field) continue;
+    condition.fieldId = field.id;
+    condition.fieldName = field.name;
+  }
 }
 
 function nextExecutableNode(flow, node, context = {}) {
@@ -1802,9 +1833,18 @@ function normalizeNodeShape(node) {
     node.conditionMatch ||= "all";
     if (!Array.isArray(node.conditions)) {
       node.conditions = node.keyword
-        ? [{ id: "legacy", type: node.conditionType, operator: node.conditionOperator, value: node.keyword, fieldName: node.fieldName || "" }]
+        ? [{ id: "legacy", type: node.conditionType, operator: node.conditionOperator, value: node.keyword, fieldId: node.fieldId || "", fieldName: node.fieldName || "" }]
         : [];
     }
+    node.conditions = node.conditions.map((condition, index) => ({
+      id: String(condition.id || `cond_${index}`),
+      type: String(condition.type || condition.conditionType || "tag"),
+      label: String(condition.label || ""),
+      operator: String(condition.operator || "contains_any"),
+      value: condition.value ?? condition.keyword ?? "",
+      fieldId: String(condition.fieldId || ""),
+      fieldName: String(condition.fieldName || "")
+    }));
   }
   if (node.type === "randomizer" && !Array.isArray(node.variations)) {
     node.variations = [{ id: "default", label: "Variação A", weight: 100, next: node.next || null }];
@@ -1872,7 +1912,7 @@ function conditionMatchesNode(node, context = {}) {
     return terms.some((term) => tags.includes(term));
   }
   if (node.conditionType === "field") {
-    const value = normalize(context.contact?.customFields?.[node.fieldName] || "");
+    const value = normalize(contactCustomFieldValue(context.contact, node.fieldId, node.fieldName));
     const expected = normalize(node.fieldValue || node.keyword || "");
     if (operator === "not_contains") return expected ? !value.includes(expected) : !value;
     if (operator === "equals") return value === expected;
@@ -1895,7 +1935,7 @@ function conditionRuleMatches(condition, context = {}) {
     return condition.operator === "not_contains" ? !hasTag : hasTag;
   }
   if (condition.type === "field") {
-    const value = normalize(context.contact?.customFields?.[condition.fieldName] || context.contact?.[condition.fieldName] || "");
+    const value = normalize(contactCustomFieldValue(context.contact, condition.fieldId, condition.fieldName));
     if (condition.operator === "equals") return value === expected;
     if (condition.operator === "not_contains") return expected ? !value.includes(expected) : !value;
     return expected ? value.includes(expected) : Boolean(value);
@@ -1915,6 +1955,18 @@ function conditionRuleMatches(condition, context = {}) {
   if (condition.operator === "equals") return terms.some((term) => input === term);
   if (condition.operator === "not_contains") return terms.every((term) => !input.includes(term));
   return terms.some((term) => input.includes(term));
+}
+
+function contactCustomFieldValue(contact = {}, fieldId = "", fieldName = "") {
+  const id = String(fieldId || "").trim();
+  const name = String(fieldName || "").trim();
+  if (id && contact?.customFieldsById && Object.prototype.hasOwnProperty.call(contact.customFieldsById, id)) {
+    return contact.customFieldsById[id];
+  }
+  if (name && contact?.customFields && Object.prototype.hasOwnProperty.call(contact.customFields, name)) {
+    return contact.customFields[name];
+  }
+  return name ? contact?.[name] ?? "" : "";
 }
 
 function pickRandomVariation(node, context = {}) {

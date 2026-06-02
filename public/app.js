@@ -1270,6 +1270,7 @@ function normalizeNodeStructure(node) {
               label: conditionLabelForType(node.conditionType),
               operator: node.conditionOperator,
               value: node.conditionType === "field" ? node.fieldValue || "" : node.keyword || "",
+              fieldId: node.fieldId || "",
               fieldName: node.fieldName || ""
             }
           ]
@@ -1281,8 +1282,16 @@ function normalizeNodeStructure(node) {
       label: condition.label || conditionLabelForType(condition.type || condition.conditionType || "tag"),
       operator: condition.operator || "contains_any",
       value: condition.value ?? condition.keyword ?? "",
+      fieldId: condition.fieldId || "",
       fieldName: condition.fieldName || ""
     }));
+    node.conditions.forEach((condition) => {
+      if (condition.type !== "field") return;
+      const field = findCustomFieldForPage(condition.fieldId || condition.fieldName);
+      if (!field) return;
+      condition.fieldId = field.id;
+      condition.fieldName = field.name;
+    });
     node.conditionMatch = node.conditionMatch || "all";
   }
 
@@ -6670,13 +6679,17 @@ function renderEntryConditionRule(condition) {
 
 function renderCustomFieldConditionRule(condition) {
   const fields = customFieldRecordsForPage();
-  const selected = findCustomFieldForPage(condition.fieldName);
-  const options = selected || !condition.fieldName ? fields : [...fields, normalizeCustomFieldRecord({ name: condition.fieldName })];
+  const selected = findCustomFieldForPage(condition.fieldId || condition.fieldName);
+  const options = selected || !condition.fieldName ? fields : [...fields, { id: "", name: condition.fieldName, type: "text" }];
   return `
     <article class="condition-rule-card custom-field-condition-rule-card">
-      <select data-condition-rule-field="fieldName" data-condition-id="${attr(condition.id)}">
-        <option value="" ${condition.fieldName ? "" : "selected"}>Selecionar campo</option>
-        ${options.map((field) => `<option value="${attr(field.name)}" ${normalizeCustomFieldKey(field.name) === normalizeCustomFieldKey(condition.fieldName) ? "selected" : ""}>${escapeHtml(field.name)}</option>`).join("")}
+      <select data-condition-rule-field="fieldId" data-condition-id="${attr(condition.id)}">
+        <option value="" ${condition.fieldName || condition.fieldId ? "" : "selected"}>Selecionar campo</option>
+        ${options.map((field) => {
+          const value = field.id || field.name;
+          const selectedOption = condition.fieldId ? field.id === condition.fieldId : normalizeCustomFieldKey(field.name) === normalizeCustomFieldKey(condition.fieldName);
+          return `<option value="${attr(value)}" ${selectedOption ? "selected" : ""}>${escapeHtml(field.name)}</option>`;
+        }).join("")}
       </select>
       <select data-condition-rule-field="operator" data-condition-id="${attr(condition.id)}">
         <option value="equals" ${condition.operator === "equals" ? "selected" : ""}>e exatamente</option>
@@ -6711,12 +6724,31 @@ function renderTagConditionRule(condition) {
   `;
 }
 
+function updateConditionRuleField(condition, fieldName, value) {
+  if (fieldName === "fieldId" && condition.type === "field") {
+    const field = findCustomFieldForPage(value);
+    condition.fieldId = field?.id || "";
+    condition.fieldName = field?.name || value;
+    return;
+  }
+
+  condition[fieldName] = value;
+  if (fieldName === "fieldName" && condition.type === "field") {
+    const field = findCustomFieldForPage(value);
+    condition.fieldId = field?.id || "";
+    condition.fieldName = field?.name || value;
+  }
+}
+
 function conditionRuleSummary(condition) {
   if (condition.type === "tag") {
     if (!condition.value) return "Escolha uma tag";
     return `${condition.operator === "not_contains" ? "não é" : "está"} ${condition.value}`;
   }
-  if (condition.type === "field") return `${condition.fieldName || "campo"} ${condition.value ? `é ${condition.value}` : "não definido"}`;
+  if (condition.type === "field") {
+    const field = findCustomFieldForPage(condition.fieldId || condition.fieldName);
+    return `${field?.name || condition.fieldName || "campo"} ${condition.value ? `é ${condition.value}` : "não definido"}`;
+  }
   return condition.value ? `contém ${condition.value}` : "Mensagem contém termo";
 }
 
@@ -7638,7 +7670,7 @@ function handleWorkspaceInput(event) {
   if (target.dataset.conditionRuleField && node?.type === "condition") {
     const condition = node.conditions?.find((item) => item.id === target.dataset.conditionId);
     if (!condition) return;
-    condition[target.dataset.conditionRuleField] = target.value;
+    updateConditionRuleField(condition, target.dataset.conditionRuleField, target.value);
     if (condition.type === "tag" || condition.type === "message_contains") node.keyword = target.value;
     if (condition.type === "field") node.fieldValue = target.value;
     flow.updatedAt = new Date().toISOString();
@@ -7846,7 +7878,7 @@ function handleWorkspaceChange(event) {
   if (target.dataset.conditionRuleField && node?.type === "condition") {
     const condition = node.conditions?.find((item) => item.id === target.dataset.conditionId);
     if (condition) {
-      condition[target.dataset.conditionRuleField] = target.value;
+      updateConditionRuleField(condition, target.dataset.conditionRuleField, target.value);
       if (condition.type === "tag" || condition.type === "message_contains") node.keyword = condition.value || "";
       if (condition.type === "field") node.fieldValue = condition.value || "";
       flow.updatedAt = new Date().toISOString();
@@ -8899,6 +8931,7 @@ function addConditionRule(nodeId, optionId) {
     label: option.label,
     operator: option.operator,
     value: "",
+    fieldId: "",
     fieldName: option.fieldName || ""
   });
   node.conditionType = option.conditionType;
@@ -10271,8 +10304,11 @@ function applyActionNodeToContact(contact, node) {
       const field = findCustomFieldForPage(step.fieldId || step.fieldName);
       const fieldName = field?.name || step.fieldName;
       if (!fieldName) return;
+      const value = coerceCustomFieldValue(step.fieldValue, field?.type || step.fieldType);
       contact.customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
-      contact.customFields[fieldName] = coerceCustomFieldValue(step.fieldValue, field?.type || step.fieldType);
+      contact.customFieldsById = contact.customFieldsById && typeof contact.customFieldsById === "object" ? contact.customFieldsById : {};
+      contact.customFields[fieldName] = value;
+      if (field?.id || step.fieldId) contact.customFieldsById[field?.id || step.fieldId] = value;
       if (step.fieldName && step.fieldName !== fieldName) delete contact.customFields[step.fieldName];
     }
     if (step.type === "clear_custom_field" && (step.fieldName || step.fieldId) && contact.customFields) {
@@ -10280,6 +10316,7 @@ function applyActionNodeToContact(contact, node) {
       const fieldName = field?.name || step.fieldName;
       if (!fieldName) return;
       delete contact.customFields[fieldName];
+      if (field?.id || step.fieldId) delete contact.customFieldsById?.[field?.id || step.fieldId];
       if (step.fieldName && step.fieldName !== fieldName) delete contact.customFields[step.fieldName];
     }
     if (step.type === "delete_contact") {
@@ -10960,7 +10997,7 @@ function conditionMatchesNode(node, context = {}) {
   }
 
   if (node.conditionType === "field") {
-    const value = normalize(context.contact?.customFields?.[node.fieldName] || "");
+    const value = normalize(contactCustomFieldValue(context.contact, node.fieldId, node.fieldName));
     const expected = normalize(node.fieldValue || node.keyword || "");
     if (operator === "not_contains") return expected ? !value.includes(expected) : !value;
     if (operator === "equals") return value === expected;
@@ -10984,7 +11021,7 @@ function conditionRuleMatches(condition, context = {}) {
     return condition.operator === "not_contains" ? !hasTag : hasTag;
   }
   if (condition.type === "field") {
-    const value = normalize(context.contact?.customFields?.[condition.fieldName] || context.contact?.[condition.fieldName] || "");
+    const value = normalize(contactCustomFieldValue(context.contact, condition.fieldId, condition.fieldName));
     if (condition.operator === "equals") return value === expected;
     if (condition.operator === "not_contains") return expected ? !value.includes(expected) : !value;
     return expected ? value.includes(expected) : Boolean(value);
@@ -11004,6 +11041,18 @@ function conditionRuleMatches(condition, context = {}) {
   if (condition.operator === "equals") return terms.some((term) => normalizedInput === term);
   if (condition.operator === "not_contains") return terms.every((term) => !normalizedInput.includes(term));
   return terms.some((term) => normalizedInput.includes(term));
+}
+
+function contactCustomFieldValue(contact = {}, fieldId = "", fieldName = "") {
+  const id = String(fieldId || "").trim();
+  const name = String(fieldName || "").trim();
+  if (id && contact?.customFieldsById && Object.prototype.hasOwnProperty.call(contact.customFieldsById, id)) {
+    return contact.customFieldsById[id];
+  }
+  if (name && contact?.customFields && Object.prototype.hasOwnProperty.call(contact.customFields, name)) {
+    return contact.customFields[name];
+  }
+  return name ? contact?.[name] ?? "" : "";
 }
 
 function pickRandomVariation(node, context = {}) {

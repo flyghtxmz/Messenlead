@@ -181,6 +181,7 @@ export async function upsertContact(env, pageId, contact = {}) {
     tags: next.tags,
     tag: next.tags[0] || "",
     customFields: next.customFields,
+    customFieldsById: contact.customFieldsById && typeof contact.customFieldsById === "object" ? contact.customFieldsById : {},
     lastSeen: next.lastSeen,
     createdAt: next.createdAt,
     updatedAt: next.updatedAt
@@ -382,8 +383,11 @@ async function enrichContactsWithCustomFieldValues(env, pageId, contacts = []) {
 
       const storedFieldName = String(row.stored_field_name || "").trim();
       contact.customFields = contact.customFields && typeof contact.customFields === "object" ? { ...contact.customFields } : {};
+      contact.customFieldsById = contact.customFieldsById && typeof contact.customFieldsById === "object" ? { ...contact.customFieldsById } : {};
       if (storedFieldName && storedFieldName !== fieldName) delete contact.customFields[storedFieldName];
-      contact.customFields[fieldName] = parseJsonValue(row.value_json);
+      const value = parseJsonValue(row.value_json);
+      contact.customFields[fieldName] = value;
+      if (row.field_id) contact.customFieldsById[row.field_id] = value;
     }
   }
 
@@ -444,6 +448,7 @@ function rowToContact(row) {
     tags,
     tag: tags[0] || "",
     customFields: parseJsonObject(row.custom_fields_json),
+    customFieldsById: {},
     lastSeen: row.last_seen || "",
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || ""
