@@ -14,7 +14,13 @@ export default {
       return json({
         ok: true,
         service: "messenlead-messenger-send-relay",
-        hasD1: Boolean(env.RELAY_DB)
+        hasD1: Boolean(env.RELAY_DB),
+        hasPrimaryQueue: primaryQueueConfigured(env),
+        primaryQueueUrlConfigured: Boolean(clean(env.MESSENLEAD_PRIMARY_QUEUE_URL || env.MESSENLEAD_MAIN_QUEUE_URL, 500)),
+        primaryQueueTokenConfigured: Boolean(clean(env.MESSENLEAD_PRIMARY_QUEUE_TOKEN || env.MESSENLEAD_OPERATOR_TOKEN, 500)),
+        scheduledPumpMs: clampNumber(env.MESSENLEAD_RELAY_SCHEDULED_PUMP_MS, 0, 55000, DEFAULT_SCHEDULED_PUMP_MS),
+        scheduledPollMs: clampNumber(env.MESSENLEAD_RELAY_SCHEDULED_POLL_MS, 1000, 15000, DEFAULT_SCHEDULED_POLL_MS),
+        diagnostics: await relayRuntimeDiagnostics(env)
       });
     }
 
@@ -71,10 +77,17 @@ async function runScheduledPump(env) {
     relay: { processed: 0, sent: 0, retried: 0, skipped: 0, failed: 0 }
   };
 
+  await recordRelayRuntimeStatus(env, "scheduled", {
+    state: "running",
+    startedAt: new Date(startedAt).toISOString(),
+    hasPrimaryQueue: primaryQueueConfigured(env)
+  });
+
   do {
     totals.passes += 1;
 
     const primary = await drainPrimaryQueue(env);
+    await recordRelayRuntimeStatus(env, "primary_queue", primaryQueueDiagnostic(primary));
     if (primary.skipped) totals.primary.skipped += 1;
     else if (primary.ok) totals.primary.ok += 1;
     else totals.primary.failed += 1;
@@ -88,10 +101,17 @@ async function runScheduledPump(env) {
     await sleep(pollMs);
   } while (Date.now() <= deadline);
 
-  return {
+  const result = {
     ...totals,
     elapsedMs: Date.now() - startedAt
   };
+  await recordRelayRuntimeStatus(env, "scheduled", {
+    state: "completed",
+    startedAt: new Date(startedAt).toISOString(),
+    finishedAt: new Date().toISOString(),
+    ...result
+  });
+  return result;
 }
 
 function primaryQueueConfigured(env) {
@@ -131,6 +151,68 @@ async function drainPrimaryQueue(env) {
       error: error.message || "primary_queue_failed"
     };
   }
+}
+
+function primaryQueueDiagnostic(result = {}) {
+  return {
+    ok: Boolean(result.ok),
+    skipped: Boolean(result.skipped),
+    status: Number(result.status || 0),
+    error: clean(result.error, 500),
+    body: result.body && typeof result.body === "object" ? result.body : {}
+  };
+}
+
+async function relayRuntimeDiagnostics(env) {
+  if (!env.RELAY_DB) return {};
+  try {
+    await ensureRuntimeStatusSchema(env);
+    const rows = await env.RELAY_DB.prepare(`
+      SELECT key, value_json, updated_at
+      FROM relay_runtime_status
+      WHERE key IN ('scheduled', 'primary_queue')
+    `).all();
+    return Object.fromEntries((rows.results || []).map((row) => [
+      row.key,
+      {
+        ...parseJson(row.value_json),
+        updatedAt: row.updated_at || ""
+      }
+    ]));
+  } catch (error) {
+    return { error: clean(error.message || "runtime_diagnostics_failed", 500) };
+  }
+}
+
+async function recordRelayRuntimeStatus(env, key, value = {}) {
+  if (!env.RELAY_DB) return;
+  try {
+    await ensureRuntimeStatusSchema(env);
+    const now = new Date().toISOString();
+    await env.RELAY_DB.prepare(`
+      INSERT INTO relay_runtime_status (key, value_json, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value_json = excluded.value_json,
+        updated_at = excluded.updated_at
+    `)
+      .bind(clean(key, 80), JSON.stringify(value || {}), now)
+      .run();
+  } catch {
+    // Diagnostics must never block message delivery or scheduled processing.
+  }
+}
+
+async function ensureRuntimeStatusSchema(env) {
+  if (!env.RELAY_DB) return false;
+  await env.RELAY_DB.prepare(`
+    CREATE TABLE IF NOT EXISTS relay_runtime_status (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+  return true;
 }
 
 function mergeStats(target, source = {}) {

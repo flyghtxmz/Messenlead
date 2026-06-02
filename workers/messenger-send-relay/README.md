@@ -86,6 +86,14 @@ Health publico:
 GET /health
 ```
 
+O health informa se a fila principal foi configurada e, depois do primeiro ciclo do cron, mostra `diagnostics.scheduled` e `diagnostics.primary_queue`. Abra no navegador:
+
+```txt
+https://messenlead-messenger-send-relay.vinteedois-13.workers.dev/health
+```
+
+Se `hasPrimaryQueue` estiver como `false`, revise `MESSENLEAD_PRIMARY_QUEUE_URL` e `MESSENLEAD_PRIMARY_QUEUE_TOKEN`. Se `diagnostics.primary_queue.status` estiver como `401`, o token nao corresponde ao `MESSENLEAD_OPERATOR_TOKEN` do Pages principal.
+
 Status da fila, com header `X-Messenlead-Relay-Secret`:
 
 ```txt
