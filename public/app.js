@@ -11636,17 +11636,18 @@ function isSafeCommentMarkdownUrl(value) {
 
 function renderActionNode(node, selected) {
   const steps = nodeActionSteps(node);
+  const actionNumber = actionNodeNumber(node);
   return `
     <article class="node action action-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${renderNodeHoverActions(node)}
       <div class="action-node-head">
         <span>${icons.action}</span>
-        <strong>Ações</strong>
+        <strong>Ações #${actionNumber}</strong>
       </div>
       <div class="action-node-body">
         ${
           steps.length
-            ? `<div class="action-node-list">${steps.slice(0, 3).map((step) => `<span>${escapeHtml(actionStepSummary(step))}</span>`).join("")}</div>`
+            ? `<div class="action-node-list">${steps.slice(0, 3).map(renderActionNodeStep).join("")}</div>`
             : `<div class="action-node-empty">Clique para adicionar uma</div>`
         }
       </div>
@@ -11656,6 +11657,27 @@ function renderActionNode(node, selected) {
       ${renderOutputPort(node)}
     </article>
   `;
+}
+
+function actionNodeNumber(node) {
+  const flow = canvasDisplayFlow(selectedFlow());
+  const index = (flow?.nodes || []).filter((item) => item.type === "action").findIndex((item) => item.id === node.id);
+  return index >= 0 ? index + 1 : 1;
+}
+
+function renderActionNodeStep(step) {
+  if (step.type === "set_user_field") {
+    const fieldName = String(step.fieldName || "").trim();
+    return `
+      <span class="action-node-step">
+        <span>Definir campo do usuário</span>
+        <strong>${escapeHtml(fieldName || "Campo desconhecido")}</strong>
+        ${fieldName ? (step.fieldValue !== "" ? `<em>${escapeHtml(formatCustomFieldValue(step.fieldValue))}</em>` : "") : `<em>(undefined)</em>`}
+      </span>
+    `;
+  }
+
+  return `<span class="action-node-step"><strong>${escapeHtml(actionStepSummary(step))}</strong></span>`;
 }
 
 function renderTriggerNode(node, selected) {
