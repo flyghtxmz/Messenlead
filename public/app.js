@@ -1,4 +1,5 @@
 const STORAGE_KEY = "messenlead.messenger.workspace.v2";
+const DASHBOARD_CACHE_KEY = "messenlead.dashboard.cache.v1";
 const SIDEBAR_COLLAPSED_KEY = "messenlead.sidebar.collapsed";
 const DEFAULT_FLOW_PAGE_ID = "__global__";
 const CONVERSATION_READ_KEY = "messenlead.messenger.conversation.read.v1";
@@ -8,6 +9,11 @@ const DEFAULT_CUSTOM_FIELD_FOLDER = "Campos";
 const AD_TEST_CONTACT_TAG = "tester";
 const PIXEL_HEARTBEAT_STALE_MS = 90000;
 const META_THREAD_REFRESH_MS = 15000;
+const CACHE_PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
+const CACHE_PAGES_TTL_MS = 60 * 60 * 1000;
+const CACHE_FLOWS_TTL_MS = 10 * 60 * 1000;
+const CACHE_CONVERSATIONS_TTL_MS = 2 * 60 * 1000;
+const CACHE_MESSAGES_TTL_MS = 2 * 60 * 1000;
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
@@ -277,6 +283,7 @@ const toast = document.querySelector("#toast");
 const modalRoot = document.querySelector("#modalRoot");
 
 let state = loadState();
+let dashboardCache = loadDashboardCache();
 let activeView = getInitialView();
 let selectedFlowId = state.flows[0]?.id;
 let selectedNodeId = state.flows[0]?.nodes[0]?.id;
@@ -427,11 +434,14 @@ let mediaState = {
 let metaState = {
   authChecked: false,
   profile: null,
+  profileFromCache: false,
   pages: null,
+  pagesFromCache: false,
   pageDebug: null,
   selectedPageId: state.settings.pageId || "",
   conversations: null,
   conversationsPageId: "",
+  conversationsFromCachePageId: "",
   loadingConversationsPageId: "",
   selectedConversationId: "",
   messages: null,
@@ -527,6 +537,7 @@ window.addEventListener("hashchange", () => {
 });
 document.addEventListener("keydown", handleGlobalKeydown);
 
+hydrateDashboardCache();
 render();
 
 function initSidebarToggle() {
@@ -874,6 +885,189 @@ function loadState() {
   } catch {
     return seedWorkspace();
   }
+}
+
+function loadDashboardCache() {
+  try {
+    const stored = localStorage.getItem(DASHBOARD_CACHE_KEY);
+    if (!stored) return emptyDashboardCache();
+    const parsed = JSON.parse(stored);
+    return normalizeDashboardCache(parsed);
+  } catch {
+    return emptyDashboardCache();
+  }
+}
+
+function emptyDashboardCache() {
+  return {
+    profile: null,
+    pages: null,
+    flowsByPage: {},
+    conversationsByPage: {},
+    messagesByConversation: {}
+  };
+}
+
+function normalizeDashboardCache(cache = {}) {
+  return {
+    profile: cacheEntryOrNull(cache.profile),
+    pages: cacheEntryOrNull(cache.pages),
+    flowsByPage: cacheMapEntries(cache.flowsByPage),
+    conversationsByPage: cacheMapEntries(cache.conversationsByPage),
+    messagesByConversation: cacheMapEntries(cache.messagesByConversation)
+  };
+}
+
+function cacheEntryOrNull(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  return {
+    ts: Number(entry.ts || 0),
+    data: entry.data
+  };
+}
+
+function cacheMapEntries(map) {
+  if (!map || typeof map !== "object" || Array.isArray(map)) return {};
+  return Object.fromEntries(
+    Object.entries(map)
+      .map(([key, entry]) => [key, cacheEntryOrNull(entry)])
+      .filter(([, entry]) => entry)
+  );
+}
+
+function getDashboardCache(section, key = "", ttl = 0) {
+  const bucket = dashboardCache[section];
+  const entry = key ? bucket?.[key] : bucket;
+  if (!entry || typeof entry !== "object") return null;
+  if (ttl && Date.now() - Number(entry.ts || 0) > ttl) return null;
+  return entry.data ?? null;
+}
+
+function setDashboardCache(section, key, data) {
+  const entry = {
+    ts: Date.now(),
+    data
+  };
+  if (key) {
+    dashboardCache[section] = dashboardCache[section] && typeof dashboardCache[section] === "object" ? dashboardCache[section] : {};
+    dashboardCache[section][key] = entry;
+  } else {
+    dashboardCache[section] = entry;
+  }
+  persistDashboardCache();
+}
+
+function removeDashboardCache(section, key) {
+  if (!key || !dashboardCache[section] || typeof dashboardCache[section] !== "object") return;
+  delete dashboardCache[section][key];
+  persistDashboardCache();
+}
+
+function persistDashboardCache() {
+  try {
+    pruneDashboardCache();
+    localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(dashboardCache));
+  } catch {
+    try {
+      dashboardCache.messagesByConversation = {};
+      localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(dashboardCache));
+    } catch {
+      // Cache is optional; UI must keep working if localStorage quota is full.
+    }
+  }
+}
+
+function clearDashboardCache() {
+  dashboardCache = emptyDashboardCache();
+  try {
+    localStorage.removeItem(DASHBOARD_CACHE_KEY);
+  } catch {
+    // Cache cleanup is best effort.
+  }
+}
+
+function pruneDashboardCache() {
+  pruneCacheMap(dashboardCache.flowsByPage, CACHE_FLOWS_TTL_MS * 6, 12);
+  pruneCacheMap(dashboardCache.conversationsByPage, CACHE_CONVERSATIONS_TTL_MS * 12, 10);
+  pruneCacheMap(dashboardCache.messagesByConversation, CACHE_MESSAGES_TTL_MS * 12, 24);
+}
+
+function pruneCacheMap(map, maxAge, maxItems) {
+  if (!map || typeof map !== "object") return;
+  const entries = Object.entries(map)
+    .filter(([, entry]) => entry && Date.now() - Number(entry.ts || 0) <= maxAge)
+    .sort((left, right) => Number(right[1].ts || 0) - Number(left[1].ts || 0))
+    .slice(0, maxItems);
+  Object.keys(map).forEach((key) => delete map[key]);
+  entries.forEach(([key, entry]) => {
+    map[key] = entry;
+  });
+}
+
+function hydrateDashboardCache() {
+  const profile = getDashboardCache("profile", "", CACHE_PROFILE_TTL_MS);
+  if (profile?.id || profile?.name) {
+    metaState.profile = profile;
+    metaState.profileFromCache = true;
+    metaState.authChecked = true;
+  }
+
+  const pagesCache = getDashboardCache("pages", "", CACHE_PAGES_TTL_MS);
+  if (pagesCache && Array.isArray(pagesCache.pages)) {
+    metaState.pages = pagesCache.pages;
+    metaState.pagesFromCache = true;
+    metaState.pageDebug = pagesCache.debug || null;
+    if (!metaState.selectedPageId && state.settings.pageId) metaState.selectedPageId = state.settings.pageId;
+    const selectedStillExists = metaState.pages.some((page) => page.id === metaState.selectedPageId);
+    if (!selectedStillExists && metaState.pages[0]) metaState.selectedPageId = metaState.pages[0].id;
+  }
+
+  const pageId = normalizeFlowPageId(metaState.selectedPageId || state.settings.pageId);
+  hydrateCachedFlowsForPage(pageId);
+  hydrateCachedConversationsForPage(pageId);
+}
+
+function hydrateCachedFlowsForPage(pageId) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  if (!normalizedPageId) return false;
+  const flows = getDashboardCache("flowsByPage", normalizedPageId, CACHE_FLOWS_TTL_MS);
+  if (!Array.isArray(flows)) return false;
+  setActiveFlowsForPage(normalizedPageId, flows);
+  flowStore = {
+    ...flowStore,
+    pageId: normalizedPageId,
+    loading: false,
+    serverAvailable: true,
+    status: "Cache local"
+  };
+  return true;
+}
+
+function hydrateCachedConversationsForPage(pageId) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  if (!normalizedPageId) return false;
+  const conversations = getDashboardCache("conversationsByPage", normalizedPageId, CACHE_CONVERSATIONS_TTL_MS);
+  if (!Array.isArray(conversations)) return false;
+  metaState.conversations = conversations;
+  metaState.conversationsPageId = normalizedPageId;
+  metaState.conversationsFromCachePageId = normalizedPageId;
+  mergeConversationsAsContacts(normalizedPageId, selectedPageName(normalizedPageId), conversations);
+  return true;
+}
+
+function hydrateCachedMessagesForConversation(pageId, conversationId) {
+  const key = conversationCacheKey(pageId, conversationId);
+  const cached = getDashboardCache("messagesByConversation", key, CACHE_MESSAGES_TTL_MS);
+  if (!cached || !Array.isArray(cached.messages)) return false;
+  metaState.messages = cached.messages;
+  metaState.pixelEvents = Array.isArray(cached.pixelEvents) ? cached.pixelEvents : [];
+  metaState.attributionEvents = Array.isArray(cached.attributionEvents) ? cached.attributionEvents : [];
+  metaState.unreadAnchorId = "";
+  return true;
+}
+
+function conversationCacheKey(pageId, conversationId) {
+  return `${normalizeFlowPageId(pageId)}:${String(conversationId || "").trim()}`;
 }
 
 function normalizeWorkspaceState(workspace) {
@@ -1748,6 +1942,11 @@ function renderPages() {
     return;
   }
 
+  if (metaState.profileFromCache) {
+    metaState.profileFromCache = false;
+    loadMetaProfile({ background: true });
+  }
+
   if (!metaState.pages) {
     workspace.innerHTML = `
       <section class="panel">
@@ -1760,6 +1959,11 @@ function renderPages() {
     `;
     loadMetaPages();
     return;
+  }
+
+  if (metaState.pagesFromCache) {
+    metaState.pagesFromCache = false;
+    loadMetaPages({ background: true });
   }
 
   const allPages = metaState.pages || [];
@@ -1778,9 +1982,11 @@ function renderPages() {
     Boolean(selectedPage?.id) && normalizeFlowPageId(metaState.conversationsPageId) === normalizeFlowPageId(selectedPage.id);
   const conversationsLoadingForSelectedPage =
     Boolean(selectedPage?.id) && normalizeFlowPageId(metaState.loadingConversationsPageId) === normalizeFlowPageId(selectedPage.id);
+  const conversationsFromCacheForSelectedPage =
+    conversationsBelongToSelectedPage && normalizeFlowPageId(metaState.conversationsFromCachePageId) === normalizeFlowPageId(selectedPage.id);
 
-  if (selectedPage && (!metaState.conversations || !conversationsBelongToSelectedPage) && !conversationsLoadingForSelectedPage) {
-    loadMetaConversations(selectedPage.id);
+  if (selectedPage && ((!metaState.conversations || !conversationsBelongToSelectedPage) || conversationsFromCacheForSelectedPage) && !conversationsLoadingForSelectedPage) {
+    loadMetaConversations(selectedPage.id, { force: conversationsFromCacheForSelectedPage });
   }
 
   if (selectedPage && flowStore.pageId !== normalizeFlowPageId(selectedPage.id) && !flowStore.loading) {
@@ -4314,6 +4520,7 @@ async function ensureConnectedPagesForTagCleanup() {
   try {
     const profile = await apiGet("/api/meta/me");
     metaState.profile = profile.user || null;
+    metaState.profileFromCache = false;
     metaState.authChecked = true;
 
     const result = await apiGet("/api/meta/pages");
@@ -4408,25 +4615,31 @@ function clearLocalContactTagsForPage(pageId) {
   );
 }
 
-async function loadMetaProfile() {
+async function loadMetaProfile(options = {}) {
   try {
     const profile = await apiGet("/api/meta/me");
     metaState.profile = profile.user || null;
+    metaState.profileFromCache = false;
+    if (metaState.profile) setDashboardCache("profile", "", metaState.profile);
     metaState.error = "";
   } catch (error) {
-    metaState.profile = null;
-    metaState.error = error.message === "Not authenticated" ? metaState.error : error.message;
+    if (error.status === 401) clearDashboardCache();
+    if (!options.background || error.status === 401) metaState.profile = null;
+    metaState.profileFromCache = false;
+    metaState.error = error.message === "Not authenticated" || options.background ? metaState.error : error.message;
   } finally {
     metaState.authChecked = true;
     render();
   }
 }
 
-async function loadMetaPages() {
+async function loadMetaPages(options = {}) {
   try {
     const result = await apiGet("/api/meta/pages");
     metaState.pages = result.pages || [];
+    metaState.pagesFromCache = false;
     metaState.pageDebug = result.debug || null;
+    setDashboardCache("pages", "", { pages: metaState.pages, debug: metaState.pageDebug });
     metaState.error = "";
     const selectedStillExists = metaState.pages.some((page) => page.id === metaState.selectedPageId);
     const savedPage = metaState.pages.find((page) => page.id === state.settings.pageId);
@@ -4438,6 +4651,7 @@ async function loadMetaPages() {
       metaState.selectedPageId = nextPage.id;
       metaState.conversations = null;
       metaState.conversationsPageId = "";
+      metaState.conversationsFromCachePageId = "";
       metaState.loadingConversationsPageId = "";
       metaState.selectedConversationId = "";
       metaState.messages = null;
@@ -4446,17 +4660,23 @@ async function loadMetaPages() {
       metaState.unreadAnchorId = "";
     }
   } catch (error) {
-    metaState.pages = [];
-    metaState.pageDebug = null;
+    if (!options.background || !Array.isArray(metaState.pages)) {
+      metaState.pages = [];
+      metaState.pageDebug = null;
+    }
+    metaState.pagesFromCache = false;
     metaState.error = error.message;
-    toastMessage(error.message);
+    if (!options.background) toastMessage(error.message);
   } finally {
     render();
   }
 }
 
-async function loadMetaConversations(pageId) {
+async function loadMetaConversations(pageId, options = {}) {
   const requestedPageId = normalizeFlowPageId(pageId);
+  if (!options.force && normalizeFlowPageId(metaState.conversationsPageId) !== requestedPageId) {
+    hydrateCachedConversationsForPage(requestedPageId);
+  }
   metaState.loadingConversationsPageId = requestedPageId;
 
   try {
@@ -4468,6 +4688,8 @@ async function loadMetaConversations(pageId) {
     const previousConversationId = metaState.selectedConversationId;
     metaState.conversations = conversations;
     metaState.conversationsPageId = requestedPageId;
+    metaState.conversationsFromCachePageId = "";
+    setDashboardCache("conversationsByPage", requestedPageId, conversations);
     mergeConversationsAsContacts(requestedPageId, selectedPageName(requestedPageId), conversations);
     metaState.selectedConversationId = conversations.find((conversation) => conversation.id === previousConversationId)?.id || "";
     metaState.messages = null;
@@ -4476,10 +4698,14 @@ async function loadMetaConversations(pageId) {
     metaState.unreadAnchorId = "";
   } catch (error) {
     if (normalizeFlowPageId(metaState.selectedPageId || state.settings.pageId) !== requestedPageId) return;
-    metaState.conversations = [];
-    metaState.conversationsPageId = requestedPageId;
+    const hasCachedConversations = options.force && normalizeFlowPageId(metaState.conversationsPageId) === requestedPageId && Array.isArray(metaState.conversations);
+    if (!hasCachedConversations) {
+      metaState.conversations = [];
+      metaState.conversationsPageId = requestedPageId;
+    }
+    metaState.conversationsFromCachePageId = "";
     metaState.error = error.message;
-    toastMessage(error.message);
+    if (!options.force) toastMessage(error.message);
   } finally {
     if (normalizeFlowPageId(metaState.loadingConversationsPageId) === requestedPageId) {
       metaState.loadingConversationsPageId = "";
@@ -4544,6 +4770,9 @@ function refreshBroadcastEligibility() {
 
 async function loadMetaMessages(pageId, conversationId, options = {}) {
   if (metaState.loadingMessages && options.silent) return;
+  if (!options.force && !options.silent && !metaState.messages) {
+    hydrateCachedMessagesForConversation(pageId, conversationId);
+  }
   metaState.loadingMessages = true;
   let shouldRenderAfterLoad = true;
   let scrollToUnreadAfterRender = false;
@@ -4568,6 +4797,11 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
     metaState.messages = result.messages || [];
     metaState.pixelEvents = pixelResult.events || [];
     metaState.attributionEvents = attributionResult.events || [];
+    setDashboardCache("messagesByConversation", conversationCacheKey(pageId, conversationId), {
+      messages: metaState.messages,
+      pixelEvents: metaState.pixelEvents,
+      attributionEvents: metaState.attributionEvents
+    });
     metaState.unreadAnchorId = options.silent ? metaState.unreadAnchorId : unreadAnchorForConversation(metaState.messages, pageId, readBeforeOpen, unreadCountBeforeOpen);
     scrollToUnreadAfterRender = !options.silent;
     metaState.error = "";
@@ -4577,12 +4811,15 @@ async function loadMetaMessages(pageId, conversationId, options = {}) {
       shouldRenderAfterLoad = false;
       return;
     }
-    metaState.messages = [];
-    metaState.pixelEvents = [];
-    metaState.attributionEvents = [];
-    metaState.unreadAnchorId = "";
+    const keepCurrentMessages = options.silent && Array.isArray(metaState.messages);
+    if (!keepCurrentMessages) {
+      metaState.messages = [];
+      metaState.pixelEvents = [];
+      metaState.attributionEvents = [];
+      metaState.unreadAnchorId = "";
+    }
     metaState.error = error.message;
-    toastMessage(error.message);
+    if (!options.silent) toastMessage(error.message);
   } finally {
     metaState.loadingMessages = false;
     if (shouldRenderAfterLoad && (!options.silent || activeView === "pages")) {
@@ -4789,14 +5026,18 @@ async function logoutFacebook() {
     // Ignore logout failures on purpose; local UI state still needs to reset.
   }
 
+  clearDashboardCache();
   metaState = {
     authChecked: true,
     profile: null,
+    profileFromCache: false,
     pages: null,
+    pagesFromCache: false,
     pageDebug: null,
     selectedPageId: "",
     conversations: null,
     conversationsPageId: "",
+    conversationsFromCachePageId: "",
     loadingConversationsPageId: "",
     selectedConversationId: "",
     messages: null,
@@ -4821,6 +5062,7 @@ function selectMetaPage(pageId) {
   metaState.selectedPageId = pageId;
   metaState.conversations = null;
   metaState.conversationsPageId = "";
+  metaState.conversationsFromCachePageId = "";
   metaState.loadingConversationsPageId = "";
   metaState.selectedConversationId = "";
   metaState.messages = null;
@@ -4839,6 +5081,8 @@ function selectMetaPage(pageId) {
     customFieldStore.pageId = "";
     pixelState.pageId = "";
     jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
+    hydrateCachedFlowsForPage(page.id);
+    hydrateCachedConversationsForPage(page.id);
     loadFlowsForPage(page.id);
     loadContactsForPage(page.id);
   }
@@ -4854,6 +5098,7 @@ function selectSidebarPage(pageId) {
   metaState.selectedPageId = page.id;
   metaState.conversations = null;
   metaState.conversationsPageId = "";
+  metaState.conversationsFromCachePageId = "";
   metaState.loadingConversationsPageId = "";
   metaState.selectedConversationId = "";
   metaState.messages = null;
@@ -4875,6 +5120,8 @@ function selectSidebarPage(pageId) {
   customFieldStore.pageId = "";
   pixelState.pageId = "";
   jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
+  hydrateCachedFlowsForPage(page.id);
+  hydrateCachedConversationsForPage(page.id);
   persistLocalState();
   loadContactsForPage(page.id);
   render();
@@ -4882,8 +5129,11 @@ function selectSidebarPage(pageId) {
 
 function refreshMetaConversations() {
   if (!metaState.selectedPageId) return;
+  const pageId = normalizeFlowPageId(metaState.selectedPageId);
+  removeDashboardCache("conversationsByPage", pageId);
   metaState.conversations = null;
   metaState.conversationsPageId = "";
+  metaState.conversationsFromCachePageId = "";
   metaState.loadingConversationsPageId = "";
   metaState.messages = null;
   metaState.pixelEvents = null;
@@ -4900,7 +5150,9 @@ function selectMetaConversation(conversationId) {
   metaState.pixelEvents = null;
   metaState.attributionEvents = null;
   metaState.unreadAnchorId = "";
+  const hadCachedMessages = hydrateCachedMessagesForConversation(pageId, conversationId);
   render();
+  if (hadCachedMessages) loadMetaMessages(pageId, conversationId, { silent: true, force: true });
 }
 
 async function sendMetaMessage() {
@@ -4921,6 +5173,7 @@ async function sendMetaMessage() {
   try {
     await apiPost("/api/meta/send", { pageId: page.id, psid, text, lastSeen: conversation.updated_time || "" });
     textarea.value = "";
+    removeDashboardCache("messagesByConversation", conversationCacheKey(page.id, conversation.id));
     metaState.messages = null;
     metaState.pixelEvents = null;
     metaState.attributionEvents = null;
@@ -4988,6 +5241,8 @@ function openPageFlow() {
     customFieldStore.pageId = "";
     pixelState.pageId = "";
     jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
+    hydrateCachedFlowsForPage(page.id);
+    hydrateCachedConversationsForPage(page.id);
     loadContactsForPage(page.id);
   }
   navigate("flows");
@@ -4996,13 +5251,14 @@ function openPageFlow() {
 async function loadFlowsForPage(pageId) {
   const normalizedPageId = normalizeFlowPageId(pageId);
   const localFlows = localFlowsForPage(normalizedPageId);
-  setActiveFlowsForPage(normalizedPageId, localFlows);
+  const hasCachedFlows = hydrateCachedFlowsForPage(normalizedPageId);
+  if (!hasCachedFlows) setActiveFlowsForPage(normalizedPageId, localFlows);
 
   flowStore = {
     ...flowStore,
     pageId: normalizedPageId,
     loading: true,
-    status: "Carregando D1"
+    status: hasCachedFlows ? "Atualizando D1" : "Carregando D1"
   };
 
   try {
@@ -5013,12 +5269,14 @@ async function loadFlowsForPage(pageId) {
 
     if (Array.isArray(result.flows) && result.flows.length) {
       setActiveFlowsForPage(normalizedPageId, result.flows);
+      setDashboardCache("flowsByPage", normalizedPageId, result.flows);
       persistLocalState();
       flowStore.status = "Salvo no D1";
     } else if (localFlows.length) {
       flowStore.status = "Rascunhos locais desta pagina";
     } else {
       setActiveFlowsForPage(normalizedPageId, []);
+      setDashboardCache("flowsByPage", normalizedPageId, []);
       persistLocalState();
       flowStore.status = "D1 sem fluxos";
     }
@@ -5188,6 +5446,7 @@ async function syncFlowToServer(flow, options = {}) {
     flowStore.serverAvailable = true;
     flowStore.pageId = pageId;
     flowStore.status = "Salvo no D1";
+    setDashboardCache("flowsByPage", pageId, state.flows);
     updateSyncPill();
     return true;
   } catch (error) {
@@ -5210,6 +5469,7 @@ async function syncAllFlowsToServer() {
     flowStore.serverAvailable = true;
     flowStore.pageId = pageId;
     flowStore.status = "Fluxos salvos no D1";
+    setDashboardCache("flowsByPage", pageId, state.flows);
     updateSyncPill();
     return true;
   } catch (error) {
