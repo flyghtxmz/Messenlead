@@ -64,7 +64,7 @@ export function messengerEntryFromContext(pageId, context = {}, attribution = nu
   return {
     source,
     page_id: normalizePageId(pageId),
-    ad_id: adId,
+    ad_id: isOrganic ? "organic" : adId,
     adgroup_id: cleanText(context.adGroupId, 160),
     ad_title: isOrganic ? "Organic" : cleanText(context.adTitle, 250),
     source_key: cleanText(attribution?.sourceKey, 80) || attributionSourceKey(pageId, adId) || (isOrganic ? organicSourceKey(pageId) : ""),

@@ -6465,7 +6465,7 @@ function renderMessageSettings(flow, node) {
             <span>Monte os blocos enviados no Messenger.</span>
           </div>
         </div>
-        <small class="settings-hint">Links e textos aceitam {{entry.source_key}}, {{entry.ad_id}}, {{entry.page_id}}, {{entry.source}} e {{contact.nome_do_campo}}. No orgânico, {{entry.source}} vira organic.</small>
+        <small class="settings-hint">Links e textos aceitam {{entry.source_key}}, {{entry.ad_id}}, {{entry.page_id}}, {{entry.source}} e {{contact.nome_do_campo}}. No orgânico, {{entry.source}} e {{entry.ad_id}} viram organic.</small>
         <div class="content-block-list">
           ${node.contentBlocks.map((block) => renderMessageContentBlock(flow, node, block)).join("")}
           <div class="content-add-row">
@@ -7637,7 +7637,7 @@ function renderActionCustomFieldValue(step) {
   const inputType = dynamicValue ? "text" : type === "number" ? "number" : type === "date" ? "date" : type === "datetime" ? "datetime-local" : "text";
   return `
     <input type="${attr(inputType)}" ${common} value="${attr(step.fieldValue ?? "")}" placeholder="Valor ou {{entry.ad_id}}" />
-    <small class="settings-hint">Aceita {{entry.ad_id}}, {{entry.source_key}}, {{entry.page_id}} e {{entry.source}}. No orgânico, {{entry.source}} vira organic.</small>
+    <small class="settings-hint">Aceita {{entry.ad_id}}, {{entry.source_key}}, {{entry.page_id}} e {{entry.source}}. No orgânico, {{entry.source}} e {{entry.ad_id}} viram organic.</small>
   `;
 }
 
