@@ -258,6 +258,7 @@ const icons = {
   upload: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0-4 4m4-4 4 4"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg>`,
   download: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>`,
   check: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg>`,
+  more: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>`,
   refresh: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v6h-6"/><path d="M4 18v-6h6"/><path d="M19 12a7 7 0 0 0-12-5l-3 3"/><path d="M5 12a7 7 0 0 0 12 5l3-3"/></svg>`,
   message: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/></svg>`,
   condition: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 9-9 9-9-9 9-9Z"/><path d="M12 8v4l3 3"/></svg>`,
@@ -6176,7 +6177,7 @@ function nextStepChoice(type, label, icon) {
 
 function renderInspector(flow, node) {
   if (node.type === "trigger") return renderTriggerSettings(flow, node);
-  if (node.type === "message") return renderMessageSettings(flow, node);
+  if (node.type === "message") return renderMessageSettingsManychatVisual(flow, node);
   if (node.type === "condition") return renderConditionSettings(flow, node);
   if (node.type === "delay") return renderDelaySettings(flow, node);
   if (node.type === "user_input") return renderUserInputSettings(flow, node);
@@ -6491,6 +6492,67 @@ function renderMessageSettings(flow, node) {
         </div>
       </div>
     </form>
+  `;
+}
+
+function renderMessageSettingsManychatVisual(flow, node) {
+  normalizeNodeStructure(node);
+  let firstTextBlock = node.contentBlocks.find((block) => block.type === "text");
+  if (!firstTextBlock) {
+    firstTextBlock = defaultMessageBlock("text");
+    node.contentBlocks.unshift(firstTextBlock);
+    syncLegacyMessageFromBlocks(node);
+  }
+  const extraBlocks = node.contentBlocks.filter((block) => block.id !== firstTextBlock.id);
+  return `
+    <form class="message-inspector manychat-settings">
+      <div class="message-inspector-title">
+        <input data-node-field="title" value="${attr(node.title || "Mensagem")}" aria-label="Nome do bloco de mensagem" />
+        ${icons.edit}
+      </div>
+      <label class="message-send-window">
+        <span>Enviar</span>
+        <select aria-label="Janela de envio da mensagem">
+          <option>Dentro da janela de mensagens</option>
+        </select>
+      </label>
+      <div class="message-inspector-divider"></div>
+      <div class="manychat-message-preview">
+        <textarea data-message-block-field="text" data-block-id="${attr(firstTextBlock.id)}" placeholder="Adicionar texto">${escapeHtml(firstTextBlock.text || node.message || "")}</textarea>
+        ${renderInlineMessageButtons(node)}
+      </div>
+      <div class="manychat-quick-replies">
+        ${node.quickReplies.map((option) => renderMessageOption(flow, node, option, "quick_reply")).join("")}
+        <button class="manychat-quick-reply-add" type="button" data-action="add-quick-reply" data-id="${node.id}" ${node.quickReplies.length >= 11 ? "disabled" : ""}>+ Resposta Rápida</button>
+      </div>
+      <div class="message-inspector-divider"></div>
+      <small class="manychat-block-label">Adicione um dos blocos de conteúdo:</small>
+      <div class="manychat-content-options">
+        ${renderManychatContentOption("text", "Texto", "Adicione texto simples e botões", icons.message, "add-message-block")}
+        ${renderManychatContentOption("image", "Imagem", "Impulsione o engajamento com visuais", icons.image, "add-message-block")}
+        ${renderManychatContentOption("delay", "Atraso", "Deixe um intervalo entre as mensagens", icons.delay, "")}
+        ${renderManychatContentOption("data_collection", "Coleta de Dados", "Capture e-mails, telefones e mais", icons.pages, "", { pro: true })}
+        ${renderManychatContentOption("more", "Mais", "Ver todas as opções disponíveis", icons.more, "")}
+      </div>
+      <small class="settings-hint">Links e textos aceitam {{entry.source_key}}, {{entry.ad_id}}, {{entry.page_id}}, {{entry.source}} e {{contact.nome_do_campo}}. No orgânico, {{entry.source}} e {{entry.ad_id}} viram organic.</small>
+      ${extraBlocks.map((block) => renderMessageContentBlock(flow, node, block)).join("")}
+      <div class="message-inspector-divider"></div>
+      ${node.next ? renderSelectedNextStep(flow, node) : `<button class="choose-next-step-button blue" type="button" data-action="open-next-step-picker" data-id="${node.id}">Escolher Próximo Passo</button>`}
+    </form>
+  `;
+}
+
+function renderManychatContentOption(type, title, description, icon, action, options = {}) {
+  const actionAttrs = action ? `data-action="${attr(action)}" data-type="${attr(type)}"` : `aria-disabled="true"`;
+  return `
+    <button class="manychat-content-option ${action ? "" : "visual-only"}" type="button" ${actionAttrs}>
+      <span class="manychat-content-icon">${icon}</span>
+      <span>
+        <strong>${escapeHtml(title)}</strong>
+        <small>${escapeHtml(description)}</small>
+      </span>
+      ${options.pro ? `<em>PRO</em>` : ""}
+    </button>
   `;
 }
 
