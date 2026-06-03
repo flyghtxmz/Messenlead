@@ -2227,7 +2227,7 @@ function renderFlows() {
           </div>
         </div>
         <button class="canvas-peek-button ${showInspector ? "active" : ""}" type="button" data-action="peek-inspector" data-tooltip="${showInspector ? "Fechar configurações" : "Mostrar configurações do bloco"}" aria-label="${showInspector ? "Fechar configurações" : "Mostrar configurações do bloco"}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${showInspector ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"}" /></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${showInspector ? "m9 18 6-6-6-6" : "m15 18-6-6 6-6"}" /></svg>
         </button>
         ${
           viewingPublished
