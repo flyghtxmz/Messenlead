@@ -6996,19 +6996,6 @@ svg {
   font-size: 10px;
 }
 
-.manychat-content-option em {
-  position: absolute;
-  top: 9px;
-  right: 9px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: #006cff;
-  color: #fff;
-  font-size: 7px;
-  font-style: normal;
-  font-weight: 900;
-}
-
 .manychat-image-widget {
   display: grid;
   min-height: 80px;

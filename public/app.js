@@ -6537,7 +6537,7 @@ function renderMessageSettingsManychatVisual(flow, node) {
         ${renderManychatContentOption("text", "Texto", "Adicione texto simples e botões", icons.message, "add-message-block")}
         ${renderManychatContentOption("image", "Imagem", "Impulsione o engajamento com visuais", icons.image, "add-message-block")}
         ${renderManychatContentOption("delay", "Atraso", "Deixe um intervalo entre as mensagens", icons.delay, "")}
-        ${renderManychatContentOption("data_collection", "Coleta de Dados", "Capture e-mails, telefones e mais", icons.pages, "", { pro: true })}
+        ${renderManychatContentOption("data_collection", "Coleta de Dados", "Capture e-mails, telefones e mais", icons.pages, "")}
         ${renderManychatContentOption("more", "Mais", "Ver todas as opções disponíveis", icons.more, "toggle-message-more-panel")}
       </div>
       ${messageMorePanelOpen ? renderManychatMorePanel() : ""}
@@ -6560,7 +6560,7 @@ function renderManychatTextWidget(node, block, primary = false) {
   `;
 }
 
-function renderManychatContentOption(type, title, description, icon, action, options = {}) {
+function renderManychatContentOption(type, title, description, icon, action) {
   const actionAttrs = action ? `data-action="${attr(action)}" data-type="${attr(type)}"` : `aria-disabled="true"`;
   return `
     <button class="manychat-content-option ${action ? "" : "visual-only"}" type="button" ${actionAttrs}>
@@ -6569,24 +6569,23 @@ function renderManychatContentOption(type, title, description, icon, action, opt
         <strong>${escapeHtml(title)}</strong>
         <small>${escapeHtml(description)}</small>
       </span>
-      ${options.pro ? `<em>PRO</em>` : ""}
     </button>
   `;
 }
 
 function renderManychatMorePanel() {
   const items = [
-    ["file", "Arquivo", "Anexe arquivos na mensagem", icons.pages, false],
-    ["audio", "Áudio", "Envie áudios no chat", icons.send, false],
-    ["video", "Vídeo", "Compartilhe vídeos no chat", icons.video, false],
-    ["card", "Cartão", "Adicione uma imagem com botão", icons.image, false],
-    ["gallery", "Galeria", "Adicione até 10 imagens no chat", icons.workflow, true],
-    ["messenger_list", "Messenger List", "Adicione um widget para que os usuários possam se inscrever", icons.pages, false],
-    ["dynamic", "Dinâmico", "Solicite o conteúdo do servidor", icons.upload, true]
+    ["file", "Arquivo", "Anexe arquivos na mensagem", icons.pages],
+    ["audio", "Áudio", "Envie áudios no chat", icons.send],
+    ["video", "Vídeo", "Compartilhe vídeos no chat", icons.video],
+    ["card", "Cartão", "Adicione uma imagem com botão", icons.image],
+    ["gallery", "Galeria", "Adicione até 10 imagens no chat", icons.workflow],
+    ["messenger_list", "Messenger List", "Adicione um widget para que os usuários possam se inscrever", icons.pages],
+    ["dynamic", "Dinâmico", "Solicite o conteúdo do servidor", icons.upload]
   ];
   return `
     <div class="manychat-more-panel"${renderMessageFloatingStyle(messageMorePanelPosition)}>
-      ${items.map(([type, title, description, icon, pro]) => renderManychatContentOption(type, title, description, icon, "", { pro })).join("")}
+      ${items.map(([type, title, description, icon]) => renderManychatContentOption(type, title, description, icon, "")).join("")}
     </div>
   `;
 }
