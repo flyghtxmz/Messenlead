@@ -339,6 +339,8 @@ let conditionPickerCategory = "recommended";
 let conditionPickerQuery = "";
 let messageButtonEditorOptionId = "";
 let messageBlockFocusId = "";
+let messageImageUrlEditorBlockId = "";
+let messageMorePanelOpen = false;
 let canvasAddMenu = null;
 let suppressedNodeClickId = "";
 let subscriberTagFilter = "";
@@ -6530,8 +6532,9 @@ function renderMessageSettingsManychatVisual(flow, node) {
         ${renderManychatContentOption("image", "Imagem", "Impulsione o engajamento com visuais", icons.image, "add-message-block")}
         ${renderManychatContentOption("delay", "Atraso", "Deixe um intervalo entre as mensagens", icons.delay, "")}
         ${renderManychatContentOption("data_collection", "Coleta de Dados", "Capture e-mails, telefones e mais", icons.pages, "", { pro: true })}
-        ${renderManychatContentOption("more", "Mais", "Ver todas as opções disponíveis", icons.more, "")}
+        ${renderManychatContentOption("more", "Mais", "Ver todas as opções disponíveis", icons.more, "toggle-message-more-panel")}
       </div>
+      ${messageMorePanelOpen ? renderManychatMorePanel() : ""}
       <small class="settings-hint">Links e textos aceitam {{entry.source_key}}, {{entry.ad_id}}, {{entry.page_id}}, {{entry.source}} e {{contact.nome_do_campo}}. No orgânico, {{entry.source}} e {{entry.ad_id}} viram organic.</small>
       <div class="message-inspector-divider"></div>
       ${node.next ? renderSelectedNextStep(flow, node) : `<button class="choose-next-step-button blue" type="button" data-action="open-next-step-picker" data-id="${node.id}">Escolher Próximo Passo</button>`}
@@ -6565,12 +6568,41 @@ function renderManychatContentOption(type, title, description, icon, action, opt
   `;
 }
 
+function renderManychatMorePanel() {
+  const items = [
+    ["file", "Arquivo", "Anexe arquivos na mensagem", icons.pages, false],
+    ["audio", "Áudio", "Envie áudios no chat", icons.send, false],
+    ["video", "Vídeo", "Compartilhe vídeos no chat", icons.video, false],
+    ["card", "Cartão", "Adicione uma imagem com botão", icons.image, false],
+    ["gallery", "Galeria", "Adicione até 10 imagens no chat", icons.workflow, true],
+    ["messenger_list", "Messenger List", "Adicione um widget para que os usuários possam se inscrever", icons.pages, false],
+    ["dynamic", "Dinâmico", "Solicite o conteúdo do servidor", icons.upload, true]
+  ];
+  return `
+    <div class="manychat-more-panel">
+      ${items.map(([type, title, description, icon, pro]) => renderManychatContentOption(type, title, description, icon, "", { pro })).join("")}
+    </div>
+  `;
+}
+
 function renderManychatBlockControls(block = {}) {
   return `
     <div class="manychat-widget-controls" aria-label="Ações do bloco">
       <button type="button" data-action="remove-message-block" data-block-id="${attr(block.id)}" title="Remover bloco" aria-label="Remover bloco">&times;</button>
       <button type="button" data-action="move-message-block" data-block-id="${attr(block.id)}" title="Reorganizar bloco" aria-label="Reorganizar bloco">${icons.move_vertical}</button>
       <button type="button" data-action="duplicate-message-block" data-block-id="${attr(block.id)}" title="Duplicar bloco" aria-label="Duplicar bloco">${icons.copy}</button>
+    </div>
+  `;
+}
+
+function renderManychatImageUrlPopover(block = {}) {
+  return `
+    <div class="manychat-image-url-popover">
+      <label>
+        <span>URL da imagem</span>
+        <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="https://example.com/640×360.jpeg" autofocus />
+      </label>
+      <button type="button" data-action="close-message-image-url" title="Fechar editor de URL" aria-label="Fechar editor de URL">{}</button>
     </div>
   `;
 }
@@ -6603,13 +6635,11 @@ function renderMessageContentBlock(flow, node, block) {
           <div class="manychat-image-actions">
             <button type="button" data-action="choose-message-block-file" data-input-id="${attr(inputId)}">Enviar Imagem</button>
             <span>ou</span>
-            <label>
-              <span>colar a URL</span>
-              <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="https://..." />
-            </label>
+            <button type="button" data-action="open-message-image-url" data-block-id="${attr(block.id)}">colar a URL</button>
           </div>
           <input id="${attr(inputId)}" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" data-message-block-file="true" data-block-id="${attr(block.id)}" data-kind="image" hidden />
         </article>
+        ${messageImageUrlEditorBlockId === block.id ? renderManychatImageUrlPopover(block) : ""}
         ${renderManychatBlockControls(block)}
       </div>
     `;
@@ -8018,6 +8048,9 @@ function handleWorkspaceClick(event) {
   if (action === "duplicate-message-block") return duplicateMessageBlock(button.dataset.blockId);
   if (action === "move-message-block") return moveMessageBlock(button.dataset.blockId);
   if (action === "choose-message-block-file") return document.getElementById(button.dataset.inputId)?.click();
+  if (action === "open-message-image-url") return openMessageImageUrlEditor(button.dataset.blockId);
+  if (action === "close-message-image-url") return closeMessageImageUrlEditor();
+  if (action === "toggle-message-more-panel") return toggleMessageMorePanel();
   if (action === "add-message-block-button") return addMessageBlockButton(button.dataset.blockId);
   if (action === "remove-message-block-button") return removeMessageBlockButton(button.dataset.blockId, button.dataset.buttonId);
   if (action === "add-message-button") return addMessageButton();
@@ -9334,6 +9367,8 @@ function toggleInspector() {
 function closeInspectorPanel() {
   showInspector = false;
   messageButtonEditorOptionId = "";
+  messageImageUrlEditorBlockId = "";
+  messageMorePanelOpen = false;
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
@@ -9546,6 +9581,8 @@ function addMessageBlock(type) {
   const insertIndex = textIndex >= 0 ? textIndex + 1 : node.contentBlocks.length;
   node.contentBlocks.splice(insertIndex, 0, block);
   messageBlockFocusId = block.id;
+  messageMorePanelOpen = false;
+  messageImageUrlEditorBlockId = "";
   syncLegacyMessageFromBlocks(node);
   flow.updatedAt = new Date().toISOString();
   saveState();
@@ -9597,6 +9634,23 @@ function moveMessageBlock(blockId) {
   syncLegacyMessageFromBlocks(node);
   flow.updatedAt = new Date().toISOString();
   saveState();
+  render();
+}
+
+function openMessageImageUrlEditor(blockId) {
+  messageImageUrlEditorBlockId = blockId || "";
+  messageMorePanelOpen = false;
+  render();
+}
+
+function closeMessageImageUrlEditor() {
+  messageImageUrlEditorBlockId = "";
+  render();
+}
+
+function toggleMessageMorePanel() {
+  messageMorePanelOpen = !messageMorePanelOpen;
+  messageImageUrlEditorBlockId = "";
   render();
 }
 

@@ -6770,6 +6770,7 @@ svg {
 }
 
 .message-inspector {
+  position: relative;
   display: grid;
   gap: 16px;
   margin: -14px -14px 0;
@@ -7064,26 +7065,81 @@ svg {
   font-weight: 700;
 }
 
-.manychat-image-actions label {
+.manychat-image-url-popover {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  z-index: 35;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 274px;
+  padding: 11px;
+  border: 1px solid #d5dde6;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+}
+
+.manychat-image-url-popover::before {
+  position: absolute;
+  top: 46px;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  border-left: 1px solid #d5dde6;
+  border-bottom: 1px solid #d5dde6;
+  background: #fff;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.manychat-image-url-popover label {
+  display: grid;
+  gap: 7px;
   min-width: 0;
+  color: #30343a;
+  font-size: 12px;
 }
 
-.manychat-image-actions label span {
-  color: #0069df;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.manychat-image-actions input {
-  width: 118px;
-  min-height: 21px;
-  margin-top: 3px;
-  padding: 2px 5px;
-  border: 1px solid #d2d8df;
-  border-radius: 4px;
+.manychat-image-url-popover input {
+  width: 100%;
+  min-height: 60px;
+  padding: 7px;
+  border: 1px solid #ff3b30;
+  border-radius: 5px;
   color: #344054;
-  font-size: 10px;
+  font-size: 12px;
+}
+
+.manychat-image-url-popover > button {
+  align-self: end;
+  width: 25px;
+  height: 25px;
+  border: 0;
+  border-radius: 4px;
+  background: #1f2937;
+  color: #fff;
+  font-size: 11px;
+}
+
+.manychat-more-panel {
+  position: absolute;
+  top: 232px;
+  left: calc(100% - 8px);
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  width: 278px;
+  padding: 12px;
+  border: 1px solid #d5dde6;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 15px 38px rgba(15, 23, 42, 0.18);
+}
+
+.manychat-more-panel .manychat-content-option {
+  min-height: 55px;
 }
 
 .message-inspector > .settings-hint {
