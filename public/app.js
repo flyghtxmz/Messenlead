@@ -340,7 +340,9 @@ let conditionPickerQuery = "";
 let messageButtonEditorOptionId = "";
 let messageBlockFocusId = "";
 let messageImageUrlEditorBlockId = "";
+let messageImageUrlPopoverPosition = null;
 let messageMorePanelOpen = false;
+let messageMorePanelPosition = null;
 let canvasAddMenu = null;
 let suppressedNodeClickId = "";
 let subscriberTagFilter = "";
@@ -1416,6 +1418,10 @@ function editPublishedFlow() {
   flowCanvasMode = "edit";
   selectedNodeId = flow.nodes.find((node) => node.id === selectedNodeId)?.id || flow.nodes.find((node) => node.type === "message")?.id || flow.nodes[0]?.id;
   messageButtonEditorOptionId = "";
+  messageImageUrlEditorBlockId = "";
+  messageImageUrlPopoverPosition = null;
+  messageMorePanelOpen = false;
+  messageMorePanelPosition = null;
   showInspector = false;
   shouldAutoFitCanvas = true;
   render();
@@ -6579,10 +6585,18 @@ function renderManychatMorePanel() {
     ["dynamic", "Dinâmico", "Solicite o conteúdo do servidor", icons.upload, true]
   ];
   return `
-    <div class="manychat-more-panel">
+    <div class="manychat-more-panel"${renderMessageFloatingStyle(messageMorePanelPosition)}>
       ${items.map(([type, title, description, icon, pro]) => renderManychatContentOption(type, title, description, icon, "", { pro })).join("")}
     </div>
   `;
+}
+
+function renderMessageFloatingStyle(position) {
+  if (!position) return "";
+  const left = Number(position.left);
+  const top = Number(position.top);
+  if (!Number.isFinite(left) || !Number.isFinite(top)) return "";
+  return ` style="--manychat-popup-left:${Math.round(left)}px; --manychat-popup-top:${Math.round(top)}px"`;
 }
 
 function renderManychatBlockControls(block = {}) {
@@ -6597,7 +6611,7 @@ function renderManychatBlockControls(block = {}) {
 
 function renderManychatImageUrlPopover(block = {}) {
   return `
-    <div class="manychat-image-url-popover">
+    <div class="manychat-image-url-popover"${renderMessageFloatingStyle(messageImageUrlPopoverPosition)}>
       <label>
         <span>URL da imagem</span>
         <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="https://example.com/640×360.jpeg" autofocus />
@@ -7934,6 +7948,10 @@ function handleWorkspaceClick(event) {
     flowCanvasMode = "edit";
     showInspector = false;
     messageButtonEditorOptionId = "";
+    messageImageUrlEditorBlockId = "";
+    messageImageUrlPopoverPosition = null;
+    messageMorePanelOpen = false;
+    messageMorePanelPosition = null;
     triggerPickerNodeId = "";
     nextStepPickerNodeId = "";
     actionPickerNodeId = "";
@@ -8028,6 +8046,10 @@ function handleWorkspaceClick(event) {
     }
     selectedNodeId = id;
     messageButtonEditorOptionId = "";
+    messageImageUrlEditorBlockId = "";
+    messageImageUrlPopoverPosition = null;
+    messageMorePanelOpen = false;
+    messageMorePanelPosition = null;
     showInspector = true;
     showFlowList = false;
     triggerPickerNodeId = "";
@@ -8048,9 +8070,9 @@ function handleWorkspaceClick(event) {
   if (action === "duplicate-message-block") return duplicateMessageBlock(button.dataset.blockId);
   if (action === "move-message-block") return moveMessageBlock(button.dataset.blockId);
   if (action === "choose-message-block-file") return document.getElementById(button.dataset.inputId)?.click();
-  if (action === "open-message-image-url") return openMessageImageUrlEditor(button.dataset.blockId);
+  if (action === "open-message-image-url") return openMessageImageUrlEditor(button.dataset.blockId, button);
   if (action === "close-message-image-url") return closeMessageImageUrlEditor();
-  if (action === "toggle-message-more-panel") return toggleMessageMorePanel();
+  if (action === "toggle-message-more-panel") return toggleMessageMorePanel(button);
   if (action === "add-message-block-button") return addMessageBlockButton(button.dataset.blockId);
   if (action === "remove-message-block-button") return removeMessageBlockButton(button.dataset.blockId, button.dataset.buttonId);
   if (action === "add-message-button") return addMessageButton();
@@ -9368,7 +9390,9 @@ function closeInspectorPanel() {
   showInspector = false;
   messageButtonEditorOptionId = "";
   messageImageUrlEditorBlockId = "";
+  messageImageUrlPopoverPosition = null;
   messageMorePanelOpen = false;
+  messageMorePanelPosition = null;
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
@@ -9582,7 +9606,9 @@ function addMessageBlock(type) {
   node.contentBlocks.splice(insertIndex, 0, block);
   messageBlockFocusId = block.id;
   messageMorePanelOpen = false;
+  messageMorePanelPosition = null;
   messageImageUrlEditorBlockId = "";
+  messageImageUrlPopoverPosition = null;
   syncLegacyMessageFromBlocks(node);
   flow.updatedAt = new Date().toISOString();
   saveState();
@@ -9637,20 +9663,58 @@ function moveMessageBlock(blockId) {
   render();
 }
 
-function openMessageImageUrlEditor(blockId) {
+function computeMessageFloatingPosition(anchorElement, options = {}) {
+  const margin = 12;
+  const width = Number(options.width) || 278;
+  const height = Number(options.height) || 140;
+  const minTop = window.innerWidth <= 900 ? margin : 64;
+  const drawer = document.querySelector(".page-grid.canvas-focused.show-inspector > .inspector") || document.querySelector(".page-grid.canvas-focused > .inspector");
+  const drawerRect = drawer?.getBoundingClientRect();
+  const anchorTarget = options.anchorSelector ? anchorElement?.closest(options.anchorSelector) : anchorElement;
+  const anchorRect = anchorTarget?.getBoundingClientRect() || anchorElement?.getBoundingClientRect();
+  const fallbackTop = Number(options.fallbackTop) || 140;
+  const preferredLeft = drawerRect ? drawerRect.right + margin : (anchorRect?.right || margin);
+  const preferredTop = anchorRect ? anchorRect.top + (Number(options.offsetTop) || 0) : (drawerRect ? drawerRect.top + fallbackTop : fallbackTop);
+  const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+  const maxTop = Math.max(minTop, window.innerHeight - height - margin);
+
+  return {
+    left: Math.max(margin, Math.min(preferredLeft, maxLeft)),
+    top: Math.max(minTop, Math.min(preferredTop, maxTop))
+  };
+}
+
+function openMessageImageUrlEditor(blockId, anchorElement = null) {
   messageImageUrlEditorBlockId = blockId || "";
+  messageImageUrlPopoverPosition = computeMessageFloatingPosition(anchorElement, {
+    anchorSelector: "[data-message-block-widget]",
+    width: 274,
+    height: 116,
+    fallbackTop: 160
+  });
   messageMorePanelOpen = false;
+  messageMorePanelPosition = null;
   render();
 }
 
 function closeMessageImageUrlEditor() {
   messageImageUrlEditorBlockId = "";
+  messageImageUrlPopoverPosition = null;
   render();
 }
 
-function toggleMessageMorePanel() {
+function toggleMessageMorePanel(anchorElement = null) {
   messageMorePanelOpen = !messageMorePanelOpen;
+  messageMorePanelPosition = messageMorePanelOpen
+    ? computeMessageFloatingPosition(anchorElement, {
+        anchorSelector: ".manychat-content-options",
+        width: 278,
+        height: 360,
+        fallbackTop: 232
+      })
+    : null;
   messageImageUrlEditorBlockId = "";
+  messageImageUrlPopoverPosition = null;
   render();
 }
 
@@ -11459,6 +11523,10 @@ function clearCanvasSelection() {
   showInspector = false;
   selectedNodeId = "";
   messageButtonEditorOptionId = "";
+  messageImageUrlEditorBlockId = "";
+  messageImageUrlPopoverPosition = null;
+  messageMorePanelOpen = false;
+  messageMorePanelPosition = null;
   triggerPickerNodeId = "";
   nextStepPickerNodeId = "";
   actionPickerNodeId = "";
