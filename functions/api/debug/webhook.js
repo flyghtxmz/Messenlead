@@ -128,6 +128,8 @@ async function readAppWebhookSubscriptionStatus(env, config, pageId) {
       callbackUrl,
       fields,
       includesMessages: fields.includes("messages"),
+      includesMessageDeliveries: fields.includes("message_deliveries"),
+      includesMessageReads: fields.includes("message_reads"),
       subscription: status.pageSubscription,
       error: status.error || "",
       details: status.details || null

@@ -365,6 +365,9 @@ async function handleSend(request, env) {
       direct: true,
       status: direct.status,
       body: direct.body,
+      responseJson: parseJson(direct.body),
+      responseBody: direct.body,
+      sentAt: direct.ok ? new Date().toISOString() : "",
       pageId: clean(body.pageId, 120),
       queueId: clean(body.queueId, 160)
     }, direct.ok ? 200 : 502);
@@ -401,6 +404,9 @@ async function handleSend(request, env) {
     status: current?.status || "queued",
     attempts: Number(current?.attempts || 0),
     lastError: current?.last_error || "",
+    responseJson: parseJson(current?.response_json || ""),
+    responseBody: current?.response_json || "",
+    sentAt: current?.sent_at || "",
     capacity,
     drain
   }, failed ? 502 : 200);
@@ -424,6 +430,8 @@ async function ensureSchema(env) {
       max_attempts INTEGER NOT NULL DEFAULT 4,
       not_before TEXT NOT NULL,
       policy_expires_at TEXT,
+      callback_url TEXT NOT NULL DEFAULT '',
+      callback_token TEXT NOT NULL DEFAULT '',
       last_error TEXT,
       response_json TEXT,
       created_at TEXT NOT NULL,
@@ -431,6 +439,9 @@ async function ensureSchema(env) {
       sent_at TEXT
     )
   `).run();
+
+  await addColumnIfMissing(env, "relay_send_queue", "callback_url", "TEXT NOT NULL DEFAULT ''");
+  await addColumnIfMissing(env, "relay_send_queue", "callback_token", "TEXT NOT NULL DEFAULT ''");
 
   await env.RELAY_DB.prepare("CREATE INDEX IF NOT EXISTS idx_relay_queue_status_due ON relay_send_queue(status, not_before)").run();
   await env.RELAY_DB.prepare("CREATE INDEX IF NOT EXISTS idx_relay_queue_page_status_due ON relay_send_queue(page_id, status, not_before)").run();
@@ -440,6 +451,17 @@ async function ensureSchema(env) {
   await env.RELAY_DB.prepare("CREATE INDEX IF NOT EXISTS idx_relay_queue_page_created ON relay_send_queue(page_id, created_at DESC)").run();
 
   return true;
+}
+
+async function addColumnIfMissing(env, table, column, definition) {
+  try {
+    await env.RELAY_DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+  } catch (error) {
+    const message = String(error?.message || "").toLowerCase();
+    if (!message.includes("duplicate column") && !message.includes("already exists")) {
+      throw error;
+    }
+  }
 }
 
 async function enqueueRelayMessage(env, body = {}) {
@@ -457,15 +479,17 @@ async function enqueueRelayMessage(env, body = {}) {
     INSERT INTO relay_send_queue (
       id, source_queue_id, page_id, psid, page_access_token, graph_api_url,
       messaging_type, message_json, status, attempts, max_attempts, not_before,
-      policy_expires_at, last_error, response_json, created_at, updated_at, sent_at
+      policy_expires_at, callback_url, callback_token, last_error, response_json, created_at, updated_at, sent_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?, '', '', ?, ?, '')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?, ?, ?, '', '', ?, ?, '')
     ON CONFLICT(id) DO UPDATE SET
       page_access_token = excluded.page_access_token,
       graph_api_url = excluded.graph_api_url,
       messaging_type = excluded.messaging_type,
       message_json = excluded.message_json,
       policy_expires_at = excluded.policy_expires_at,
+      callback_url = excluded.callback_url,
+      callback_token = excluded.callback_token,
       status = CASE
         WHEN relay_send_queue.status IN ('sent', 'processing') THEN relay_send_queue.status
         ELSE 'queued'
@@ -488,6 +512,8 @@ async function enqueueRelayMessage(env, body = {}) {
       maxAttempts,
       now,
       policyExpiresAt,
+      clean(body.statusCallbackUrl, 500),
+      clean(body.statusCallbackToken, 500),
       now,
       now
     )
@@ -572,11 +598,13 @@ async function processRow(env, row) {
     });
   }
 
+  const sentAt = new Date().toISOString();
   await markRow(env, row.id, "sent", {
     response: direct.body,
-    sentAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    sentAt,
+    updatedAt: sentAt
   });
+  await notifyStatusCallback(row, direct, sentAt).catch(() => null);
   return "sent";
 }
 
@@ -596,6 +624,33 @@ async function sendDirect(_env, payload) {
     status: response.status,
     body: body.slice(0, 4000)
   };
+}
+
+async function notifyStatusCallback(row, direct, sentAt) {
+  const callbackUrl = clean(row.callback_url, 500);
+  const callbackToken = clean(row.callback_token, 500);
+  if (!callbackUrl || !callbackToken || !direct?.ok) return { ok: false, skipped: true };
+
+  const responseBody = clean(direct.body, 4000);
+  const response = await fetch(callbackUrl, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${callbackToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      relayQueueId: row.id,
+      queueId: row.source_queue_id || row.id,
+      pageId: row.page_id || "",
+      psid: row.psid || "",
+      status: "sent",
+      sentAt,
+      responseJson: parseJson(responseBody),
+      responseBody
+    })
+  });
+
+  return { ok: response.ok, status: response.status };
 }
 
 async function retryOrFail(env, row, error, details = {}) {

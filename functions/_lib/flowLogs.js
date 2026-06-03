@@ -153,6 +153,8 @@ const COMPACT_INFO_EVENTS = new Set([
   "flow_started",
   "start_node_selected",
   "message_prepared",
+  "message_delivery_received",
+  "message_read_received",
   "replies_queued",
   "queue_drain_finished",
   "action_node_executed",

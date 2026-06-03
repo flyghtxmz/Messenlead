@@ -384,7 +384,7 @@
                 </tr>
                 <tr>
                   <td>Conversas e eventos</td>
-                  <td>Mensagens, horários, anexos, stickers, postbacks, referrals, informações de anúncio quando a Meta envia.</td>
+                  <td>Mensagens, horários, anexos, stickers, postbacks, referrals, informações de anúncio quando a Meta envia e confirmações técnicas de entrega/leitura.</td>
                   <td>Messenger Webhooks e Graph API.</td>
                   <td>Exibir conversas, executar fluxos, diagnosticar entregas e permitir atendimento humano.</td>
                 </tr>
@@ -427,6 +427,7 @@
             <li>Executar fluxos de automação configurados pelo administrador.</li>
             <li>Aplicar, remover e consultar tags e campos personalizados de contatos.</li>
             <li>Enviar mensagens, anexos e botões dentro das regras permitidas pela Meta.</li>
+            <li>Medir envio, entrega, leitura e cliques de mensagens para relatórios de desempenho por fluxo.</li>
             <li>Evitar duplicidade de eventos, mensagens e fluxos por meio de deduplicação.</li>
             <li>Diagnosticar falhas de webhook, entrega, permissões, token, fila e relay.</li>
             <li>Permitir análise de cliques e visitas em links enviados pelo Messenger, quando o Pixel estiver instalado.</li>
@@ -440,7 +441,7 @@
           <p>Se o administrador remover o acesso do app pela Meta, desconectar uma Página ou solicitar exclusão, o Messenlead deixará de usar os dados autorizados, exceto quando a retenção temporária for necessária para segurança, cumprimento legal ou defesa de direitos.</p>
 
           <h3>5.1 Webhooks e mensagens</h3>
-          <p>Quando a Meta entrega eventos por webhook, o Messenlead processa o evento para localizar a Página, identificar o contato, aplicar regras do fluxo e enfileirar mensagens. Quando a Meta não entrega o webhook, o painel pode ainda visualizar conversas via Graph API se o administrador estiver autenticado, mas isso não substitui as regras da Messenger Platform.</p>
+          <p>Quando a Meta entrega eventos por webhook, o Messenlead processa o evento para localizar a Página, identificar o contato, aplicar regras do fluxo, enfileirar mensagens e registrar confirmações técnicas como entrega, leitura e cliques quando disponíveis. Quando a Meta não entrega o webhook, o painel pode ainda visualizar conversas via Graph API se o administrador estiver autenticado, mas isso não substitui as regras da Messenger Platform.</p>
 
           <h3>5.2 Restrições de mensagens</h3>
           <p>O administrador deve respeitar janelas de resposta, opt-ins, limites de mensagens promocionais e demais regras da Messenger Platform. O Messenlead pode bloquear, registrar ou ignorar envios que pareçam violar configurações técnicas ou políticas aplicáveis.</p>

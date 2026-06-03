@@ -1,6 +1,7 @@
 import { getStoredPageAccessToken } from "./pages.js";
 import { createMessengerContactToken } from "./pixel.js";
 import { safeAddFlowLog } from "./flowLogs.js";
+import { safeRecordFlowMetric } from "./flowMetrics.js";
 
 const RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_QUEUE_LIMIT = 8;
@@ -43,6 +44,32 @@ export async function ensureMessengerDeliverySchema(env) {
     )
   `).run();
 
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS messenger_outbound_messages (
+      id TEXT PRIMARY KEY,
+      source_queue_id TEXT NOT NULL DEFAULT '',
+      page_id TEXT NOT NULL,
+      psid TEXT NOT NULL,
+      flow_id TEXT NOT NULL DEFAULT '',
+      flow_name TEXT NOT NULL DEFAULT '',
+      node_id TEXT NOT NULL DEFAULT '',
+      node_number TEXT NOT NULL DEFAULT '',
+      node_title TEXT NOT NULL DEFAULT '',
+      event_id TEXT NOT NULL DEFAULT '',
+      reply_index INTEGER NOT NULL DEFAULT 0,
+      reply_type TEXT NOT NULL DEFAULT '',
+      message_id TEXT NOT NULL DEFAULT '',
+      recipient_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      response_json TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sent_at TEXT NOT NULL DEFAULT '',
+      delivered_at TEXT NOT NULL DEFAULT '',
+      read_at TEXT NOT NULL DEFAULT ''
+    )
+  `).run();
+
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_queue_status_due ON messenger_send_queue(status, not_before)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_queue_page_status ON messenger_send_queue(page_id, status, not_before)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_queue_sent_page ON messenger_send_queue(page_id, sent_at)").run();
@@ -50,6 +77,9 @@ export async function ensureMessengerDeliverySchema(env) {
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_queue_page_psid_status ON messenger_send_queue(page_id, psid, status, created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_queue_flow_status ON messenger_send_queue(flow_id, status, created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_event_dedup_page_created ON messenger_event_dedup(page_id, created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_outbound_page_psid_sent ON messenger_outbound_messages(page_id, psid, sent_at)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_outbound_message_id ON messenger_outbound_messages(message_id)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_messenger_outbound_flow_node ON messenger_outbound_messages(page_id, flow_id, node_id, status)").run();
 
   return true;
 }
@@ -218,7 +248,8 @@ async function enqueueMessengerRepliesLocal(env, options = {}) {
   const hasDb = await ensureMessengerDeliverySchema(env);
   if (!hasDb) return [];
 
-  for (const reply of replies.slice(0, 10)) {
+  for (let index = 0; index < replies.slice(0, 10).length; index += 1) {
+    const reply = replies[index];
     const id = `msg_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
     await env.DB.prepare(`
       INSERT INTO messenger_send_queue (
@@ -244,6 +275,19 @@ async function enqueueMessengerRepliesLocal(env, options = {}) {
         now
       )
       .run();
+    await upsertOutboundMessage(env, {
+      id,
+      sourceQueueId: id,
+      pageId,
+      psid,
+      flow,
+      eventId: options.eventId || "",
+      reply,
+      replyIndex: index,
+      status: "queued",
+      createdAt: now,
+      updatedAt: now
+    });
     queued.push(id);
   }
 
@@ -319,11 +363,26 @@ async function enqueueMessengerRepliesViaRelay(env, options = {}) {
           graphApiUrl: env.MESSENGER_GRAPH_API_URL || "https://graph.facebook.com/v23.0/me/messages",
           policyExpiresAt: options.policyExpiresAt || "",
           maxAttempts: env.MESSENLEAD_SEND_MAX_ATTEMPTS || DEFAULT_MAX_ATTEMPTS,
+          statusCallbackUrl: messengerSendReportUrl(env),
+          statusCallbackToken: env.MESSENLEAD_OPERATOR_TOKEN || "",
           message
         });
 
         if (result.ok) {
           queued.push(result.relayQueueId || queueId);
+          await upsertOutboundMessage(env, {
+            id: result.relayQueueId || queueId,
+            sourceQueueId: queueId,
+            pageId,
+            psid,
+            flow: options.flow || {},
+            eventId: options.eventId || "",
+            reply,
+            replyIndex: index,
+            status: result.queueStatus === "sent" || result.sentAt ? "sent" : "queued",
+            response: result.responseBody || (result.responseJson ? JSON.stringify(result.responseJson) : ""),
+            sentAt: result.sentAt || ""
+          });
           accepted = true;
           break;
         }
@@ -379,6 +438,10 @@ async function enqueueReplyOnRelay(relay, payload) {
         ok: true,
         relayQueueId: body.relayQueueId || payload.queueId,
         status: response.status,
+        queueStatus: body.status || "",
+        responseJson: body.responseJson || null,
+        responseBody: body.responseBody || body.body || "",
+        sentAt: body.sentAt || "",
         relayUrl: relay.url
       };
     }
@@ -448,6 +511,243 @@ async function cleanupMessengerDelivery(env) {
     .bind(queueBefore)
     .run()
     .catch(() => null);
+}
+
+async function upsertOutboundMessage(env, options = {}) {
+  const hasDb = await ensureMessengerDeliverySchema(env);
+  if (!hasDb) return { ok: false, reason: "missing_db" };
+
+  const now = new Date().toISOString();
+  const id = cleanForDb(options.id, 180);
+  const reply = options.reply && typeof options.reply === "object" ? options.reply : {};
+  const tracking = reply.tracking && typeof reply.tracking === "object" ? reply.tracking : {};
+  const flow = options.flow || {};
+  if (!id) return { ok: false, reason: "missing_id" };
+
+  const parsed = parseSendApiResponse(options.response || "");
+  const sentAt = cleanForDb(options.sentAt, 80);
+  const status = cleanForDb(options.status || (sentAt || parsed.messageId ? "sent" : "queued"), 40) || "queued";
+  const createdAt = cleanForDb(options.createdAt, 80) || now;
+  const updatedAt = cleanForDb(options.updatedAt, 80) || now;
+  const executionEventId = tracking.executionMetricKey
+    ? `${tracking.executionMetricKey}:node:${tracking.nodeId || ""}:${tracking.executionStep || ""}`
+    : options.eventId;
+
+  await env.DB.prepare(`
+    INSERT INTO messenger_outbound_messages (
+      id, source_queue_id, page_id, psid, flow_id, flow_name, node_id, node_number,
+      node_title, event_id, reply_index, reply_type, message_id, recipient_id, status,
+      response_json, created_at, updated_at, sent_at, delivered_at, read_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '')
+    ON CONFLICT(id) DO UPDATE SET
+      source_queue_id = COALESCE(NULLIF(excluded.source_queue_id, ''), messenger_outbound_messages.source_queue_id),
+      page_id = excluded.page_id,
+      psid = excluded.psid,
+      flow_id = COALESCE(NULLIF(excluded.flow_id, ''), messenger_outbound_messages.flow_id),
+      flow_name = COALESCE(NULLIF(excluded.flow_name, ''), messenger_outbound_messages.flow_name),
+      node_id = COALESCE(NULLIF(excluded.node_id, ''), messenger_outbound_messages.node_id),
+      node_number = COALESCE(NULLIF(excluded.node_number, ''), messenger_outbound_messages.node_number),
+      node_title = COALESCE(NULLIF(excluded.node_title, ''), messenger_outbound_messages.node_title),
+      event_id = COALESCE(NULLIF(excluded.event_id, ''), messenger_outbound_messages.event_id),
+      reply_type = COALESCE(NULLIF(excluded.reply_type, ''), messenger_outbound_messages.reply_type),
+      message_id = COALESCE(NULLIF(excluded.message_id, ''), messenger_outbound_messages.message_id),
+      recipient_id = COALESCE(NULLIF(excluded.recipient_id, ''), messenger_outbound_messages.recipient_id),
+      status = excluded.status,
+      response_json = COALESCE(NULLIF(excluded.response_json, ''), messenger_outbound_messages.response_json),
+      updated_at = excluded.updated_at,
+      sent_at = COALESCE(NULLIF(excluded.sent_at, ''), messenger_outbound_messages.sent_at)
+  `)
+    .bind(
+      id,
+      cleanForDb(options.sourceQueueId || id, 180),
+      normalizePageId(options.pageId),
+      cleanForDb(options.psid, 120),
+      cleanForDb(tracking.flowId || flow.id, 180),
+      cleanForDb(flow.name || "", 180),
+      cleanForDb(tracking.nodeId, 180),
+      cleanForDb(tracking.nodeNumber, 40),
+      cleanForDb(tracking.nodeTitle, 180),
+      cleanForDb(executionEventId, 500),
+      Math.max(0, Number(options.replyIndex || 0)),
+      cleanForDb(reply.type || "text", 40),
+      cleanForDb(parsed.messageId, 240),
+      cleanForDb(parsed.recipientId, 120),
+      status,
+      cleanForDb(options.response, 4000),
+      createdAt,
+      updatedAt,
+      sentAt
+    )
+    .run();
+
+  return { ok: true };
+}
+
+export async function updateOutboundMessageSent(env, options = {}) {
+  const hasDb = await ensureMessengerDeliverySchema(env);
+  if (!hasDb) return { ok: false, reason: "missing_db" };
+
+  const id = cleanForDb(options.id, 180);
+  if (!id) return { ok: false, reason: "missing_id" };
+
+  const parsed = parseSendApiResponse(options.response || "");
+  const sentAt = cleanForDb(options.sentAt, 80) || new Date().toISOString();
+  await env.DB.prepare(`
+    UPDATE messenger_outbound_messages
+    SET status = 'sent',
+        message_id = COALESCE(NULLIF(?, ''), message_id),
+        recipient_id = COALESCE(NULLIF(?, ''), recipient_id),
+        response_json = COALESCE(NULLIF(?, ''), response_json),
+        sent_at = COALESCE(NULLIF(?, ''), sent_at),
+        updated_at = ?
+    WHERE id = ? OR source_queue_id = ?
+  `)
+    .bind(
+      cleanForDb(parsed.messageId, 240),
+      cleanForDb(parsed.recipientId, 120),
+      cleanForDb(options.response, 4000),
+      sentAt,
+      new Date().toISOString(),
+      id,
+      id
+    )
+    .run();
+
+  return { ok: true };
+}
+
+export async function processMessengerReadReceipt(env, receipt = {}) {
+  return processOutboundReceipt(env, {
+    ...receipt,
+    field: "read_at",
+    metric: "node_read",
+    receiptType: "read"
+  });
+}
+
+export async function processMessengerDeliveryReceipt(env, receipt = {}) {
+  return processOutboundReceipt(env, {
+    ...receipt,
+    field: "delivered_at",
+    metric: "node_delivered",
+    receiptType: "delivery"
+  });
+}
+
+async function processOutboundReceipt(env, receipt = {}) {
+  const hasDb = await ensureMessengerDeliverySchema(env);
+  if (!hasDb) return { processed: 0, recorded: 0, reason: "missing_db" };
+
+  const field = receipt.field === "delivered_at" ? "delivered_at" : "read_at";
+  const metric = field === "delivered_at" ? "node_delivered" : "node_read";
+  const pageId = normalizePageId(receipt.pageId);
+  const psid = cleanForDb(receipt.psid, 120);
+  const at = metaTimestampToIso(receipt.watermark || receipt.timestamp) || new Date().toISOString();
+  const mids = normalizeMessageIds(receipt.mids || receipt.messageIds);
+  if (!psid) return { processed: 0, recorded: 0, reason: "missing_psid" };
+
+  const rows = mids.length
+    ? await outboundRowsByMessageIds(env, pageId, psid, mids, field)
+    : await outboundRowsByWatermark(env, pageId, psid, at, field);
+
+  let recorded = 0;
+  for (const row of rows) {
+    await env.DB.prepare(`
+      UPDATE messenger_outbound_messages
+      SET ${field} = ?, updated_at = ?
+      WHERE id = ? AND ${field} = ''
+    `)
+      .bind(at, new Date().toISOString(), row.id)
+      .run();
+
+    if (row.flow_id && row.node_id) {
+      const result = await safeRecordFlowMetric(env, {
+        pageId,
+        flowId: row.flow_id,
+        nodeId: row.node_id,
+        psid,
+        metric,
+        createdAt: at,
+        eventKey: `${receipt.receiptType || "receipt"}:${metric}:${pageId}:${psid}:${row.event_id || row.id}:${row.flow_id}:${row.node_id}:${at}`
+      });
+      if (result.recorded) recorded += 1;
+    }
+  }
+
+  return {
+    processed: rows.length,
+    recorded,
+    field,
+    metric,
+    at,
+    matchedBy: mids.length ? "message_id" : "watermark"
+  };
+}
+
+async function outboundRowsByMessageIds(env, pageId, psid, mids, field) {
+  if (!mids.length) return [];
+  const placeholders = mids.map(() => "?").join(", ");
+  const result = await env.DB.prepare(`
+    SELECT id, event_id, flow_id, node_id, sent_at
+    FROM messenger_outbound_messages
+    WHERE page_id = ?
+      AND psid = ?
+      AND message_id IN (${placeholders})
+      AND status = 'sent'
+      AND ${field} = ''
+    ORDER BY datetime(sent_at) ASC
+    LIMIT 50
+  `)
+    .bind(pageId, psid, ...mids)
+    .all();
+  return result.results || [];
+}
+
+async function outboundRowsByWatermark(env, pageId, psid, at, field) {
+  const result = await env.DB.prepare(`
+    SELECT id, event_id, flow_id, node_id, sent_at
+    FROM messenger_outbound_messages
+    WHERE page_id = ?
+      AND psid = ?
+      AND status = 'sent'
+      AND sent_at != ''
+      AND datetime(sent_at) <= datetime(?)
+      AND ${field} = ''
+    ORDER BY datetime(sent_at) ASC
+    LIMIT 100
+  `)
+    .bind(pageId, psid, at)
+    .all();
+  return result.results || [];
+}
+
+function parseSendApiResponse(value) {
+  const parsed = typeof value === "object" && value ? value : parseJson(value);
+  const nestedBody = parsed?.body && typeof parsed.body === "string" ? parseJson(parsed.body) : {};
+  const data = nestedBody?.message_id || nestedBody?.recipient_id ? nestedBody : parsed || {};
+  return {
+    messageId: data.message_id || data.messageId || "",
+    recipientId: data.recipient_id || data.recipientId || ""
+  };
+}
+
+function normalizeMessageIds(value) {
+  return (Array.isArray(value) ? value : String(value || "").split(","))
+    .map((item) => cleanForDb(item, 240))
+    .filter(Boolean)
+    .slice(0, 50);
+}
+
+function metaTimestampToIso(value) {
+  const raw = Number(value || 0);
+  if (!Number.isFinite(raw) || raw <= 0) return "";
+  const ms = raw < 1000000000000 ? raw * 1000 : raw;
+  return new Date(ms).toISOString();
+}
+
+function cleanForDb(value, max = 500) {
+  return String(value || "").trim().slice(0, max);
 }
 
 export async function messengerPolicyStatus(env, pageId, psid, now = Date.now()) {
@@ -557,6 +857,11 @@ async function processQueueRow(env, row, options = {}) {
       response: sendResult.body,
       sentAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
+    });
+    await updateOutboundMessageSent(env, {
+      id: row.id,
+      response: sendResult.body,
+      sentAt: new Date().toISOString()
     });
     await log("info", "send_success", "Resposta enviada pelo Messenger.", {
       queueId: row.id,
@@ -926,6 +1231,25 @@ function normalizeRelayUrl(value) {
 function relayEndpointUrl(value, path) {
   const url = String(value || "").replace(/\/send$/g, "").replace(/\/+$/g, "");
   return `${url}${path}`;
+}
+
+function messengerSendReportUrl(env) {
+  const explicit = String(env.MESSENLEAD_SEND_REPORT_URL || "").trim();
+  if (explicit) return explicit;
+
+  const publicUrl = String(env.MESSENLEAD_PUBLIC_URL || "").trim();
+  if (publicUrl) return `${publicUrl.replace(/\/+$/g, "")}/api/messenger/send-report`;
+
+  const redirectUri = String(env.META_REDIRECT_URI || "").trim();
+  if (redirectUri) {
+    try {
+      return `${new URL(redirectUri).origin}/api/messenger/send-report`;
+    } catch {
+      return "";
+    }
+  }
+
+  return "";
 }
 
 function externalRelayQueueId(eventId, index) {

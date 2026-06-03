@@ -3353,7 +3353,7 @@ function renderSetup() {
             ${integrationCard("Webhook", "Configure esta URL no app da Meta.", webhookUrl(), "copy-webhook")}
             ${integrationCard("OAuth callback", "Configure em Facebook Login.", `${location.origin}/api/auth/facebook/callback`, "copy-oauth")}
             ${integrationCard("D1 binding", "Salvamento robusto dos fluxos.", "DB", "copy-db-binding")}
-            ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins, messaging_referrals, message_echoes, messaging_handovers, standby", "copy-fields")}
+            ${integrationCard("Campos", "Assine eventos necessários para automação.", "messages, messaging_postbacks, messaging_optins, messaging_referrals, message_deliveries, message_reads, message_echoes, messaging_handovers, standby", "copy-fields")}
             ${integrationCard("Verify token", "Use o mesmo valor em MESSENGER_VERIFY_TOKEN.", state.settings.verifyToken, "copy-verify")}
             ${integrationCard("Endpoint de envio", "Envio serverless protegido por token.", `${location.origin}/api/messenger/send`, "copy-send")}
           </div>
@@ -5920,6 +5920,8 @@ function renderPublishedNodeMetrics(flow, node) {
 
   const flowStarted = flowMetricValue("", "flow_started");
   const sent = flowMetricValue(node.id, "node_sent");
+  const delivered = flowMetricValue(node.id, "node_delivered");
+  const read = flowMetricValue(node.id, "node_read");
   const clicked = flowMetricValue(node.id, "node_clicked");
   const reached = node.type === "message" ? sent : { total: 0, unique: 0 };
   const reachRate = metricPercent(reached.unique, flowStarted.unique);
@@ -5947,8 +5949,8 @@ function renderPublishedNodeMetrics(flow, node) {
       <div class="published-metric-table">
         <div class="published-metric-table-head"><span>Evento</span><span>Total</span><span>Exclusivo</span></div>
         ${renderPublishedMetricRow("Enviado", sent)}
-        ${renderPublishedMetricRow("Entregue", null, "A Meta ainda não envia confirmação de entrega para este painel.")}
-        ${renderPublishedMetricRow("Aberto", null, "A Meta ainda não envia confirmação de abertura para este painel.")}
+        ${renderPublishedMetricRow("Entregue", delivered, "Confirmado por eventos message_deliveries da Meta.")}
+        ${renderPublishedMetricRow("Aberto", read, "Confirmado por eventos message_reads da Meta.")}
         ${renderPublishedMetricRow("Cliques", clicked)}
       </div>
       <div class="published-metric-preview">
@@ -7660,7 +7662,7 @@ function handleWorkspaceClick(event) {
   if (action === "copy-webhook") return copyText(webhookUrl(), "Webhook copiado.");
   if (action === "copy-oauth") return copyText(`${location.origin}/api/auth/facebook/callback`, "Callback OAuth copiado.");
   if (action === "copy-db-binding") return copyText("DB", "Nome do binding D1 copiado.");
-  if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins,messaging_referrals,message_echoes,messaging_handovers,standby", "Campos copiados.");
+  if (action === "copy-fields") return copyText("messages,messaging_postbacks,messaging_optins,messaging_referrals,message_deliveries,message_reads,message_echoes,messaging_handovers,standby", "Campos copiados.");
   if (action === "refresh-broadcast-eligibility") return refreshBroadcastEligibility();
   if (action === "choose-image") return document.querySelector("#imageUpload")?.click();
   if (action === "download-clean-image") return downloadCleanImage();
@@ -11469,11 +11471,13 @@ function renderMessengerPreviewButton(node, option) {
 
 function renderPublishedMessageNodeMetrics(node) {
   const sent = flowMetricValue(node.id, "node_sent");
+  const delivered = flowMetricValue(node.id, "node_delivered");
+  const read = flowMetricValue(node.id, "node_read");
   const clicked = flowMetricValue(node.id, "node_clicked");
   const items = [
     ["Enviado", sent.total],
-    ["Entregue", "--"],
-    ["Aberto", "--"],
+    ["Entregue", `${metricPercent(delivered.total, sent.total)}%`],
+    ["Aberto", `${metricPercent(read.total, sent.total)}%`],
     ["Clicado", `${metricPercent(clicked.total, sent.total)}%`]
   ];
   return `

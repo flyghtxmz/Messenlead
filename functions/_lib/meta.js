@@ -233,6 +233,8 @@ export async function subscribePageToMessengerWebhooks(page, config) {
     "messaging_postbacks",
     "messaging_optins",
     "messaging_referrals",
+    "message_deliveries",
+    "message_reads",
     "message_echoes",
     "messaging_handovers",
     "standby"
@@ -351,6 +353,8 @@ export async function subscribeAppToPageWebhooks(config, callbackUrl, verifyToke
     "messaging_postbacks",
     "messaging_optins",
     "messaging_referrals",
+    "message_deliveries",
+    "message_reads",
     "message_echoes",
     "messaging_handovers",
     "standby"

@@ -16,7 +16,14 @@ import {
   scheduleFlowLinkClickWait,
   scheduleFlowResponseWait
 } from "../../_lib/flowContinuations.js";
-import { enqueueMessengerReplies, messengerEventDedupId, processMessengerSendQueue, reserveMessengerEvent } from "../../_lib/messengerDelivery.js";
+import {
+  enqueueMessengerReplies,
+  messengerEventDedupId,
+  processMessengerDeliveryReceipt,
+  processMessengerReadReceipt,
+  processMessengerSendQueue,
+  reserveMessengerEvent
+} from "../../_lib/messengerDelivery.js";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -121,6 +128,60 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
       },
       force: forceLog
     });
+  }
+
+  if (event.read) {
+    const psid = event.sender?.id || "";
+    const result = await processMessengerReadReceipt(env, {
+      pageId,
+      psid,
+      watermark: event.read.watermark || event.timestamp || "",
+      timestamp: event.timestamp || "",
+      sequence: event.read.seq || "",
+      receiptType: "read"
+    });
+    await safeAddFlowLog(env, {
+      pageId,
+      psid,
+      level: "info",
+      event: "message_read_received",
+      message: "Messenger confirmou leitura de mensagem enviada.",
+      data: {
+        watermark: event.read.watermark || "",
+        sequence: event.read.seq || "",
+        ...result
+      },
+      force: forceLog
+    });
+    return { ok: true, status: "read_receipt", ...result };
+  }
+
+  if (event.delivery) {
+    const psid = event.sender?.id || "";
+    const result = await processMessengerDeliveryReceipt(env, {
+      pageId,
+      psid,
+      watermark: event.delivery.watermark || event.timestamp || "",
+      timestamp: event.timestamp || "",
+      mids: event.delivery.mids || [],
+      sequence: event.delivery.seq || "",
+      receiptType: "delivery"
+    });
+    await safeAddFlowLog(env, {
+      pageId,
+      psid,
+      level: "info",
+      event: "message_delivery_received",
+      message: "Messenger confirmou entrega de mensagem enviada.",
+      data: {
+        mids: event.delivery.mids || [],
+        watermark: event.delivery.watermark || "",
+        sequence: event.delivery.seq || "",
+        ...result
+      },
+      force: forceLog
+    });
+    return { ok: true, status: "delivery_receipt", ...result };
   }
 
   if (!isProcessableMessengerEvent(event)) {
@@ -1089,7 +1150,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
     }
 
     guard += 1;
-    const stepContext = { ...context, contact: runtimeContact, flow };
+    const stepContext = { ...context, contact: runtimeContact, flow, executionMetricKey, executionStep: guard };
     await log?.("info", "node_enter", `Executando bloco: ${nodeLogName(current)}.`, {
       step: guard,
       nodeId: current.id,
@@ -2313,7 +2374,7 @@ function normalizeTags(value) {
 
 function repliesForMessageNode(node, context = {}) {
   normalizeNodeShape(node);
-  const tracking = messageNodeTracking(context.flow, node);
+  const tracking = messageNodeTracking(context.flow, node, context);
   const lastTextBlockIndex = node.contentBlocks.reduce((lastIndex, block, index) => (block.type === "text" ? index : lastIndex), -1);
   const quickReplies = node.quickReplies.map((option) => ({
     title: option.title,
@@ -2336,12 +2397,14 @@ function repliesForMessageNode(node, context = {}) {
           type: "text",
           text: resolveTemplate(block.text || node.message || "", context.contact, context.entry),
           quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : [],
-          buttons: index === lastTextBlockIndex ? buttons : []
+          buttons: index === lastTextBlockIndex ? buttons : [],
+          tracking
         };
       }
       if (block.type === "image" && block.url && block.buttons?.length) {
         return {
           type: "generic",
+          tracking,
           elements: [
             {
               title: resolveTemplate(block.title || "Imagem", context.contact, context.entry),
@@ -2365,12 +2428,14 @@ function repliesForMessageNode(node, context = {}) {
           type: "attachment",
           attachmentType: block.type,
           url: resolveTemplate(block.url, context.contact, context.entry),
-          quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : []
+          quickReplies: index === node.contentBlocks.length - 1 ? quickReplies : [],
+          tracking
         };
       }
       if ((block.type === "card" || block.type === "gallery") && (block.title || block.url)) {
         return {
           type: "generic",
+          tracking,
           elements: [
             {
               title: resolveTemplate(block.title || "Card", context.contact, context.entry),
@@ -2382,15 +2447,15 @@ function repliesForMessageNode(node, context = {}) {
         };
       }
       if (block.type === "data_collection") {
-        return { type: "text", text: resolveTemplate(block.text || "Informe o dado solicitado.", context.contact, context.entry), quickReplies };
+        return { type: "text", text: resolveTemplate(block.text || "Informe o dado solicitado.", context.contact, context.entry), quickReplies, tracking };
       }
-      if (block.text) return { type: "text", text: resolveTemplate(block.text, context.contact, context.entry), quickReplies };
+      if (block.text) return { type: "text", text: resolveTemplate(block.text, context.contact, context.entry), quickReplies, tracking };
       return null;
     })
     .filter(Boolean);
 }
 
-function messageNodeTracking(flow, node) {
+function messageNodeTracking(flow, node, context = {}) {
   if (!node || node.type !== "message") return {};
   const messageNodes = Array.isArray(flow?.nodes) ? flow.nodes.filter((item) => item.type === "message") : [];
   const index = messageNodes.findIndex((item) => item.id === node.id);
@@ -2398,7 +2463,9 @@ function messageNodeTracking(flow, node) {
     flowId: flow?.id || "",
     nodeId: node.id || "",
     nodeNumber: index >= 0 ? index + 1 : "",
-    nodeTitle: node.title || node.name || ""
+    nodeTitle: node.title || node.name || "",
+    executionMetricKey: context.executionMetricKey || "",
+    executionStep: context.executionStep || ""
   };
 }
 
