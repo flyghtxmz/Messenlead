@@ -837,7 +837,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const buttonFlowId = !context.dryRun && !manualFlowId ? requestedButtonFlowId(context) : "";
   const selectedFlowId = testFlowId || manualFlowId || buttonFlowId;
   const useDraftForTest = context.dryRun && selectedFlowId && context.testVersion === "draft";
-  const dbFlows = pageId ? await listFlows(env, pageId, useDraftForTest ? {} : { status: "active" }) : [];
+  const dbFlows = pageId ? await listFlows(env, pageId, useDraftForTest ? {} : { status: "active", runtime: true }) : [];
   const flows = dbFlows.length ? dbFlows : parseFlows(env.MESSENLEAD_FLOW_JSON);
   const activeFlows = selectedFlowId
     ? flows.filter((flow) => flow.id === selectedFlowId && (useDraftForTest || flow.status === "active"))
@@ -1500,7 +1500,7 @@ function dryRunFlowTimeoutMs(env) {
 async function activeFlowById(env, pageId, flowId) {
   const id = String(flowId || "").trim();
   if (!id) return null;
-  const flows = await listFlows(env, pageId, { status: "active" });
+  const flows = await listFlows(env, pageId, { status: "active", runtime: true });
   return flows.find((flow) => flow.id === id) || parseFlows(env.MESSENLEAD_FLOW_JSON).find((flow) => flow.id === id && flow.status === "active") || null;
 }
 
@@ -1959,7 +1959,7 @@ function matchingMessageOption(node, context = {}) {
   if (!input) return null;
   const blockButtons = (node.contentBlocks || []).flatMap((block) => block.buttons || []);
   return [...(node.buttons || []), ...(node.quickReplies || []), ...blockButtons].find((option) => {
-    return normalize(option.id) === input || normalize(option.title) === input;
+    return [option.id, option.payload, option.title, option.text, option.caption].some((value) => normalize(value) === input);
   });
 }
 
@@ -2093,7 +2093,8 @@ function normalizeMessageOptions(options, prefix) {
         next: option.next || null,
         url: option.url || "",
         phone: option.phone || "",
-        flowId: option.flowId || ""
+        flowId: option.flowId || "",
+        payload: option.payload || ""
       };
     })
     .filter((option) => option.title);
@@ -2429,7 +2430,7 @@ function repliesForMessageNode(node, context = {}) {
   const lastTextBlockIndex = node.contentBlocks.reduce((lastIndex, block, index) => (block.type === "text" ? index : lastIndex), -1);
   const quickReplies = node.quickReplies.map((option) => ({
     title: option.title,
-    payload: option.id || option.title
+    payload: option.payload || option.id || option.title
   }));
   const buttons = node.buttons.map((option) => ({
     id: option.id || "",
@@ -2437,7 +2438,7 @@ function repliesForMessageNode(node, context = {}) {
     type: option.type || "next",
     url: resolveTemplate(option.url, context.contact, context.entry),
     phone: option.phone || "",
-    payload: option.type === "start_flow" && option.flowId ? `MESSENLEAD_START_FLOW:${option.flowId}` : option.id || option.title,
+    payload: option.type === "start_flow" && option.flowId ? `MESSENLEAD_START_FLOW:${option.flowId}` : option.payload || option.id || option.title,
     tracking
   }));
 
@@ -2464,7 +2465,7 @@ function repliesForMessageNode(node, context = {}) {
             type: option.type || "url",
             url: resolveTemplate(option.url, context.contact, context.entry),
             phone: option.phone || "",
-            payload: option.id || option.title,
+            payload: option.payload || option.id || option.title,
             tracking
           }))
         };
