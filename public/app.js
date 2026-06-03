@@ -10493,7 +10493,7 @@ async function uploadMessageBlockFile(blockId, file, kind = "image") {
     const result = await apiPostForm("/api/media", form);
     block.type = normalizedKind;
     block.url = result.asset?.url || "";
-    block.title = result.asset?.originalName || result.asset?.fileName || file.name || "";
+    block.title = "";
     block.fileName = result.asset?.fileName || file.name || "";
     mediaState.assets = result.asset
       ? [result.asset, ...mediaState.assets.filter((asset) => asset.id !== result.asset.id)]

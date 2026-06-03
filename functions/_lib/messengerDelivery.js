@@ -348,7 +348,7 @@ async function enqueueMessengerRepliesViaRelay(env, options = {}) {
     const relayOrder = orderedRelayTargets(relays, `${pageId}:${psid}:${queueId}`);
 
     try {
-      const message = await messengerMessagePayload(reply, env, pageId, psid);
+      const message = await messengerMessagePayload(reply, env, pageId, psid, pageAccessToken);
       let accepted = false;
       let lastError = null;
 
@@ -834,7 +834,7 @@ async function processQueueRow(env, row, options = {}) {
       });
       return "skipped";
     }
-    const message = await messengerMessagePayload(reply, env, row.page_id, row.psid);
+    const message = await messengerMessagePayload(reply, env, row.page_id, row.psid, pageAccessToken);
     const sendResult = await sendMessengerApi(env, {
       pageId: row.page_id,
       psid: row.psid,
@@ -1088,7 +1088,7 @@ function graphErrorMessage(status, body) {
   return parsed?.error?.message || parsed?.error || body || `Messenger API HTTP ${status}`;
 }
 
-async function messengerMessagePayload(reply, env, pageId, psid) {
+async function messengerMessagePayload(reply, env, pageId, psid, pageAccessToken = "") {
   const message = {};
 
   if (reply.type === "attachment") {
@@ -1097,6 +1097,21 @@ async function messengerMessagePayload(reply, env, pageId, psid) {
       payload: {
         url: reply.url,
         is_reusable: true
+      }
+    };
+  } else if (reply.type === "media") {
+    const attachmentId = await messengerReusableAttachmentId(reply, env, pageAccessToken);
+    message.attachment = {
+      type: "template",
+      payload: {
+        template_type: "media",
+        elements: [
+          {
+            media_type: reply.attachmentType === "video" ? "video" : "image",
+            attachment_id: attachmentId,
+            buttons: await messengerButtons(reply.buttons || [], env, pageId, psid)
+          }
+        ]
       }
     };
   } else if (reply.type === "generic") {
@@ -1136,6 +1151,54 @@ async function messengerMessagePayload(reply, env, pageId, psid) {
   }
 
   return message;
+}
+
+async function messengerReusableAttachmentId(reply, env, pageAccessToken) {
+  const existing = String(reply.attachmentId || reply.attachment_id || "").trim();
+  if (existing) return existing;
+
+  const url = String(reply.url || "").trim();
+  if (!url) throw new Error("Imagem com botao sem URL para preparar no Messenger.");
+  if (!pageAccessToken) throw new Error("Token da Pagina nao encontrado para preparar imagem com botao.");
+
+  const graphUrl = messengerGraphEndpoint(env, "message_attachments");
+  const response = await fetch(`${graphUrl}?access_token=${encodeURIComponent(pageAccessToken)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        attachment: {
+          type: reply.attachmentType === "video" ? "video" : "image",
+          payload: {
+            is_reusable: true,
+            url
+          }
+        }
+      }
+    })
+  });
+
+  const body = await response.text().catch(() => "");
+  const parsed = parseJson(body);
+  const attachmentId = String(parsed?.attachment_id || "").trim();
+  if (!response.ok || !attachmentId) {
+    throw new Error(graphErrorMessage(response.status, body) || "Nao foi possivel preparar a imagem com botao.");
+  }
+  return attachmentId;
+}
+
+function messengerGraphEndpoint(env, endpoint) {
+  const fallbackVersion = String(env.META_GRAPH_API_VERSION || "v23.0").trim() || "v23.0";
+  const fallback = `https://graph.facebook.com/${fallbackVersion}/me/${endpoint}`;
+  try {
+    const url = new URL(env.MESSENGER_GRAPH_API_URL || `https://graph.facebook.com/${fallbackVersion}/me/messages`);
+    url.pathname = url.pathname.replace(/\/me\/messages\/?$/, `/me/${endpoint}`);
+    if (!url.pathname.endsWith(`/me/${endpoint}`)) return fallback;
+    url.search = "";
+    return url.toString();
+  } catch {
+    return fallback;
+  }
 }
 
 async function messengerButtons(buttons = [], env, pageId, psid) {
