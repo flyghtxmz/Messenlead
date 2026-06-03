@@ -338,6 +338,7 @@ let conditionPickerNodeId = "";
 let conditionPickerCategory = "recommended";
 let conditionPickerQuery = "";
 let messageButtonEditorOptionId = "";
+let messageBlockFocusId = "";
 let canvasAddMenu = null;
 let suppressedNodeClickId = "";
 let subscriberTagFilter = "";
@@ -1720,6 +1721,7 @@ function render() {
 
   renderers[activeView]();
   if (activeView === "flows" && flowCanvasOpen && showInspector) restoreInspectorScroll();
+  if (activeView === "flows" && flowCanvasOpen && showInspector) scrollFocusedMessageBlockIntoView();
 }
 
 function renderNav() {
@@ -6539,7 +6541,7 @@ function renderMessageSettingsManychatVisual(flow, node) {
 
 function renderManychatTextWidget(node, block, primary = false) {
   return `
-    <div class="manychat-widget">
+    <div class="manychat-widget" data-message-block-widget="${attr(block.id)}">
       <div class="manychat-message-preview">
         <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Adicionar texto">${escapeHtml(block.text || (primary ? node.message || "" : ""))}</textarea>
         ${primary ? renderInlineMessageButtons(node) : ""}
@@ -6591,7 +6593,7 @@ function renderMessageContentBlock(flow, node, block) {
   if (block.type === "image") {
     const inputId = `message_block_file_${block.id}`;
     return `
-      <div class="manychat-widget">
+      <div class="manychat-widget" data-message-block-widget="${attr(block.id)}">
         <article class="manychat-image-widget">
           ${
             block.url
@@ -6615,7 +6617,7 @@ function renderMessageContentBlock(flow, node, block) {
 
   if (["audio", "video", "file"].includes(block.type)) {
     return `
-      <article class="message-content-block manychat-widget">
+      <article class="message-content-block manychat-widget" data-message-block-widget="${attr(block.id)}">
         <div class="message-content-head">${icons[type.icon] || icons.message}<strong>${escapeHtml(type.label)}</strong>${removeButton}</div>
         <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="URL do arquivo" />
         ${block.type === "video" || block.type === "audio" ? renderMessageMediaPreview(block) : ""}
@@ -9539,7 +9541,11 @@ function addMessageBlock(type) {
   const blockType = messageContentBlockTypes.find((item) => item.type === type);
   if (!flow || !node || node.type !== "message" || !blockType) return;
   normalizeNodeStructure(node);
-  node.contentBlocks.push(defaultMessageBlock(type));
+  const block = defaultMessageBlock(type);
+  const textIndex = node.contentBlocks.findIndex((item) => item.type === "text");
+  const insertIndex = textIndex >= 0 ? textIndex + 1 : node.contentBlocks.length;
+  node.contentBlocks.splice(insertIndex, 0, block);
+  messageBlockFocusId = block.id;
   syncLegacyMessageFromBlocks(node);
   flow.updatedAt = new Date().toISOString();
   saveState();
@@ -11450,6 +11456,17 @@ function restoreInspectorScroll() {
     const scroller = document.querySelector("[data-inspector-scroll]");
     if (!scroller || scroller.dataset.inspectorNodeId !== snapshot.nodeId) return;
     scroller.scrollTop = Math.min(snapshot.scrollTop, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+  });
+}
+
+function scrollFocusedMessageBlockIntoView() {
+  const blockId = messageBlockFocusId;
+  if (!blockId) return;
+  messageBlockFocusId = "";
+  window.requestAnimationFrame(() => {
+    const widget = Array.from(document.querySelectorAll("[data-message-block-widget]"))
+      .find((item) => item.dataset.messageBlockWidget === blockId);
+    widget?.scrollIntoView({ block: "center" });
   });
 }
 
