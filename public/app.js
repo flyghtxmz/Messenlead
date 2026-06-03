@@ -5947,8 +5947,8 @@ function renderPublishedNodeMetrics(flow, node) {
       <div class="published-metric-table">
         <div class="published-metric-table-head"><span>Evento</span><span>Total</span><span>Exclusivo</span></div>
         ${renderPublishedMetricRow("Enviado", sent)}
-        ${renderPublishedMetricRow("Entregue", { total: 0, unique: 0 }, "A Meta ainda não envia confirmação de entrega para este painel.")}
-        ${renderPublishedMetricRow("Aberto", { total: 0, unique: 0 }, "A Meta ainda não envia confirmação de abertura para este painel.")}
+        ${renderPublishedMetricRow("Entregue", null, "A Meta ainda não envia confirmação de entrega para este painel.")}
+        ${renderPublishedMetricRow("Aberto", null, "A Meta ainda não envia confirmação de abertura para este painel.")}
         ${renderPublishedMetricRow("Cliques", clicked)}
       </div>
       <div class="published-metric-preview">
@@ -6030,11 +6030,12 @@ function renderPublishedNextStep(flow, node) {
 }
 
 function renderPublishedMetricRow(label, metric, title = "") {
+  const available = metric && typeof metric === "object";
   return `
     <div class="published-metric-row" ${title ? `title="${attr(title)}"` : ""}>
       <span>${escapeHtml(label)}</span>
-      <strong>${metric.total || 0}</strong>
-      <strong>${metric.unique || 0}</strong>
+      <strong>${available ? metric.total || 0 : "--"}</strong>
+      <strong>${available ? metric.unique || 0 : "--"}</strong>
     </div>
   `;
 }
@@ -6053,7 +6054,7 @@ function renderPublishedButtonMetrics(node) {
           return `
             <div>
               <span>${escapeHtml(button.title || "Botão")}</span>
-              <b>CTR ${metricPercent(clicked.unique, sent.unique)}%</b>
+              <b>CTR ${metricPercent(clicked.total, sent.total)}%</b>
             </div>
           `;
         })
@@ -11456,7 +11457,7 @@ function renderMessageNode(node, selected) {
 
 function renderMessengerPreviewButton(node, option) {
   const output = messageOutputItems(node).find((item) => item.kind === "button" && item.optionId === option.id);
-  const ctr = flowCanvasMode === "published" ? metricPercent(flowButtonMetricValue(node.id, option.id, "button_clicked").unique, flowMetricValue(node.id, "node_sent").unique) : null;
+  const ctr = flowCanvasMode === "published" ? metricPercent(flowButtonMetricValue(node.id, option.id, "button_clicked").total, flowMetricValue(node.id, "node_sent").total) : null;
   return `
     <div class="messenger-preview-button ${output?.targetId ? "connected" : ""}">
       <span>${escapeHtml(option.title || "Novo botão")}</span>
@@ -11470,10 +11471,10 @@ function renderPublishedMessageNodeMetrics(node) {
   const sent = flowMetricValue(node.id, "node_sent");
   const clicked = flowMetricValue(node.id, "node_clicked");
   const items = [
-    ["Enviado", sent.unique],
-    ["Entregue", "0%"],
-    ["Aberto", "0%"],
-    ["Clicado", `${metricPercent(clicked.unique, sent.unique)}%`]
+    ["Enviado", sent.total],
+    ["Entregue", "--"],
+    ["Aberto", "--"],
+    ["Clicado", `${metricPercent(clicked.total, sent.total)}%`]
   ];
   return `
     <div class="published-node-metrics">

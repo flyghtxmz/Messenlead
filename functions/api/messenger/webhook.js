@@ -1074,6 +1074,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
   const runtimeContact = runtimeContactFrom(contact);
   let current = start;
   let guard = 0;
+  const executionMetricKey = flowExecutionMetricKey(context, flow, start);
   let previousNode = null;
   let lastMessageLinkNode = null;
 
@@ -1303,7 +1304,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
           nodeId: current.id,
           psid: runtimeContact.psid || contact?.psid || "",
           metric: "node_sent",
-          eventKey: `${context.eventId || "runtime"}:node_sent:${flow.id}:${current.id}`
+          eventKey: `${executionMetricKey}:node_sent:${current.id}:${guard}`
         });
       }
       await log?.("info", "message_prepared", "Mensagem preparada para envio.", {
@@ -2319,6 +2320,7 @@ function repliesForMessageNode(node, context = {}) {
     payload: option.id || option.title
   }));
   const buttons = node.buttons.map((option) => ({
+    id: option.id || "",
     title: resolveTemplate(option.title, context.contact, context.entry),
     type: option.type || "next",
     url: resolveTemplate(option.url, context.contact, context.entry),
@@ -2346,6 +2348,7 @@ function repliesForMessageNode(node, context = {}) {
               subtitle: resolveTemplate(block.subtitle || "", context.contact, context.entry),
               image_url: resolveTemplate(block.url, context.contact, context.entry),
               buttons: block.buttons.map((option) => ({
+                id: option.id || "",
                 title: resolveTemplate(option.title, context.contact, context.entry),
                 type: option.type || "url",
                 url: resolveTemplate(option.url, context.contact, context.entry),
@@ -2397,6 +2400,18 @@ function messageNodeTracking(flow, node) {
     nodeNumber: index >= 0 ? index + 1 : "",
     nodeTitle: node.title || node.name || ""
   };
+}
+
+function flowExecutionMetricKey(context = {}, flow = {}, start = {}) {
+  return [
+    context.eventId || "runtime",
+    flow?.id || "",
+    start?.id || "",
+    context.resumedFromDelay ? "delay" : "",
+    context.resumedFromUserInput ? "input" : "",
+    context.resumedFromLinkClick ? "link_click" : "",
+    context.resumedFromLinkClickTimeout ? "link_timeout" : ""
+  ].filter(Boolean).join(":");
 }
 
 function messageNodeTrackedLinks(node = {}) {
@@ -2563,6 +2578,8 @@ async function messengerButtons(buttons = [], env, pageId, psid) {
           pageId,
           contactToken,
           button: button.title || button.payload || button.id || "link",
+          buttonId: button.payload || button.id || "",
+          flowId: button.tracking?.flowId || "",
           nodeId: button.tracking?.nodeId || "",
           nodeNumber: button.tracking?.nodeNumber || "",
           nodeTitle: button.tracking?.nodeTitle || ""
@@ -2591,6 +2608,8 @@ function trackedMessengerUrl(value, tracking = {}) {
     if (tracking.pageId) url.searchParams.set("ml_page_id", tracking.pageId);
     url.searchParams.set("ml_source", "messenger");
     if (tracking.button) url.searchParams.set("ml_button", String(tracking.button).slice(0, 120));
+    if (tracking.buttonId) url.searchParams.set("ml_button_id", String(tracking.buttonId).slice(0, 120));
+    if (tracking.flowId) url.searchParams.set("ml_flow_id", String(tracking.flowId).slice(0, 120));
     if (tracking.nodeId) url.searchParams.set("ml_node_id", String(tracking.nodeId).slice(0, 120));
     if (tracking.nodeNumber) url.searchParams.set("ml_node_number", String(tracking.nodeNumber).slice(0, 12));
     if (tracking.nodeTitle) url.searchParams.set("ml_node_title", String(tracking.nodeTitle).slice(0, 120));
