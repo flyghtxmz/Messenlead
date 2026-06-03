@@ -2133,7 +2133,7 @@ function renderPublishFlowButton(flow) {
 
 function renderFlowCard(flow) {
   const nodeCount = flow.nodes?.length || 0;
-  const isActive = flow.status === "active";
+  const isActive = flow.status === "active" && hasPublishedFlow(flow);
   return `
     <article class="flow-card">
       <button class="flow-card-main" type="button" data-action="select-flow" data-id="${flow.id}">
@@ -2143,7 +2143,7 @@ function renderFlowCard(flow) {
             <strong>${escapeHtml(flow.name)}</strong>
             <span>${escapeHtml(flow.trigger || "sem gatilho")}</span>
           </span>
-          ${statusBadge(flow)}
+          ${statusBadge(flow, "flow-card-status")}
         </span>
         <span class="flow-card-goal">${escapeHtml(flow.goal || "Sem descricao")}</span>
         <span class="flow-card-meta">
@@ -2154,7 +2154,7 @@ function renderFlowCard(flow) {
       <div class="flow-card-actions">
         <button class="flow-switch ${isActive ? "on" : ""}" type="button" data-action="toggle-flow-active" data-id="${flow.id}" aria-pressed="${isActive ? "true" : "false"}" title="${isActive ? "Desligar fluxo" : "Ligar fluxo"}">
           <span class="flow-switch-track"><span></span></span>
-          <span>${isActive ? "Ligado" : "Desligado"}</span>
+          <span>${isActive ? "Ativo" : "Inativo"}</span>
         </button>
         <button class="icon-button" type="button" data-action="duplicate-flow-card" data-id="${flow.id}" title="Duplicar fluxo">${icons.copy}</button>
         <button class="icon-button danger-icon" type="button" data-action="delete-flow-card" data-id="${flow.id}" title="Excluir fluxo">${icons.trash}</button>
@@ -12696,12 +12696,26 @@ function statusLabel(status) {
   }[status] || status;
 }
 
+function flowBadgeState(flow) {
+  if (!flow || typeof flow !== "object") return null;
+  if (flow.hasDraftChanges) {
+    return {
+      status: "draft",
+      label: hasPublishedFlow(flow) ? "Editado" : "Rascunho"
+    };
+  }
+  if (flow.status === "active" && hasPublishedFlow(flow)) {
+    return { status: "active", label: "Publicado" };
+  }
+  return { status: flow.status, label: statusLabel(flow.status) };
+}
+
 function statusBadge(statusOrFlow, extraClass = "") {
   const isFlow = statusOrFlow && typeof statusOrFlow === "object";
-  const status = isFlow ? statusOrFlow.status : statusOrFlow;
-  const badgeStatus = isFlow && statusOrFlow.hasDraftChanges ? "draft" : status;
-  const label = isFlow && statusOrFlow.hasDraftChanges ? "Rascunho" : statusLabel(status);
-  const classes = ["badge", badgeStatus, extraClass].filter(Boolean).join(" ");
+  const flowState = isFlow ? flowBadgeState(statusOrFlow) : null;
+  const status = flowState?.status || statusOrFlow;
+  const label = flowState?.label || statusLabel(status);
+  const classes = ["badge", status, extraClass].filter(Boolean).join(" ");
   return `<span class="${classes}">${label}</span>`;
 }
 
@@ -12712,7 +12726,7 @@ function updateFlowStatusPill() {
 
   const status = flow.hasDraftChanges ? "draft" : flow.status;
   pill.className = ["badge", status, "flow-status-pill"].join(" ");
-  pill.textContent = flow.hasDraftChanges ? "Rascunho" : statusLabel(flow.status);
+  pill.textContent = flowBadgeState(flow)?.label || statusLabel(flow.status);
 }
 
 function tag(value) {

@@ -108,9 +108,12 @@ svg {
   height: 38px;
   place-items: center;
   border-radius: 8px;
-  background: var(--green);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: linear-gradient(145deg, #178a62, #0f6b4d);
   color: #fff;
-  font-weight: 800;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(15, 107, 77, 0.22);
 }
 
 .brand strong,
@@ -483,6 +486,15 @@ svg {
   background: var(--green-dark);
 }
 
+.primary-button span,
+.secondary-button span,
+.danger-button span,
+.text-button span,
+.chip-button span {
+  color: inherit;
+  font-size: inherit;
+}
+
 .secondary-button,
 .chip-button {
   background: var(--panel);
@@ -702,7 +714,7 @@ svg {
 
 .flow-library {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
   padding: 14px;
 }
@@ -710,18 +722,19 @@ svg {
 .flow-card {
   position: relative;
   display: grid;
-  min-height: 188px;
+  min-height: 184px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
   overflow: hidden;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
 }
 
 .flow-card-main {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
-  min-height: 188px;
+  min-height: 184px;
   padding: 14px 14px 58px;
   border: 0;
   background: transparent;
@@ -731,7 +744,8 @@ svg {
 
 .flow-card:hover {
   border-color: #8ccaa9;
-  background: #f7fcf8;
+  background: #fbfefc;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
 }
 
 .flow-card-actions {
@@ -746,7 +760,8 @@ svg {
 .flow-card-actions .icon-button {
   width: 34px;
   height: 34px;
-  background: rgba(255, 255, 255, 0.9);
+  border-color: #dce4ec;
+  background: rgba(255, 255, 255, 0.95);
 }
 
 .flow-card-actions svg {
@@ -762,7 +777,7 @@ svg {
   padding: 0 9px;
   border: 1px solid #d7dfe8;
   border-radius: 999px;
-  background: #ffffff;
+  background: #f8fafc;
   color: #667085;
   font-size: 12px;
   font-weight: 800;
@@ -797,6 +812,7 @@ svg {
 
 .flow-switch.on {
   border-color: #94d2b1;
+  background: #effaf4;
   color: var(--green-dark);
 }
 
@@ -830,7 +846,8 @@ svg {
   height: 38px;
   place-items: center;
   border-radius: 8px;
-  background: var(--mint);
+  border: 1px solid #c9eadb;
+  background: #ecfbf3;
   color: var(--green-dark);
 }
 
@@ -848,6 +865,7 @@ svg {
   display: block;
   overflow: hidden;
   font-size: 15px;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -869,6 +887,10 @@ svg {
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.flow-card-status {
+  justify-self: end;
 }
 
 .flow-card-meta {
