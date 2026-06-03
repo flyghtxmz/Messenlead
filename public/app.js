@@ -39,6 +39,7 @@ const nodeLabels = {
   delay: "Espera",
   user_input: "Aguardar resposta",
   link_click_wait: "Aguardar clique no link",
+  jump: "Selecionar passo",
   randomizer: "Randomizador",
   action: "Ação",
   comment: "Comentário"
@@ -51,6 +52,7 @@ const canvasAddOptions = [
   { type: "condition", label: "Condição" },
   { type: "user_input", label: "Aguardar resposta" },
   { type: "link_click_wait", label: "Aguardar clique no link" },
+  { type: "jump", label: "Selecionar passo existente" },
   { type: "randomizer", label: "Randomizador" },
   { type: "delay", label: "Atraso Inteligente" },
   { type: "comment", label: "Comentar" }
@@ -207,7 +209,7 @@ const conditionOptions = [
   { id: "custom_field", category: "general", label: "Campo personalizado", icon: "text", conditionType: "field", operator: "equals", placeholder: "valor esperado" },
   { id: "phone", category: "system", label: "Telefone", icon: "text", conditionType: "field", fieldName: "phone", operator: "contains_any", placeholder: "+5511999999999" },
   { id: "first_name", category: "system", label: "Primeiro nome", icon: "text", conditionType: "field", fieldName: "first_name", operator: "contains_any", placeholder: "Maria" },
-  { id: "entry_source", category: "system", label: "Origem da entrada", icon: "text", conditionType: "entry", fieldName: "source", operator: "equals", placeholder: "ads" },
+  { id: "entry_source", category: "system", label: "Origem da entrada", icon: "text", conditionType: "entry", fieldName: "source", operator: "equals", placeholder: "ads ou organic" },
   { id: "entry_ad_id", category: "system", label: "Ad ID da entrada", icon: "text", conditionType: "entry", fieldName: "ad_id", operator: "equals", placeholder: "123456789" },
   { id: "entry_source_key", category: "system", label: "Chave curta da entrada", icon: "text", conditionType: "entry", fieldName: "source_key", operator: "equals", placeholder: "src_abc123" }
 ];
@@ -237,6 +239,7 @@ const icons = {
   dashboard: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h7V4H4v9Zm9 7h7V4h-7v16ZM4 20h7v-5H4v5Z"/></svg>`,
   pages: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h10l4 4v14H4Z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h6"/></svg>`,
   workflow: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h.01M18 6h.01M6 18h.01M7 6h10M6 7v10m1 1h10m1-11v10"/><path d="M4 4h4v4H4V4Zm12 0h4v4h-4V4ZM4 16h4v4H4v-4Zm12 0h4v4h-4v-4Z"/></svg>`,
+  jump: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h7a4 4 0 0 1 4 4v1"/><path d="M4 17h7a4 4 0 0 0 4-4v-1"/><path d="M15 7h5v5"/><path d="m14 13 6-6"/></svg>`,
   inbox: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M3 15h5l2 3h4l2-3h5L18 4H6L3 15Z"/></svg>`,
   users: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   send: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>`,
@@ -1518,6 +1521,13 @@ function normalizeNodeStructure(node) {
     node.noClickNext = node.noClickNext || null;
     node.next = node.clickedNext;
   }
+
+  if (node.type === "jump") {
+    node.targetFlowId = String(node.targetFlowId || "");
+    node.targetNodeId = String(node.targetNodeId || "");
+    node.next = null;
+  }
+
   if (node.type === "randomizer") {
     node.randomEveryTime = node.randomEveryTime !== false;
     if (!Array.isArray(node.variations) || !node.variations.length) {
@@ -2243,6 +2253,7 @@ function renderFlows() {
                 ${nodeAddButton("condition", "Condição")}
                 ${nodeAddButton("user_input", "Aguardar resposta")}
                 ${nodeAddButton("link_click_wait", "Aguardar link")}
+                ${nodeAddButton("jump", "Selecionar passo")}
                 ${nodeAddButton("delay", "Espera")}
                 ${nodeAddButton("action", "Ação")}
               </div>
@@ -6129,6 +6140,7 @@ function renderNextStepPicker(flow) {
         ${nextStepChoice("condition", "Condição", icons.condition)}
         ${nextStepChoice("user_input", "Aguardar resposta", icons.user_input)}
         ${nextStepChoice("link_click_wait", "Aguardar clique no link", icons.link_click_wait)}
+        ${nextStepChoice("jump", "Selecionar passo existente", icons.jump)}
         ${nextStepChoice("randomizer", "Randomizador", icons.workflow)}
         ${nextStepChoice("delay", "Atraso Inteligente", icons.delay)}
         <div class="next-step-existing-group">
@@ -6169,6 +6181,7 @@ function renderInspector(flow, node) {
   if (node.type === "delay") return renderDelaySettings(flow, node);
   if (node.type === "user_input") return renderUserInputSettings(flow, node);
   if (node.type === "link_click_wait") return renderLinkClickWaitSettings(flow, node);
+  if (node.type === "jump") return renderJumpSettings(flow, node);
   if (node.type === "randomizer") return renderRandomizerSettings(flow, node);
   if (node.type === "comment") return renderCommentSettings(flow, node);
   return renderActionSettings(flow, node);
@@ -6452,7 +6465,7 @@ function renderMessageSettings(flow, node) {
             <span>Monte os blocos enviados no Messenger.</span>
           </div>
         </div>
-        <small class="settings-hint">Links e textos aceitam {{entry.source_key}}, {{entry.ad_id}}, {{entry.page_id}}, {{entry.source}} e {{contact.nome_do_campo}}.</small>
+        <small class="settings-hint">Links e textos aceitam {{entry.source_key}}, {{entry.ad_id}}, {{entry.page_id}}, {{entry.source}} e {{contact.nome_do_campo}}. No orgânico, {{entry.source}} vira organic.</small>
         <div class="content-block-list">
           ${node.contentBlocks.map((block) => renderMessageContentBlock(flow, node, block)).join("")}
           <div class="content-add-row">
@@ -7332,6 +7345,85 @@ function renderLinkClickWaitSettings(flow, node) {
   `;
 }
 
+function renderJumpSettings(flow, node) {
+  normalizeNodeStructure(node);
+  const pageId = normalizeFlowPageId(flow.pageId || currentFlowPageId());
+  const flows = jumpTargetFlows(pageId);
+  const selectedTargetFlow = jumpTargetFlow(node, flow);
+  const targetNodes = selectedTargetFlow ? jumpTargetNodes(selectedTargetFlow, node, flow) : [];
+  const selectedTargetNode = selectedTargetFlow?.nodes?.find((item) => item.id === node.targetNodeId) || null;
+  const flowOptions = flows
+    .map((item) => {
+      const state = flowBadgeState(item);
+      const label = `${item.name || "Fluxo sem nome"}${state?.label ? ` - ${state.label}` : ""}`;
+      return `<option value="${attr(item.id)}" ${item.id === node.targetFlowId ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    })
+    .join("");
+  const nodeOptions = targetNodes
+    .map((item) => `<option value="${attr(item.id)}" ${item.id === node.targetNodeId ? "selected" : ""}>${escapeHtml(jumpTargetNodeLabel(item))}</option>`)
+    .join("");
+
+  return `
+    <form class="inspector-form manychat-settings">
+      ${settingsSectionHeader("Selecionar passo existente", "Continuar em um passo de outro fluxo publicado", icons.jump)}
+      <label class="settings-field">
+        <span>Nome do bloco</span>
+        <input data-node-field="title" value="${attr(node.title || "")}" />
+      </label>
+      <label class="settings-field">
+        <span>Fluxo de destino</span>
+        <select data-node-field="targetFlowId">
+          <option value="">Selecione um fluxo</option>
+          ${flowOptions}
+        </select>
+      </label>
+      <label class="settings-field">
+        <span>Passo de destino</span>
+        <select data-node-field="targetNodeId" ${selectedTargetFlow ? "" : "disabled"}>
+          <option value="">Selecione um passo</option>
+          ${nodeOptions}
+        </select>
+      </label>
+      <div class="settings-card jump-target-card">
+        <strong>${selectedTargetNode ? "Destino configurado" : "Destino pendente"}</strong>
+        <span>Fluxo: ${escapeHtml(selectedTargetFlow?.name || "Nenhum fluxo escolhido")}</span>
+        <span>Passo: ${escapeHtml(selectedTargetNode ? jumpTargetNodeLabel(selectedTargetNode) : "Nenhum passo escolhido")}</span>
+        <small>Em produção, o fluxo de destino precisa estar publicado e ligado.</small>
+      </div>
+    </form>
+  `;
+}
+
+function jumpTargetFlows(pageId = currentFlowPageId()) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  return state.flows.filter((flow) => normalizeFlowPageId(flow.pageId || normalizedPageId) === normalizedPageId);
+}
+
+function jumpTargetFlow(node, currentFlow = selectedFlow()) {
+  const pageId = normalizeFlowPageId(currentFlow?.pageId || currentFlowPageId());
+  const flowId = String(node?.targetFlowId || "").trim();
+  if (!flowId) return null;
+  return jumpTargetFlows(pageId).find((flow) => flow.id === flowId) || null;
+}
+
+function jumpTargetNodes(flow, node = null, currentFlow = selectedFlow()) {
+  if (!flow?.nodes?.length) return [];
+  const sameFlow = flow.id && currentFlow?.id && flow.id === currentFlow.id;
+  return flow.nodes.filter((item) => item.id && !(sameFlow && item.id === node?.id) && canAcceptIncomingConnection(item) && item.type !== "jump");
+}
+
+function jumpTargetNodeLabel(node) {
+  if (!node) return "";
+  const title = node.title || nodeLabels[node.type] || "Bloco";
+  return `${title} (${nodeLabels[node.type] || node.type || "Bloco"})`;
+}
+
+function jumpTargetSummary(node, currentFlow = selectedFlow()) {
+  const flow = jumpTargetFlow(node, currentFlow);
+  const target = flow?.nodes?.find((item) => item.id === node?.targetNodeId) || null;
+  return { flow, target };
+}
+
 function renderRandomizerSettings(flow, node) {
   normalizeNodeStructure(node);
   return `
@@ -7545,7 +7637,7 @@ function renderActionCustomFieldValue(step) {
   const inputType = dynamicValue ? "text" : type === "number" ? "number" : type === "date" ? "date" : type === "datetime" ? "datetime-local" : "text";
   return `
     <input type="${attr(inputType)}" ${common} value="${attr(step.fieldValue ?? "")}" placeholder="Valor ou {{entry.ad_id}}" />
-    <small class="settings-hint">Aceita {{entry.ad_id}}, {{entry.source_key}}, {{entry.page_id}} e {{entry.source}}.</small>
+    <small class="settings-hint">Aceita {{entry.ad_id}}, {{entry.source_key}}, {{entry.page_id}} e {{entry.source}}. No orgânico, {{entry.source}} vira organic.</small>
   `;
 }
 
@@ -8194,11 +8286,14 @@ function handleWorkspaceChange(event) {
       flow.updatedAt = new Date().toISOString();
       saveState();
     } else {
-      node[target.dataset.nodeField] = normalizeFieldValue(target.dataset.nodeField, target.value);
-      if (target.dataset.nodeField === "delayValue" || target.dataset.nodeField === "delayUnit") node.delayMinutes = delayToMinutes(node);
-      if (target.dataset.nodeField === "dynamicFieldId") syncDelayDynamicField(node, target.value);
+      const fieldName = target.dataset.nodeField;
+      node[fieldName] = normalizeFieldValue(fieldName, target.value);
+      if (fieldName === "targetFlowId" && node.type === "jump") node.targetNodeId = "";
+      if (fieldName === "delayValue" || fieldName === "delayUnit") node.delayMinutes = delayToMinutes(node);
+      if (fieldName === "dynamicFieldId") syncDelayDynamicField(node, target.value);
       flow.updatedAt = new Date().toISOString();
       saveState();
+      if (node.type === "jump" && (fieldName === "targetFlowId" || fieldName === "targetNodeId")) render();
     }
   }
 
@@ -8462,6 +8557,8 @@ function addNode(type) {
     timeoutMinutes: type === "link_click_wait" ? 5 : type === "user_input" ? 0 : undefined,
     clickedNext: type === "link_click_wait" ? null : undefined,
     noClickNext: type === "link_click_wait" ? null : undefined,
+    targetFlowId: type === "jump" ? flow.id : undefined,
+    targetNodeId: type === "jump" ? "" : undefined,
     randomEveryTime: type === "randomizer" ? true : undefined,
     variations: type === "randomizer"
       ? [
@@ -8496,7 +8593,7 @@ function insertNodeAfterCurrentOutput(current, node) {
 }
 
 function simpleInsertionOutput(node) {
-  if (!node || node.type === "comment" || node.type === "condition" || node.type === "randomizer") return null;
+  if (!node || node.type === "comment" || node.type === "condition" || node.type === "randomizer" || node.type === "jump") return null;
   normalizeNodeStructure(node);
   if (node.type === "message") {
     const refs = outputRefs(node);
@@ -8562,6 +8659,8 @@ function buildNode(type, x, y) {
     timeoutMinutes: type === "link_click_wait" ? 5 : type === "user_input" ? 0 : undefined,
     clickedNext: type === "link_click_wait" ? null : undefined,
     noClickNext: type === "link_click_wait" ? null : undefined,
+    targetFlowId: type === "jump" ? selectedFlow()?.id || "" : undefined,
+    targetNodeId: type === "jump" ? "" : undefined,
     randomEveryTime: type === "randomizer" ? true : undefined,
     variations: type === "randomizer"
       ? [
@@ -9675,6 +9774,8 @@ function addNextStep(type) {
     timeoutMinutes: normalizedType === "link_click_wait" ? 5 : normalizedType === "user_input" ? 0 : undefined,
     clickedNext: normalizedType === "link_click_wait" ? null : undefined,
     noClickNext: normalizedType === "link_click_wait" ? null : undefined,
+    targetFlowId: normalizedType === "jump" ? flow.id : undefined,
+    targetNodeId: normalizedType === "jump" ? "" : undefined,
     next: canAcceptIncomingConnection(previousTarget) ? previousNext : null,
     x: clampNodeX(Math.round(current.x + 340)),
     y: clampNodeY(Math.round(current.y))
@@ -9709,7 +9810,7 @@ function setExistingNextStep(nodeId, targetId) {
 }
 
 function nextStepType(type) {
-  if (["message", "action", "condition", "delay", "user_input", "link_click_wait", "randomizer"].includes(type)) return type;
+  if (["message", "action", "condition", "delay", "user_input", "link_click_wait", "jump", "randomizer"].includes(type)) return type;
   return "";
 }
 
@@ -10551,6 +10652,7 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
   const messages = [{ from: "user", text: inputText }];
   const normalizedText = normalize(inputText);
   const context = { inputText, normalizedText, contact: options.contact || null };
+  let activeFlow = flow;
   let current =
     interactiveStartNode(flow, context) ||
     flow.nodes.find((node) => node.type === "trigger" && triggerMatchesSimulation(node, flow, normalizedText)) ||
@@ -10580,6 +10682,20 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
       messages.push({ from: "system", text: "Aguardando clique no link enviado pelo node anterior." });
       break;
     }
+    if (current.type === "jump") {
+      const targetFlow = jumpTargetFlow(current, activeFlow);
+      const targetNode = targetFlow?.nodes?.find((node) => node.id === current.targetNodeId);
+      messages.push({
+        from: "system",
+        text: targetFlow && targetNode
+          ? `Continuar em ${targetFlow.name || "fluxo sem nome"} / ${jumpTargetNodeLabel(targetNode)}`
+          : "Selecionar passo: destino nao configurado."
+      });
+      if (!targetFlow || !targetNode || !canAcceptIncomingConnection(targetNode)) break;
+      activeFlow = targetFlow;
+      current = targetNode;
+      continue;
+    }
     if (current.type === "condition") {
       messages.push({ from: "system", text: conditionMatchesNode(current, context) ? "Condição: caminho SIM" : "Condição: caminho NÃO" });
     }
@@ -10587,7 +10703,7 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
       const variation = pickRandomVariation(current, context);
       messages.push({ from: "system", text: `Randomizador: ${variation?.label || "sem caminho"}` });
     }
-    current = current.type === "comment" ? null : nextExecutableNode(flow, current, context);
+    current = current.type === "comment" ? null : nextExecutableNode(activeFlow, current, context);
   }
 
   if (messages.length === 1) {
@@ -10843,6 +10959,7 @@ function portOutputRef(port) {
 
 function assignPrimaryTarget(node, targetId) {
   normalizeNodeStructure(node);
+  if (node.type === "jump") return;
   if (node.type === "condition") {
     if (!node.yesNext) node.yesNext = targetId;
     else node.noNext = targetId;
@@ -11329,6 +11446,7 @@ function nextExecutableTargetId(node, context = {}) {
   if (node.type === "condition") return conditionMatchesNode(node, context) ? node.yesNext : node.noNext;
   if (node.type === "randomizer") return pickRandomVariation(node, context)?.next || null;
   if (node.type === "link_click_wait") return node.clickedNext || node.next || null;
+  if (node.type === "jump") return null;
   if (node.type === "message") {
     const option = matchingMessageOption(node, context);
     return option?.next || node.next || null;
@@ -11675,7 +11793,7 @@ function renderNode(node, selected) {
         <span>${escapeHtml(summary.footer)}</span>
         <span>${escapeHtml(summary.status)}</span>
       </div>
-      ${node.type === "message" ? "" : node.type === "link_click_wait" ? renderLinkClickWaitOutputPorts(node) : renderOutputPort(node)}
+      ${node.type === "message" ? "" : node.type === "link_click_wait" ? renderLinkClickWaitOutputPorts(node) : node.type === "jump" ? "" : renderOutputPort(node)}
     </article>
   `;
 }
@@ -11857,6 +11975,14 @@ function nodeCardSummary(node) {
       body: "Pausa o fluxo ate o contato clicar no link do node anterior.",
       footer: node.timeoutMinutes ? `${node.timeoutMinutes} min limite` : "sem limite",
       status: branchCount ? `${branchCount} saida${branchCount === 1 ? "" : "s"}` : "fim"
+    };
+  }
+  if (node.type === "jump") {
+    const { flow: targetFlow, target } = jumpTargetSummary(node, flow);
+    return {
+      body: target ? `Continua em ${jumpTargetNodeLabel(target)}` : "Escolha o passo que deve continuar o fluxo.",
+      footer: targetFlow ? targetFlow.name || "Fluxo sem nome" : "Sem fluxo escolhido",
+      status: target ? "configurado" : "sem destino"
     };
   }
   if (node.type === "randomizer") {
@@ -12879,6 +13005,7 @@ function defaultNodeMessage(type) {
     delay: "Aguardar alguns minutos antes de continuar.",
     user_input: "Aguardar a próxima resposta do contato.",
     link_click_wait: "Aguardar clique no link enviado pelo node anterior.",
+    jump: "Continuar em um passo existente de outro fluxo.",
     action: "Aplicar tag, abrir conversa ou notificar atendimento.",
     randomizer: "Distribuir contatos entre caminhos aleatórios.",
     comment: "Anotação interna do fluxo.",

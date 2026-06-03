@@ -51,20 +51,27 @@ export function attributionSourceKey(pageId, adId) {
   return `src_${stableHash(input)}${stableHash(`messenlead:${input}`)}`.slice(0, 14);
 }
 
+export function organicSourceKey(pageId) {
+  const normalizedPageId = normalizePageId(pageId);
+  if (!normalizedPageId || normalizedPageId === DEFAULT_PAGE_ID) return "organic";
+  return cleanText(`organic_${normalizedPageId}`, 80);
+}
+
 export function messengerEntryFromContext(pageId, context = {}, attribution = null) {
-  const source = context.hasAdReferral ? "ads" : context.hasReferral ? "referral" : "direct";
+  const source = context.hasAdReferral ? "ads" : context.hasReferral ? "referral" : "organic";
   const adId = cleanText(context.adId, 160);
+  const isOrganic = source === "organic";
   return {
     source,
     page_id: normalizePageId(pageId),
     ad_id: adId,
     adgroup_id: cleanText(context.adGroupId, 160),
-    ad_title: cleanText(context.adTitle, 250),
-    source_key: cleanText(attribution?.sourceKey, 80) || attributionSourceKey(pageId, adId),
-    referral_source: cleanText(context.referralSource, 120),
+    ad_title: isOrganic ? "Organic" : cleanText(context.adTitle, 250),
+    source_key: cleanText(attribution?.sourceKey, 80) || attributionSourceKey(pageId, adId) || (isOrganic ? organicSourceKey(pageId) : ""),
+    referral_source: isOrganic ? "organic" : cleanText(context.referralSource, 120),
     referral_ref: cleanText(context.referralRef, 500),
-    referral_location: cleanText(context.referralLocation, 80),
-    template_key: cleanText(context.templateKey, 250)
+    referral_location: isOrganic ? "organic" : cleanText(context.referralLocation, 80),
+    template_key: isOrganic ? "MESSENLEAD_ORGANIC_ENTRY" : cleanText(context.templateKey, 250)
   };
 }
 

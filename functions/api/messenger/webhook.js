@@ -1129,10 +1129,11 @@ async function buildRepliesFromResponseWait(context, env, pageId, contact = null
   };
 }
 
-async function executeFlowFromNode({ context, env, pageId, contact, log, flow, start, startedAt = Date.now(), deadline = Date.now() + flowTimeoutMs(env), timeoutMs = flowTimeoutMs(env) }) {
+async function executeFlowFromNode({ context, env, pageId, contact, log, flow: initialFlow, start, startedAt = Date.now(), deadline = Date.now() + flowTimeoutMs(env), timeoutMs = flowTimeoutMs(env) }) {
   const replies = [];
   const actions = [];
   const runtimeContact = runtimeContactFrom(contact);
+  let flow = initialFlow;
   let current = start;
   let guard = 0;
   const executionMetricKey = flowExecutionMetricKey(context, flow, start);
@@ -1158,6 +1159,33 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow, s
       nodeTitle: current.title || current.name || "",
       contactTags: runtimeContact.tags || []
     }, flow);
+
+    if (current.type === "jump") {
+      const jump = await resolveJumpNodeTarget(env, pageId, flow, current);
+      if (!jump.flow || !jump.node) {
+        await log?.("warn", "jump_target_missing", "Bloco de selecionar passo sem destino executavel.", {
+          nodeId: current.id,
+          targetFlowId: current.targetFlowId || "",
+          targetNodeId: current.targetNodeId || "",
+          reason: jump.reason || ""
+        }, flow);
+        current = null;
+        break;
+      }
+
+      await log?.("info", "jump_target_selected", "Fluxo continua em um passo existente.", {
+        nodeId: current.id,
+        targetFlowId: jump.flow.id || "",
+        targetFlowName: jump.flow.name || "",
+        targetNodeId: jump.node.id || "",
+        targetNodeType: jump.node.type || "",
+        targetNodeTitle: jump.node.title || jump.node.name || ""
+      }, flow);
+      previousNode = current;
+      flow = jump.flow;
+      current = jump.node;
+      continue;
+    }
 
     if (current.type === "delay") {
       const targetId = nextExecutableTargetId(current, stepContext);
@@ -1474,6 +1502,23 @@ async function activeFlowById(env, pageId, flowId) {
   if (!id) return null;
   const flows = await listFlows(env, pageId, { status: "active" });
   return flows.find((flow) => flow.id === id) || parseFlows(env.MESSENLEAD_FLOW_JSON).find((flow) => flow.id === id && flow.status === "active") || null;
+}
+
+async function resolveJumpNodeTarget(env, pageId, currentFlow, node) {
+  normalizeNodeShape(node);
+  const targetFlowId = String(node.targetFlowId || currentFlow?.id || "").trim();
+  const targetNodeId = String(node.targetNodeId || "").trim();
+  if (!targetFlowId || !targetNodeId) return { flow: null, node: null, reason: "missing_target" };
+
+  const targetFlow = targetFlowId === currentFlow?.id ? currentFlow : await activeFlowById(env, pageId, targetFlowId);
+  if (!targetFlow?.nodes?.length) return { flow: null, node: null, reason: "flow_not_active_or_missing" };
+
+  const targetNode = targetFlow.nodes.find((item) => item.id === targetNodeId);
+  if (!targetNode) return { flow: targetFlow, node: null, reason: "node_not_found" };
+  normalizeNodeShape(targetNode);
+  if (targetNode.type === "trigger" || targetNode.type === "comment") return { flow: targetFlow, node: null, reason: "node_not_executable" };
+
+  return { flow: targetFlow, node: targetNode, reason: "" };
 }
 
 function continuationRuntimeEventId(continuation = {}) {
@@ -1887,6 +1932,7 @@ function nextExecutableTargetId(node, context = {}) {
   if (node.type === "condition") return conditionMatchesNode(node, context) ? node.yesNext : node.noNext;
   if (node.type === "randomizer") return pickRandomVariation(node, context)?.next || null;
   if (node.type === "link_click_wait") return node.clickedNext || node.next || null;
+  if (node.type === "jump") return null;
   if (node.type === "message") {
     const option = context.ignoreMessageOptionRouting ? null : matchingMessageOption(node, context);
     return option?.next || node.next || null;
@@ -2026,6 +2072,11 @@ function normalizeNodeShape(node) {
     node.clickedNext = node.clickedNext || node.next || null;
     node.noClickNext = node.noClickNext || null;
     node.next = node.clickedNext;
+  }
+  if (node.type === "jump") {
+    node.targetFlowId = String(node.targetFlowId || "");
+    node.targetNodeId = String(node.targetNodeId || "");
+    node.next = null;
   }
 }
 
@@ -2522,6 +2573,7 @@ function nodeOutputTargetIds(node = {}) {
   normalizeNodeShape(node);
   if (node.type === "condition") return [node.yesNext, node.noNext].filter(Boolean);
   if (node.type === "randomizer") return (node.variations || []).map((variation) => variation.next).filter(Boolean);
+  if (node.type === "jump") return [];
   if (node.type === "message") {
     const blockButtons = (node.contentBlocks || []).flatMap((block) => block.buttons || []);
     return [
