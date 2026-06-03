@@ -650,6 +650,13 @@ svg {
   font-size: 12px;
 }
 
+.panel-header .primary-button,
+.panel-header .primary-button span,
+.button-row .primary-button,
+.button-row .primary-button span {
+  color: #ffffff;
+}
+
 .panel-body {
   padding: 14px;
 }
