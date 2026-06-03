@@ -6503,7 +6503,6 @@ function renderMessageSettingsManychatVisual(flow, node) {
     node.contentBlocks.unshift(firstTextBlock);
     syncLegacyMessageFromBlocks(node);
   }
-  const extraBlocks = node.contentBlocks.filter((block) => block.id !== firstTextBlock.id);
   return `
     <form class="message-inspector manychat-settings">
       <div class="message-inspector-title">
@@ -6517,10 +6516,7 @@ function renderMessageSettingsManychatVisual(flow, node) {
         </select>
       </label>
       <div class="message-inspector-divider"></div>
-      <div class="manychat-message-preview">
-        <textarea data-message-block-field="text" data-block-id="${attr(firstTextBlock.id)}" placeholder="Adicionar texto">${escapeHtml(firstTextBlock.text || node.message || "")}</textarea>
-        ${renderInlineMessageButtons(node)}
-      </div>
+      ${node.contentBlocks.map((block) => block.type === "text" ? renderManychatTextWidget(node, block, block.id === firstTextBlock.id) : renderMessageContentBlock(flow, node, block)).join("")}
       <div class="manychat-quick-replies">
         ${node.quickReplies.map((option) => renderMessageOption(flow, node, option, "quick_reply")).join("")}
         <button class="manychat-quick-reply-add" type="button" data-action="add-quick-reply" data-id="${node.id}" ${node.quickReplies.length >= 11 ? "disabled" : ""}>+ Resposta Rápida</button>
@@ -6535,10 +6531,21 @@ function renderMessageSettingsManychatVisual(flow, node) {
         ${renderManychatContentOption("more", "Mais", "Ver todas as opções disponíveis", icons.more, "")}
       </div>
       <small class="settings-hint">Links e textos aceitam {{entry.source_key}}, {{entry.ad_id}}, {{entry.page_id}}, {{entry.source}} e {{contact.nome_do_campo}}. No orgânico, {{entry.source}} e {{entry.ad_id}} viram organic.</small>
-      ${extraBlocks.map((block) => renderMessageContentBlock(flow, node, block)).join("")}
       <div class="message-inspector-divider"></div>
       ${node.next ? renderSelectedNextStep(flow, node) : `<button class="choose-next-step-button blue" type="button" data-action="open-next-step-picker" data-id="${node.id}">Escolher Próximo Passo</button>`}
     </form>
+  `;
+}
+
+function renderManychatTextWidget(node, block, primary = false) {
+  return `
+    <div class="manychat-widget">
+      <div class="manychat-message-preview">
+        <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Adicionar texto">${escapeHtml(block.text || (primary ? node.message || "" : ""))}</textarea>
+        ${primary ? renderInlineMessageButtons(node) : ""}
+      </div>
+      ${renderManychatBlockControls(block)}
+    </div>
   `;
 }
 
@@ -6553,6 +6560,16 @@ function renderManychatContentOption(type, title, description, icon, action, opt
       </span>
       ${options.pro ? `<em>PRO</em>` : ""}
     </button>
+  `;
+}
+
+function renderManychatBlockControls(block = {}) {
+  return `
+    <div class="manychat-widget-controls" aria-label="Ações do bloco">
+      <button type="button" data-action="remove-message-block" data-block-id="${attr(block.id)}" title="Remover bloco" aria-label="Remover bloco">&times;</button>
+      <button type="button" data-action="move-message-block" data-block-id="${attr(block.id)}" title="Reorganizar bloco" aria-label="Reorganizar bloco">${icons.move_vertical}</button>
+      <button type="button" data-action="duplicate-message-block" data-block-id="${attr(block.id)}" title="Duplicar bloco" aria-label="Duplicar bloco">${icons.copy}</button>
+    </div>
   `;
 }
 
@@ -6571,23 +6588,39 @@ function renderMessageContentBlock(flow, node, block) {
     `;
   }
 
-  if (["image", "audio", "video", "file"].includes(block.type)) {
+  if (block.type === "image") {
+    const inputId = `message_block_file_${block.id}`;
     return `
-      <article class="message-content-block">
+      <div class="manychat-widget">
+        <article class="manychat-image-widget">
+          ${
+            block.url
+              ? `<a class="manychat-image-preview" href="${attr(block.url)}" target="_blank" rel="noopener"><img src="${attr(block.url)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" /></a>`
+              : `<span class="manychat-image-placeholder">${icons.image}</span>`
+          }
+          <div class="manychat-image-actions">
+            <button type="button" data-action="choose-message-block-file" data-input-id="${attr(inputId)}">Enviar Imagem</button>
+            <span>ou</span>
+            <label>
+              <span>colar a URL</span>
+              <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="https://..." />
+            </label>
+          </div>
+          <input id="${attr(inputId)}" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" data-message-block-file="true" data-block-id="${attr(block.id)}" data-kind="image" hidden />
+        </article>
+        ${renderManychatBlockControls(block)}
+      </div>
+    `;
+  }
+
+  if (["audio", "video", "file"].includes(block.type)) {
+    return `
+      <article class="message-content-block manychat-widget">
         <div class="message-content-head">${icons[type.icon] || icons.message}<strong>${escapeHtml(type.label)}</strong>${removeButton}</div>
         <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="URL do arquivo" />
-        ${
-          block.type === "image"
-            ? `
-              ${renderMessageImagePreview(block)}
-              <input data-message-block-field="title" data-block-id="${attr(block.id)}" value="${attr(block.title || "")}" placeholder="Titulo opcional da imagem" />
-              <input data-message-block-field="subtitle" data-block-id="${attr(block.id)}" value="${attr(block.subtitle || "")}" placeholder="Subtitulo opcional" />
-              ${renderMessageBlockButtons(flow, node, block)}
-            `
-            : ""
-        }
         ${block.type === "video" || block.type === "audio" ? renderMessageMediaPreview(block) : ""}
         ${block.type === "file" ? `<input data-message-block-field="fileName" data-block-id="${attr(block.id)}" value="${attr(block.fileName || "")}" placeholder="Nome do arquivo" />` : ""}
+        ${renderManychatBlockControls(block)}
       </article>
     `;
   }
@@ -7980,6 +8013,9 @@ function handleWorkspaceClick(event) {
   if (action === "add-node-at-menu") return addNodeFromCanvasMenu(button.dataset.type);
   if (action === "add-message-block") return addMessageBlock(button.dataset.type);
   if (action === "remove-message-block") return removeMessageBlock(button.dataset.blockId);
+  if (action === "duplicate-message-block") return duplicateMessageBlock(button.dataset.blockId);
+  if (action === "move-message-block") return moveMessageBlock(button.dataset.blockId);
+  if (action === "choose-message-block-file") return document.getElementById(button.dataset.inputId)?.click();
   if (action === "add-message-block-button") return addMessageBlockButton(button.dataset.blockId);
   if (action === "remove-message-block-button") return removeMessageBlockButton(button.dataset.blockId, button.dataset.buttonId);
   if (action === "add-message-button") return addMessageButton();
@@ -8257,6 +8293,11 @@ function handleWorkspaceChange(event) {
   }
   if (target.id === "flowImportFile") {
     importFlowJson(target.files?.[0]);
+    target.value = "";
+    return;
+  }
+  if (target.dataset.messageBlockFile) {
+    uploadMessageBlockFile(target.dataset.blockId, target.files?.[0], target.dataset.kind || "image");
     target.value = "";
     return;
   }
@@ -9518,6 +9559,41 @@ function removeMessageBlock(blockId) {
   render();
 }
 
+function duplicateMessageBlock(blockId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "message") return;
+  normalizeNodeStructure(node);
+  const index = node.contentBlocks.findIndex((block) => block.id === blockId);
+  if (index < 0) return;
+  const copy = JSON.parse(JSON.stringify(node.contentBlocks[index]));
+  copy.id = makeId("block");
+  copy.buttons = Array.isArray(copy.buttons)
+    ? copy.buttons.map((button) => ({ ...button, id: makeId("btn") }))
+    : [];
+  node.contentBlocks.splice(index + 1, 0, copy);
+  syncLegacyMessageFromBlocks(node);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
+function moveMessageBlock(blockId) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || !node || node.type !== "message") return;
+  normalizeNodeStructure(node);
+  const index = node.contentBlocks.findIndex((block) => block.id === blockId);
+  if (index < 0 || node.contentBlocks.length < 2) return;
+  const nextIndex = index < node.contentBlocks.length - 1 ? index + 1 : index - 1;
+  const [block] = node.contentBlocks.splice(index, 1);
+  node.contentBlocks.splice(nextIndex, 0, block);
+  syncLegacyMessageFromBlocks(node);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
 function defaultMessageBlock(type) {
   return {
     id: makeId("block"),
@@ -10223,6 +10299,47 @@ async function uploadMediaFile(file, kind) {
   } finally {
     mediaState.uploading = false;
     if (activeView === "media") render();
+  }
+}
+
+async function uploadMessageBlockFile(blockId, file, kind = "image") {
+  if (!file) return;
+  const normalizedKind = ["audio", "video"].includes(kind) ? kind : "image";
+  if (normalizedKind === "image" && !String(file.type || "").startsWith("image/")) {
+    toastMessage("Envie um arquivo de imagem.");
+    return;
+  }
+
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || node?.type !== "message") return;
+  normalizeNodeStructure(node);
+  const block = node.contentBlocks.find((item) => item.id === blockId);
+  if (!block) return;
+
+  const pageId = currentFlowPageId();
+  const form = new FormData();
+  form.set("pageId", pageId);
+  form.set("kind", normalizedKind);
+  form.set("file", file);
+
+  try {
+    toastMessage("Enviando imagem...");
+    const result = await apiPostForm("/api/media", form);
+    block.type = normalizedKind;
+    block.url = result.asset?.url || "";
+    block.title = result.asset?.originalName || result.asset?.fileName || file.name || "";
+    block.fileName = result.asset?.fileName || file.name || "";
+    mediaState.assets = result.asset
+      ? [result.asset, ...mediaState.assets.filter((asset) => asset.id !== result.asset.id)]
+      : mediaState.assets;
+    flow.updatedAt = new Date().toISOString();
+    saveState();
+    toastMessage("Imagem adicionada ao bloco.");
+  } catch (error) {
+    toastMessage(error.message || "Não foi possível enviar a imagem.");
+  } finally {
+    render();
   }
 }
 
