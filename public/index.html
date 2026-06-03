@@ -13,7 +13,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css?v=20260602-brand-mark-align" />
   </head>
-  <body>
+  <body class="auth-locked">
+    <div id="loginRoot"></div>
+
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegação principal">
         <div class="brand">
@@ -58,6 +60,7 @@
                 <path d="M12 21V9m0 0 4 4m-4-4-4 4M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" />
               </svg>
             </button>
+            <button class="secondary-button app-logout-button" id="appLogoutButton" type="button">Sair</button>
             <input id="importFile" type="file" accept="application/json" hidden />
           </div>
         </header>

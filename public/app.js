@@ -1,4 +1,7 @@
 const STORAGE_KEY = "messenlead.messenger.workspace.v2";
+const APP_LOGIN_SESSION_KEY = "messenlead.app.login.v1";
+const APP_LOGIN_EMAIL = "teste@facebook.com";
+const APP_LOGIN_PASSWORD = "facebook";
 const DASHBOARD_CACHE_KEY = "messenlead.dashboard.cache.v1";
 const SIDEBAR_COLLAPSED_KEY = "messenlead.sidebar.collapsed";
 const DEFAULT_FLOW_PAGE_ID = "__global__";
@@ -272,6 +275,7 @@ const icons = {
   comment: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/><path d="M8 9h8M8 13h5"/></svg>`
 };
 
+const loginRoot = document.querySelector("#loginRoot");
 const appShell = document.querySelector(".app-shell");
 const workspace = document.querySelector("#workspace");
 const mainNav = document.querySelector("#mainNav");
@@ -282,10 +286,13 @@ const globalSearch = document.querySelector("#globalSearch");
 const exportButton = document.querySelector("#exportButton");
 const importButton = document.querySelector("#importButton");
 const importFile = document.querySelector("#importFile");
+const appLogoutButton = document.querySelector("#appLogoutButton");
 const sidebarToggle = document.querySelector("#sidebarToggle");
 const toast = document.querySelector("#toast");
 const modalRoot = document.querySelector("#modalRoot");
 
+let appAuthenticated = localStorage.getItem(APP_LOGIN_SESSION_KEY) === "true";
+let appLoginError = "";
 let state = loadState();
 let dashboardCache = loadDashboardCache();
 let activeView = getInitialView();
@@ -492,6 +499,9 @@ mainNav.addEventListener("click", (event) => {
   history.replaceState(null, "", `#${activeView}`);
   render();
 });
+
+loginRoot?.addEventListener("submit", handleAppLoginSubmit);
+appLogoutButton?.addEventListener("click", logoutApp);
 
 window.setInterval(() => {
   if (activeView !== "pages" || document.hidden || metaState.loadingMessages) return;
@@ -1699,7 +1709,77 @@ function oauthErrorFromHash() {
   return error ? `Facebook Login: ${error}` : "";
 }
 
+function renderAuthGate() {
+  document.body.classList.toggle("auth-locked", !appAuthenticated);
+  document.body.classList.toggle("auth-ready", appAuthenticated);
+  if (appShell) appShell.setAttribute("aria-hidden", appAuthenticated ? "false" : "true");
+  if (!loginRoot) return;
+
+  if (appAuthenticated) {
+    loginRoot.hidden = true;
+    loginRoot.innerHTML = "";
+    return;
+  }
+
+  loginRoot.hidden = false;
+  loginRoot.innerHTML = `
+    <main class="login-screen">
+      <form class="login-panel" data-login-form>
+        <div class="login-brand">
+          <span class="brand-mark" aria-hidden="true">ML</span>
+          <div>
+            <strong>Messenlead</strong>
+            <span>Automações Messenger</span>
+          </div>
+        </div>
+        <label>
+          <span>E-mail</span>
+          <input name="email" type="email" autocomplete="username" value="${attr(APP_LOGIN_EMAIL)}" required />
+        </label>
+        <label>
+          <span>Senha</span>
+          <input name="password" type="password" autocomplete="current-password" required />
+        </label>
+        ${appLoginError ? `<div class="login-error">${escapeHtml(appLoginError)}</div>` : ""}
+        <button class="primary-button" type="submit">Entrar</button>
+      </form>
+    </main>
+  `;
+}
+
+function handleAppLoginSubmit(event) {
+  const form = event.target.closest("[data-login-form]");
+  if (!form) return;
+  event.preventDefault();
+
+  const data = new FormData(form);
+  const email = String(data.get("email") || "").trim().toLowerCase();
+  const password = String(data.get("password") || "");
+  if (email !== APP_LOGIN_EMAIL || password !== APP_LOGIN_PASSWORD) {
+    appLoginError = "E-mail ou senha inválidos.";
+    renderAuthGate();
+    return;
+  }
+
+  appAuthenticated = true;
+  appLoginError = "";
+  localStorage.setItem(APP_LOGIN_SESSION_KEY, "true");
+  render();
+}
+
+function logoutApp() {
+  appAuthenticated = false;
+  appLoginError = "";
+  localStorage.removeItem(APP_LOGIN_SESSION_KEY);
+  render();
+}
+
 function render() {
+  if (!appAuthenticated) {
+    renderAuthGate();
+    return;
+  }
+  renderAuthGate();
   if (activeView === "flows" && flowCanvasOpen) rememberCanvasScroll();
   if (activeView === "flows" && flowCanvasOpen && showInspector) rememberInspectorScroll();
   renderNav();
