@@ -6637,19 +6637,27 @@ function renderMessageContentBlock(flow, node, block) {
 
   if (block.type === "image") {
     const inputId = `message_block_file_${block.id}`;
+    const hasImage = Boolean(String(block.url || "").trim());
     return `
       <div class="manychat-widget" data-message-block-widget="${attr(block.id)}">
-        <article class="manychat-image-widget">
-          ${
-            block.url
-              ? `<a class="manychat-image-preview" href="${attr(block.url)}" target="_blank" rel="noopener"><img src="${attr(block.url)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" /></a>`
-              : `<span class="manychat-image-placeholder">${icons.image}</span>`
-          }
-          <div class="manychat-image-actions">
-            <button type="button" data-action="choose-message-block-file" data-input-id="${attr(inputId)}">Enviar Imagem</button>
-            <span>ou</span>
-            <button type="button" data-action="open-message-image-url" data-block-id="${attr(block.id)}">colar a URL</button>
+        <article class="manychat-image-widget ${hasImage ? "has-image" : "is-empty"}">
+          <div class="manychat-image-upload-area">
+            ${
+              hasImage
+                ? `<a class="manychat-image-preview" href="${attr(block.url)}" target="_blank" rel="noopener"><img src="${attr(block.url)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" /></a>`
+                : `<span class="manychat-image-placeholder">${icons.image}</span>`
+            }
+            ${
+              hasImage
+                ? ""
+                : `<div class="manychat-image-actions">
+                    <button type="button" data-action="choose-message-block-file" data-input-id="${attr(inputId)}">Enviar Imagem</button>
+                    <span>ou</span>
+                    <button type="button" data-action="open-message-image-url" data-block-id="${attr(block.id)}">colar a URL</button>
+                  </div>`
+            }
           </div>
+          ${renderManychatImageBlockButtons(flow, node, block)}
           <input id="${attr(inputId)}" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" data-message-block-file="true" data-block-id="${attr(block.id)}" data-kind="image" hidden />
         </article>
         ${messageImageUrlEditorBlockId === block.id ? renderManychatImageUrlPopover(block) : ""}
@@ -6879,6 +6887,40 @@ function renderMessageBlockButton(flow, node, block, button) {
         }
       </div>
       <button class="mini-menu-button" type="button" data-action="remove-message-block-button" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" title="Remover">&times;</button>
+    </article>
+  `;
+}
+
+function renderManychatImageBlockButtons(flow, node, block) {
+  const buttons = Array.isArray(block.buttons) ? block.buttons : [];
+  return `
+    <div class="manychat-image-button-list">
+      ${buttons.map((button) => renderManychatImageBlockButton(flow, node, block, button)).join("")}
+      <button class="inline-message-button-add" type="button" data-action="add-message-block-button" data-block-id="${attr(block.id)}" ${buttons.length >= 3 ? "disabled" : ""}>+ Botão Adicionar</button>
+    </div>
+  `;
+}
+
+function renderManychatImageBlockButton(flow, node, block, button) {
+  const currentType = button.type || "url";
+  return `
+    <article class="manychat-image-button-card">
+      <div class="manychat-image-button-head">
+        <input data-message-block-button-field="title" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" value="${attr(button.title || "")}" placeholder="Novo botão" aria-label="Título do botão da imagem" />
+        <select data-message-block-button-field="type" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" aria-label="Tipo do botão da imagem">
+          ${optionSelect("url", "Abrir site", currentType)}
+          ${optionSelect("next", "Próximo passo", currentType)}
+          ${optionSelect("phone", "Ligar", currentType)}
+        </select>
+        <button class="mini-menu-button" type="button" data-action="remove-message-block-button" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" title="Remover" aria-label="Remover botão">&times;</button>
+      </div>
+      ${
+        currentType === "next"
+          ? targetSelectField(flow, node, button.next, "Próximo passo", { blockId: block.id, blockButtonId: button.id })
+          : currentType === "phone"
+            ? `<input class="manychat-image-button-target" data-message-block-button-field="phone" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" value="${attr(button.phone || "")}" placeholder="+5511999999999" aria-label="Telefone do botão" />`
+            : `<input class="manychat-image-button-target" data-message-block-button-field="url" data-block-id="${attr(block.id)}" data-button-id="${attr(button.id)}" value="${attr(button.url || "")}" placeholder="https://..." aria-label="URL do botão" />`
+      }
     </article>
   `;
 }
@@ -9749,7 +9791,7 @@ function addMessageBlockButton(blockId) {
     toastMessage("O Messenger permite ate 3 botoes por imagem.");
     return;
   }
-  block.buttons.push({ id: makeId("btn"), title: "Abrir site", type: "url", url: "", phone: "", next: null });
+  block.buttons.push({ id: makeId("btn"), title: "Novo botão", type: "url", url: "", phone: "", next: null });
   flow.updatedAt = new Date().toISOString();
   saveState();
   render();

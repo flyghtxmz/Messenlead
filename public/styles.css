@@ -7026,13 +7026,22 @@ svg {
 .manychat-image-widget {
   display: grid;
   min-height: 80px;
-  place-items: center;
-  gap: 6px;
-  padding: 16px 14px;
+  place-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
   border: 1px dashed #d1d7de;
   border-radius: 12px;
   background: #fff;
   text-align: center;
+}
+
+.manychat-image-upload-area {
+  display: grid;
+  min-height: 80px;
+  place-items: center;
+  gap: 6px;
+  padding: 16px 14px;
 }
 
 .manychat-image-placeholder {
@@ -7061,6 +7070,21 @@ svg {
   object-fit: contain;
 }
 
+.manychat-image-widget.has-image .manychat-image-upload-area {
+  padding: 0;
+}
+
+.manychat-image-widget.has-image .manychat-image-preview {
+  max-height: 180px;
+  border-radius: 12px 12px 0 0;
+}
+
+.manychat-image-widget.has-image .manychat-image-preview img {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+}
+
 .manychat-image-actions {
   display: flex;
   width: 100%;
@@ -7079,6 +7103,66 @@ svg {
   color: #0069df;
   font-size: 10px;
   font-weight: 700;
+}
+
+.manychat-image-button-list {
+  display: grid;
+  width: 100%;
+  border-top: 1px dashed #d1d7de;
+  background: #fff;
+}
+
+.manychat-image-button-card {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border-bottom: 1px dashed #d1d7de;
+  background: #fff;
+  text-align: left;
+}
+
+.manychat-image-button-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px 22px;
+  gap: 6px;
+  align-items: center;
+}
+
+.manychat-image-button-card input,
+.manychat-image-button-card select {
+  width: 100%;
+  min-height: 28px;
+  padding: 5px 7px;
+  border: 1px solid #d2d8df;
+  border-radius: 6px;
+  background: #fff;
+  color: #344054;
+  font-size: 11px;
+}
+
+.manychat-image-button-card .settings-field {
+  gap: 4px;
+  margin: 0;
+  font-size: 10px;
+}
+
+.manychat-image-button-card .settings-field select {
+  min-height: 28px;
+  font-size: 11px;
+}
+
+.manychat-image-button-card .mini-menu-button {
+  width: 22px;
+  height: 28px;
+  font-size: 17px;
+}
+
+.manychat-image-button-target {
+  margin-top: -1px;
+}
+
+.manychat-image-button-list > .inline-message-button-add {
+  border-bottom: 0;
 }
 
 .manychat-image-url-popover {
