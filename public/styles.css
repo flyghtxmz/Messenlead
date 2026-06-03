@@ -103,9 +103,10 @@ svg {
 }
 
 .brand-mark {
-  display: grid;
+  display: inline-grid;
   width: 38px;
   height: 38px;
+  flex: 0 0 38px;
   place-items: center;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.38);
@@ -113,6 +114,8 @@ svg {
   color: #fff;
   font-size: 11px;
   font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.02em;
   box-shadow: 0 8px 18px rgba(15, 107, 77, 0.22);
 }
 
@@ -122,7 +125,7 @@ svg {
   font-size: 14px;
 }
 
-.brand span,
+.brand > div span,
 .workspace-health span {
   display: block;
   color: var(--muted);
