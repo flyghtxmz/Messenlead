@@ -12119,9 +12119,11 @@ function renderMessageNode(node, selected) {
   const flow = canvasDisplayFlow(selectedFlow());
   const viewingPublished = flowCanvasMode === "published";
   normalizeNodeStructure(node);
-  const summary = nodeCardSummary(node);
   const text = String(node.contentBlocks.find((block) => block.type === "text" && block.text)?.text || node.message || "").trim();
   const attachments = node.contentBlocks.filter((block) => block.type !== "text");
+  const imageBlocks = attachments.filter((block) => block.type === "image");
+  const otherAttachments = attachments.filter((block) => block.type !== "image");
+  const otherAttachmentChips = otherAttachments.length ? messageNodeContentChips({ ...node, contentBlocks: otherAttachments }) : [];
   const messageNumber = messageNodeNumber(flow, node);
   const defaultOutput = messageOutputItems(node).find((item) => item.field === "next");
   return `
@@ -12141,7 +12143,8 @@ function renderMessageNode(node, selected) {
         <p>${escapeHtml(text || "Digite uma mensagem.")}</p>
         ${node.buttons.map((option) => renderMessengerPreviewButton(node, option)).join("")}
       </div>
-      ${attachments.length ? `<div class="messenger-preview-meta">${escapeHtml(summary.chips?.join(" · ") || `${attachments.length} anexo${attachments.length === 1 ? "" : "s"}`)}</div>` : ""}
+      ${imageBlocks.map((block) => renderMessengerPreviewImageBlock(block)).join("")}
+      ${otherAttachments.length ? `<div class="messenger-preview-meta">${escapeHtml(otherAttachmentChips.join(" · ") || `${otherAttachments.length} anexo${otherAttachments.length === 1 ? "" : "s"}`)}</div>` : ""}
       ${node.quickReplies.length ? `<div class="messenger-preview-quick-replies">${node.quickReplies.map((option) => renderMessengerPreviewQuickReply(node, option)).join("")}</div>` : ""}
       ${renderMessengerPreviewAuxOutputs(node)}
       <div class="messenger-preview-next ${defaultOutput?.targetId ? "connected" : ""}">
@@ -12149,6 +12152,15 @@ function renderMessageNode(node, selected) {
         ${renderMessageNodePort(node, defaultOutput)}
       </div>
     </article>
+  `;
+}
+
+function renderMessengerPreviewImageBlock(block = {}) {
+  const imageUrl = String(block.url || "").trim();
+  return `
+    <div class="messenger-preview-image ${imageUrl ? "has-image" : "empty"}">
+      ${imageUrl ? `<img src="${attr(imageUrl)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" />` : icons.image}
+    </div>
   `;
 }
 

@@ -2286,6 +2286,33 @@ svg {
   -webkit-line-clamp: 3;
 }
 
+.messenger-preview-image {
+  display: grid;
+  min-height: 68px;
+  max-height: 148px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #f2f0ff;
+  color: #8b92a0;
+}
+
+.messenger-preview-image.empty svg {
+  width: 20px;
+  height: 20px;
+}
+
+.messenger-preview-image.has-image {
+  background: #f4f6f8;
+}
+
+.messenger-preview-image img {
+  display: block;
+  width: 100%;
+  max-height: 148px;
+  object-fit: cover;
+}
+
 .messenger-preview-button,
 .messenger-preview-quick-reply,
 .messenger-preview-aux-output,
