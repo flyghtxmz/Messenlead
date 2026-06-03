@@ -11358,7 +11358,12 @@ function assignOutputTarget(node, targetId, output = "") {
     }
     if (ref.kind === "image_button" && ref.blockId && ref.optionId) {
       const option = findMessageBlockButton(node, ref.blockId, ref.optionId);
-      if (option) option.next = targetId;
+      if (option) {
+        option.type = "next";
+        option.url = "";
+        option.phone = "";
+        option.next = targetId;
+      }
       return;
     }
   }
@@ -11978,7 +11983,7 @@ function messageOutputItems(node) {
   });
 
   node.contentBlocks.forEach((block) => {
-    block.buttons?.filter((option) => !["url", "phone", "start_flow"].includes(option.type)).forEach((option) => {
+    block.buttons?.forEach((option) => {
       items.push({
         targetId: option.next || null,
         label: `Imagem: ${option.title || "sem titulo"}`,
@@ -12185,10 +12190,9 @@ function renderMessageNode(node, selected) {
         <p>${escapeHtml(text || "Digite uma mensagem.")}</p>
         ${node.buttons.map((option) => renderMessengerPreviewButton(node, option)).join("")}
       </div>
-      ${imageBlocks.map((block) => renderMessengerPreviewImageBlock(block)).join("")}
+      ${imageBlocks.map((block) => renderMessengerPreviewImageBlock(node, block)).join("")}
       ${otherAttachments.length ? `<div class="messenger-preview-meta">${escapeHtml(otherAttachmentChips.join(" · ") || `${otherAttachments.length} anexo${otherAttachments.length === 1 ? "" : "s"}`)}</div>` : ""}
       ${node.quickReplies.length ? `<div class="messenger-preview-quick-replies">${node.quickReplies.map((option) => renderMessengerPreviewQuickReply(node, option)).join("")}</div>` : ""}
-      ${renderMessengerPreviewAuxOutputs(node)}
       <div class="messenger-preview-next ${defaultOutput?.targetId ? "connected" : ""}">
         <span>Próximo Passo</span>
         ${renderMessageNodePort(node, defaultOutput)}
@@ -12197,11 +12201,29 @@ function renderMessageNode(node, selected) {
   `;
 }
 
-function renderMessengerPreviewImageBlock(block = {}) {
+function renderMessengerPreviewImageBlock(node, block = {}) {
   const imageUrl = String(block.url || "").trim();
+  const buttons = Array.isArray(block.buttons) ? block.buttons : [];
   return `
-    <div class="messenger-preview-image ${imageUrl ? "has-image" : "empty"}">
-      ${imageUrl ? `<img src="${attr(imageUrl)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" />` : icons.image}
+    <div class="messenger-preview-image-card ${buttons.length ? "has-buttons" : ""}">
+      <div class="messenger-preview-image ${imageUrl ? "has-image" : "empty"}">
+        ${imageUrl ? `<img src="${attr(imageUrl)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" />` : icons.image}
+      </div>
+      ${
+        buttons.length
+          ? `<div class="messenger-preview-image-buttons">${buttons.map((option) => renderMessengerPreviewImageButton(node, block, option)).join("")}</div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderMessengerPreviewImageButton(node, block, option) {
+  const output = messageOutputItems(node).find((item) => item.kind === "image_button" && item.blockId === block.id && item.optionId === option.id);
+  return `
+    <div class="messenger-preview-image-button ${output?.targetId ? "connected" : ""}">
+      <span>${escapeHtml(option.title || "Novo botão")}</span>
+      ${output ? renderMessageNodePort(node, output) : ""}
     </div>
   `;
 }
