@@ -350,6 +350,8 @@ let messageImageUrlEditorBlockId = "";
 let messageImageUrlPopoverPosition = null;
 let messageMorePanelOpen = false;
 let messageMorePanelPosition = null;
+let messageBlockDragId = "";
+const MESSAGE_BLOCK_DRAG_TYPE = "application/x-messenlead-message-block";
 let canvasAddMenu = null;
 let suppressedNodeClickId = "";
 let subscriberTagFilter = "";
@@ -524,8 +526,10 @@ workspace.addEventListener("click", handleWorkspaceClick);
 workspace.addEventListener("input", handleWorkspaceInput);
 workspace.addEventListener("change", handleWorkspaceChange);
 workspace.addEventListener("keydown", handleWorkspaceKeydown);
+workspace.addEventListener("dragstart", handleWorkspaceDragStart);
 workspace.addEventListener("dragover", handleWorkspaceDragOver);
 workspace.addEventListener("drop", handleWorkspaceDrop);
+workspace.addEventListener("dragend", handleWorkspaceDragEnd);
 modalRoot.addEventListener("click", handleModalClick);
 modalRoot.addEventListener("submit", handleModalSubmit);
 
@@ -6677,7 +6681,7 @@ function renderManychatBlockControls(block = {}) {
   return `
     <div class="manychat-widget-controls" aria-label="Ações do bloco">
       <button type="button" data-action="remove-message-block" data-block-id="${attr(block.id)}" title="Remover bloco" aria-label="Remover bloco">&times;</button>
-      <button type="button" data-action="move-message-block" data-block-id="${attr(block.id)}" title="Reorganizar bloco" aria-label="Reorganizar bloco">${icons.move_vertical}</button>
+      <button type="button" class="message-block-drag-handle" data-message-block-drag-handle="true" data-block-id="${attr(block.id)}" draggable="true" title="Arrastar para reorganizar" aria-label="Arrastar para reorganizar">${icons.move_vertical}</button>
       <button type="button" data-action="duplicate-message-block" data-block-id="${attr(block.id)}" title="Duplicar bloco" aria-label="Duplicar bloco">${icons.copy}</button>
     </div>
   `;
@@ -8756,13 +8760,134 @@ function isEditableTarget(target) {
   return Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
 }
 
+function handleWorkspaceDragStart(event) {
+  const handle = event.target.closest("[data-message-block-drag-handle]");
+  if (!handle) {
+    if (event.target.closest(".messenger-preview-node img")) event.preventDefault();
+    return;
+  }
+
+  const blockId = handle.dataset.blockId || "";
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!blockId || !flow || node?.type !== "message") {
+    event.preventDefault();
+    return;
+  }
+
+  normalizeNodeStructure(node);
+  if (node.contentBlocks.length < 2 || !node.contentBlocks.some((block) => block.id === blockId)) {
+    event.preventDefault();
+    return;
+  }
+
+  messageBlockDragId = blockId;
+  try {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(MESSAGE_BLOCK_DRAG_TYPE, blockId);
+    event.dataTransfer.setData("text/plain", blockId);
+  } catch {
+    // Some browsers restrict custom drag payloads, but the local state still tracks it.
+  }
+  messageBlockApplyDragIndicators(blockId, messageBlockDropIndexFromEvent(event));
+}
+
+function handleWorkspaceDragEnd() {
+  clearMessageBlockDragIndicators();
+  messageBlockDragId = "";
+}
+
+function messageBlockDragTypes(event) {
+  return Array.from(event.dataTransfer?.types || []);
+}
+
+function isMessageBlockDragEvent(event) {
+  return Boolean(messageBlockDragId || messageBlockDragTypes(event).includes(MESSAGE_BLOCK_DRAG_TYPE));
+}
+
+function messageBlockWidgets() {
+  return Array.from(document.querySelectorAll(".message-inspector [data-message-block-widget]"));
+}
+
+function messageBlockDropIndexFromEvent(event) {
+  const widgets = messageBlockWidgets();
+  if (!widgets.length) return 0;
+  const y = Number(event.clientY);
+  if (!Number.isFinite(y)) return widgets.length;
+
+  for (let index = 0; index < widgets.length; index += 1) {
+    const rect = widgets[index].getBoundingClientRect();
+    if (y < rect.top + rect.height / 2) return index;
+  }
+
+  return widgets.length;
+}
+
+function messageBlockApplyDragIndicators(blockId, dropIndex) {
+  const widgets = messageBlockWidgets();
+  widgets.forEach((widget) => {
+    widget.classList.toggle("dragging", widget.dataset.messageBlockWidget === blockId);
+    widget.classList.remove("drop-before", "drop-after");
+  });
+  if (!blockId || widgets.length < 2) return;
+
+  const normalizedIndex = Math.max(0, Math.min(Number(dropIndex) || 0, widgets.length));
+  const target = normalizedIndex >= widgets.length ? widgets.at(-1) : widgets[normalizedIndex];
+  target?.classList.add(normalizedIndex >= widgets.length ? "drop-after" : "drop-before");
+}
+
+function clearMessageBlockDragIndicators() {
+  messageBlockWidgets().forEach((widget) => {
+    widget.classList.remove("dragging", "drop-before", "drop-after");
+  });
+}
+
+function reorderMessageBlockToDropIndex(blockId, dropIndex) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || node?.type !== "message") return;
+
+  normalizeNodeStructure(node);
+  const fromIndex = node.contentBlocks.findIndex((block) => block.id === blockId);
+  if (fromIndex < 0 || node.contentBlocks.length < 2) return;
+
+  let toIndex = Math.max(0, Math.min(Number(dropIndex) || 0, node.contentBlocks.length));
+  if (fromIndex < toIndex) toIndex -= 1;
+  toIndex = Math.max(0, Math.min(toIndex, node.contentBlocks.length - 1));
+  if (toIndex === fromIndex) return;
+
+  const [block] = node.contentBlocks.splice(fromIndex, 1);
+  node.contentBlocks.splice(toIndex, 0, block);
+  syncLegacyMessageFromBlocks(node);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
 function handleWorkspaceDragOver(event) {
+  if (isMessageBlockDragEvent(event)) {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    messageBlockApplyDragIndicators(messageBlockDragId, messageBlockDropIndexFromEvent(event));
+    return;
+  }
+
   if (!["image", "video"].includes(activeView)) return;
   if (!event.dataTransfer?.types?.includes("Files")) return;
   event.preventDefault();
 }
 
 function handleWorkspaceDrop(event) {
+  if (isMessageBlockDragEvent(event)) {
+    event.preventDefault();
+    const blockId = messageBlockDragId || event.dataTransfer?.getData(MESSAGE_BLOCK_DRAG_TYPE) || "";
+    const dropIndex = messageBlockDropIndexFromEvent(event);
+    clearMessageBlockDragIndicators();
+    messageBlockDragId = "";
+    reorderMessageBlockToDropIndex(blockId, dropIndex);
+    return;
+  }
+
   if (!["image", "video"].includes(activeView)) return;
   const file = event.dataTransfer?.files?.[0];
   if (!file) return;
@@ -12370,7 +12495,7 @@ function renderMessengerPreviewImageBlock(node, block = {}) {
   return `
     <div class="messenger-preview-image-card ${buttons.length ? "has-buttons" : ""}">
       <div class="messenger-preview-image ${imageUrl ? "has-image" : "empty"}">
-        ${imageUrl ? `<img src="${attr(imageUrl)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" />` : icons.image}
+        ${imageUrl ? `<img src="${attr(imageUrl)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" draggable="false" />` : icons.image}
       </div>
       ${
         buttons.length
