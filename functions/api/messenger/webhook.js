@@ -2007,7 +2007,7 @@ function normalizeNodeShape(node) {
       : {};
   }
   if (node.type === "message") {
-    if (!Array.isArray(node.contentBlocks) || !node.contentBlocks.length) {
+    if (!Array.isArray(node.contentBlocks)) {
       node.contentBlocks = [{ id: "legacy", type: "text", text: node.message || "" }];
     }
     node.contentBlocks = node.contentBlocks.map((block, index) => ({

@@ -1449,7 +1449,7 @@ function normalizeNodeStructure(node) {
   }
 
   if (node.type === "message") {
-    if (!Array.isArray(node.contentBlocks) || !node.contentBlocks.length) {
+    if (!Array.isArray(node.contentBlocks)) {
       node.contentBlocks = [
         {
           id: makeId("block"),
@@ -6587,12 +6587,7 @@ function renderMessageSettings(flow, node) {
 
 function renderMessageSettingsManychatVisual(flow, node) {
   normalizeNodeStructure(node);
-  let firstTextBlock = node.contentBlocks.find((block) => block.type === "text");
-  if (!firstTextBlock) {
-    firstTextBlock = defaultMessageBlock("text");
-    node.contentBlocks.unshift(firstTextBlock);
-    syncLegacyMessageFromBlocks(node);
-  }
+  const firstTextBlock = node.contentBlocks.find((block) => block.type === "text");
   return `
     <form class="message-inspector manychat-settings">
       <div class="message-inspector-title">
@@ -6606,7 +6601,7 @@ function renderMessageSettingsManychatVisual(flow, node) {
         </select>
       </label>
       <div class="message-inspector-divider"></div>
-      ${node.contentBlocks.map((block) => block.type === "text" ? renderManychatTextWidget(node, block, block.id === firstTextBlock.id) : renderMessageContentBlock(flow, node, block)).join("")}
+      ${node.contentBlocks.map((block) => block.type === "text" ? renderManychatTextWidget(node, block, Boolean(firstTextBlock && block.id === firstTextBlock.id)) : renderMessageContentBlock(flow, node, block)).join("")}
       <div class="manychat-quick-replies">
         ${node.quickReplies.map((option) => renderMessageOption(flow, node, option, "quick_reply")).join("")}
         <button class="manychat-quick-reply-add" type="button" data-action="add-quick-reply" data-id="${node.id}" ${node.quickReplies.length >= 11 ? "disabled" : ""}>+ Resposta Rápida</button>
@@ -6655,17 +6650,17 @@ function renderManychatContentOption(type, title, description, icon, action) {
 
 function renderManychatMorePanel() {
   const items = [
-    ["file", "Arquivo", "Anexe arquivos na mensagem", icons.pages],
-    ["audio", "Áudio", "Envie áudios no chat", icons.send],
-    ["video", "Vídeo", "Compartilhe vídeos no chat", icons.video],
-    ["card", "Cartão", "Adicione uma imagem com botão", icons.image],
-    ["gallery", "Galeria", "Adicione até 10 imagens no chat", icons.workflow],
-    ["messenger_list", "Messenger List", "Adicione um widget para que os usuários possam se inscrever", icons.pages],
-    ["dynamic", "Dinâmico", "Solicite o conteúdo do servidor", icons.upload]
+    ["file", "Arquivo", "Anexe arquivos na mensagem", icons.pages, ""],
+    ["audio", "Áudio", "Envie áudios no chat", icons.send, "add-message-block"],
+    ["video", "Vídeo", "Compartilhe vídeos no chat", icons.video, ""],
+    ["card", "Cartão", "Adicione uma imagem com botão", icons.image, ""],
+    ["gallery", "Galeria", "Adicione até 10 imagens no chat", icons.workflow, ""],
+    ["messenger_list", "Messenger List", "Adicione um widget para que os usuários possam se inscrever", icons.pages, ""],
+    ["dynamic", "Dinâmico", "Solicite o conteúdo do servidor", icons.upload, ""]
   ];
   return `
     <div class="manychat-more-panel"${renderMessageFloatingStyle(messageMorePanelPosition)}>
-      ${items.map(([type, title, description, icon]) => renderManychatContentOption(type, title, description, icon, "")).join("")}
+      ${items.map(([type, title, description, icon, action]) => renderManychatContentOption(type, title, description, icon, action)).join("")}
     </div>
   `;
 }
@@ -6688,12 +6683,30 @@ function renderManychatBlockControls(block = {}) {
   `;
 }
 
+function messageBlockMediaLabel(type) {
+  if (type === "audio") return "áudio";
+  if (type === "video") return "vídeo";
+  if (type === "file") return "arquivo";
+  return "imagem";
+}
+
+function messageBlockUrlPlaceholder(type) {
+  if (type === "audio") return "https://example.com/audio.mp3";
+  if (type === "video") return "https://example.com/video.mp4";
+  if (type === "file") return "https://example.com/arquivo.pdf";
+  return "https://example.com/640x360.jpeg";
+}
+
+function messageBlockUrlLabel(type) {
+  return type === "image" || !type ? "URL da imagem" : `URL do ${messageBlockMediaLabel(type)}`;
+}
+
 function renderManychatImageUrlPopover(block = {}) {
   return `
     <div class="manychat-image-url-popover"${renderMessageFloatingStyle(messageImageUrlPopoverPosition)}>
       <label>
-        <span>URL da imagem</span>
-        <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="https://example.com/640×360.jpeg" autofocus />
+        <span>${escapeHtml(messageBlockUrlLabel(block.type))}</span>
+        <input data-message-block-field="url" data-block-id="${attr(block.id)}" value="${attr(block.url || "")}" placeholder="${attr(messageBlockUrlPlaceholder(block.type))}" autofocus />
       </label>
       <button type="button" data-action="close-message-image-url" title="Fechar editor de URL" aria-label="Fechar editor de URL">{}</button>
     </div>
@@ -6739,6 +6752,32 @@ function renderMessageContentBlock(flow, node, block) {
           </div>
           ${renderManychatImageBlockButtons(flow, node, block)}
           <input id="${attr(inputId)}" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" data-message-block-file="true" data-block-id="${attr(block.id)}" data-kind="image" hidden />
+        </article>
+        ${messageImageUrlEditorBlockId === block.id ? renderManychatImageUrlPopover(block) : ""}
+        ${renderManychatBlockControls(block)}
+      </div>
+    `;
+  }
+
+  if (block.type === "audio") {
+    const inputId = `message_block_file_${block.id}`;
+    const hasAudio = Boolean(String(block.url || "").trim());
+    return `
+      <div class="manychat-widget" data-message-block-widget="${attr(block.id)}">
+        <article class="manychat-image-widget manychat-audio-widget ${hasAudio ? "has-audio" : "is-empty"}">
+          <div class="manychat-image-upload-area">
+            ${
+              hasAudio
+                ? `<div class="manychat-audio-player"><audio src="${attr(block.url)}" controls preload="metadata"></audio></div>`
+                : `<span class="manychat-image-placeholder">${icons.send}</span>
+                  <div class="manychat-image-actions">
+                    <button type="button" data-action="choose-message-block-file" data-input-id="${attr(inputId)}">Enviar Áudio</button>
+                    <span>ou</span>
+                    <button type="button" data-action="open-message-image-url" data-block-id="${attr(block.id)}">colar a URL</button>
+                  </div>`
+            }
+          </div>
+          <input id="${attr(inputId)}" type="file" accept="audio/mpeg,.mp3" data-message-block-file="true" data-block-id="${attr(block.id)}" data-kind="audio" hidden />
         </article>
         ${messageImageUrlEditorBlockId === block.id ? renderManychatImageUrlPopover(block) : ""}
         ${renderManychatBlockControls(block)}
@@ -9741,8 +9780,16 @@ function removeMessageBlock(blockId) {
   const node = flow ? selectedNode(flow) : null;
   if (!flow || !node || node.type !== "message") return;
   normalizeNodeStructure(node);
+  const removedBlock = node.contentBlocks.find((block) => block.id === blockId);
   node.contentBlocks = node.contentBlocks.filter((block) => block.id !== blockId);
-  if (!node.contentBlocks.length) node.contentBlocks.push(defaultMessageBlock("text"));
+  if (removedBlock?.type === "text" && !node.contentBlocks.some((block) => block.type === "text")) {
+    node.buttons = [];
+    messageButtonEditorOptionId = "";
+  }
+  if (messageImageUrlEditorBlockId === blockId) {
+    messageImageUrlEditorBlockId = "";
+    messageImageUrlPopoverPosition = null;
+  }
   syncLegacyMessageFromBlocks(node);
   flow.updatedAt = new Date().toISOString();
   saveState();
@@ -10550,6 +10597,15 @@ async function uploadMediaFile(file, kind) {
 async function uploadMessageBlockFile(blockId, file, kind = "image") {
   if (!file) return;
   const normalizedKind = ["audio", "video"].includes(kind) ? kind : "image";
+  const label = mediaKindLabel(normalizedKind);
+  if (normalizedKind === "audio" && !/\.mp3$/i.test(file.name || "")) {
+    toastMessage("Envie um arquivo .mp3.");
+    return;
+  }
+  if (normalizedKind === "video" && !String(file.type || "").startsWith("video/") && !/\.(mp4|webm|mov)$/i.test(file.name || "")) {
+    toastMessage("Envie um arquivo de video.");
+    return;
+  }
   if (normalizedKind === "image" && !String(file.type || "").startsWith("image/")) {
     toastMessage("Envie um arquivo de imagem.");
     return;
@@ -10569,7 +10625,7 @@ async function uploadMessageBlockFile(blockId, file, kind = "image") {
   form.set("file", file);
 
   try {
-    toastMessage("Enviando imagem...");
+    toastMessage(`Enviando ${label.toLowerCase()}...`);
     const result = await apiPostForm("/api/media", form);
     block.type = normalizedKind;
     block.url = result.asset?.url || "";
@@ -10580,9 +10636,9 @@ async function uploadMessageBlockFile(blockId, file, kind = "image") {
       : mediaState.assets;
     flow.updatedAt = new Date().toISOString();
     saveState();
-    toastMessage("Imagem adicionada ao bloco.");
+    toastMessage(normalizedKind === "image" ? "Imagem adicionada ao bloco." : `${label} adicionado ao bloco.`);
   } catch (error) {
-    toastMessage(error.message || "Não foi possível enviar a imagem.");
+    toastMessage(error.message || `Não foi possível enviar ${label.toLowerCase()}.`);
   } finally {
     render();
   }
@@ -12035,6 +12091,7 @@ function connectionPath(x1, y1, x2, y2) {
 
 function messageOutputItems(node) {
   normalizeNodeStructure(node);
+  const hasTextBlock = node.contentBlocks.some((block) => block.type === "text");
   const items = [
     {
       targetId: node.next || null,
@@ -12044,14 +12101,16 @@ function messageOutputItems(node) {
     }
   ];
 
-  node.buttons.forEach((option) => {
-    items.push({
-      targetId: option.next || null,
-      label: `Botao: ${option.title || "sem titulo"}`,
-      kind: "button",
-      optionId: option.id
+  if (hasTextBlock) {
+    node.buttons.forEach((option) => {
+      items.push({
+        targetId: option.next || null,
+        label: `Botao: ${option.title || "sem titulo"}`,
+        kind: "button",
+        optionId: option.id
+      });
     });
-  });
+  }
 
   node.quickReplies.forEach((option) => {
     items.push({
@@ -13437,7 +13496,7 @@ function delayToMinutes(node) {
 
 function syncLegacyMessageFromBlocks(node) {
   const firstText = node.contentBlocks?.find((block) => block.type === "text" && block.text);
-  if (firstText) node.message = firstText.text;
+  node.message = firstText ? firstText.text : "";
 }
 
 function syncTextBlockFromLegacyMessage(node) {
