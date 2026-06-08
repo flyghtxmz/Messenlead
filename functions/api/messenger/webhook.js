@@ -2863,6 +2863,8 @@ function resolveTemplate(text, contact = {}, entry = {}) {
     .replace(/\{\{\s*entry\.([a-zA-Z0-9_]+)\s*\}\}/g, (_, field) => String(entry?.[field] ?? ""))
     .replace(/\{\{\s*contact\.([^{}]+?)\s*\}\}/g, (_, field) => {
       const key = String(field || "").trim();
-      return String(contact?.customFields?.[key] ?? contact?.[key] ?? "");
+      const value = contact?.customFields?.[key] ?? contact?.[key] ?? "";
+      if (String(entry?.source || "") === "ads" && String(value ?? "").trim() === "") return "none";
+      return String(value ?? "");
     });
 }
