@@ -2,7 +2,7 @@ const DEFAULT_PAGE_ID = "__global__";
 const DEFAULT_SITE_ID = "default";
 const MAX_TEXT = 1200;
 const PIXEL_PRESENCE_STALE_MS = 90 * 1000;
-const COMPACT_PIXEL_EVENTS = new Set(["page_view", "link_click", "site_exit"]);
+const COMPACT_PIXEL_EVENTS = new Set(["page_view", "link_click", "site_exit", "messenger_button_click"]);
 
 export async function ensurePixelSchema(env) {
   if (!env.DB) return false;

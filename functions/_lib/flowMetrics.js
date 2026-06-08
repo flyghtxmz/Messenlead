@@ -150,7 +150,7 @@ export async function listFlowMetrics(env, pageId, flowId) {
 }
 
 export async function recordTrackedFlowLinkClick(env, event = {}) {
-  if (event.eventType !== "page_view") return { recorded: false, reason: "not_landing_page" };
+  if (!["page_view", "messenger_button_click"].includes(event.eventType)) return { recorded: false, reason: "not_landing_page" };
 
   const data = event.data && typeof event.data === "object" ? event.data : {};
   const flowId = normalizeId(data.contactFlowId);

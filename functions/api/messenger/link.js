@@ -2,7 +2,8 @@ import { recordTrackedFlowLinkClick } from "../../_lib/flowMetrics.js";
 import { addPixelEvent, readMessengerLinkToken } from "../../_lib/pixel.js";
 import { processMessengerLinkClickWait, processMessengerUrlButtonClick } from "./webhook.js";
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet(context) {
+  const { request, env } = context;
   const requestUrl = new URL(request.url);
   const token = requestUrl.searchParams.get("t") || requestUrl.searchParams.get("token") || "";
   const tracking = await readMessengerLinkToken(env, token);
@@ -18,22 +19,105 @@ export async function onRequestGet({ request, env }) {
   }
 
   if (env.DB) {
-    const event = await addPixelEvent(env, messengerLinkEvent(tracking, request), request).catch(() => null);
-    if (event) {
-      await recordTrackedFlowLinkClick(env, event).catch(() => null);
-      await processMessengerUrlButtonClick(env, tracking, event).catch(() => null);
-      await processMessengerLinkClickWait(env, event).catch(() => null);
+    const clickTask = processMessengerLinkClick(env, tracking, request);
+    if (typeof context.waitUntil === "function") {
+      context.waitUntil(clickTask);
+    } else {
+      clickTask.catch(() => null);
     }
   }
 
-  return new Response(null, {
-    status: 302,
+  return loadingRedirectResponse(tracking.url);
+}
+
+async function processMessengerLinkClick(env, tracking, request) {
+  const event = await addPixelEvent(env, messengerLinkEvent(tracking, request), request).catch(() => null);
+  if (!event) return null;
+  await recordTrackedFlowLinkClick(env, event).catch(() => null);
+  await processMessengerUrlButtonClick(env, tracking, event).catch(() => null);
+  await processMessengerLinkClickWait(env, event).catch(() => null);
+  return event;
+}
+
+function loadingRedirectResponse(destinationUrl) {
+  const destination = String(destinationUrl || "");
+  return new Response(redirectHtml(destination), {
     headers: {
-      Location: tracking.url,
+      "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
-      "Referrer-Policy": "no-referrer"
+      "Referrer-Policy": "no-referrer",
+      "X-Robots-Tag": "noindex"
     }
   });
+}
+
+function redirectHtml(destination) {
+  const destinationJson = JSON.stringify(destination);
+  const destinationAttr = escapeHtml(destination);
+  return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content="1;url=${destinationAttr}" />
+    <title>Redirecionando</title>
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: #f8fafc;
+        color: #1f2933;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        display: grid;
+        place-items: center;
+      }
+      .loader {
+        display: grid;
+        justify-items: center;
+        gap: 12px;
+      }
+      .spinner {
+        width: 34px;
+        height: 34px;
+        border: 3px solid #d9e5ef;
+        border-top-color: #0f8f64;
+        border-radius: 50%;
+        animation: spin .72s linear infinite;
+      }
+      .label {
+        color: #607080;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="loader" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span>
+      <span class="label">Redirecionando...</span>
+    </main>
+    <script>
+      const destination = ${destinationJson};
+      requestAnimationFrame(() => {
+        window.location.replace(destination);
+      });
+    </script>
+  </body>
+</html>`;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function messengerLinkEvent(tracking = {}, request = null) {
@@ -45,7 +129,7 @@ function messengerLinkEvent(tracking = {}, request = null) {
     sessionId: tracking.linkId || "",
     contactToken: tracking.contactToken,
     contactPageId: tracking.pageId,
-    eventType: "page_view",
+    eventType: "messenger_button_click",
     eventName: "messenger_button_click",
     url: tracking.url,
     path: destination?.pathname || "",

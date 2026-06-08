@@ -895,7 +895,7 @@ function linkClickWaitExpiresAt(waitNode = {}) {
 
 function pixelEventMatchesLinkClickWait(event = {}, wait = {}) {
   const eventType = String(event.eventType || "").trim();
-  if (!["page_view", "link_click"].includes(eventType)) return false;
+  if (!["page_view", "link_click", "messenger_button_click"].includes(eventType)) return false;
 
   const eventNodeId = pixelEventSourceNodeId(event);
   if (wait.sourceNodeId && eventNodeId && eventNodeId !== wait.sourceNodeId) return false;

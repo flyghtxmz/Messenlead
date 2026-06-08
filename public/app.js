@@ -3052,6 +3052,7 @@ function pixelEventLabel(type) {
   return {
     page_view: "Pagina",
     link_click: "Link",
+    messenger_button_click: "Messenger",
     element_click: "Clique",
     form_submit: "Formulario",
     identify: "Identificacao",
@@ -13406,6 +13407,7 @@ function pixelConversationRepresentative(events = []) {
 
 function pixelConversationEventPriority(event) {
   const type = String(event?.eventType || "");
+  if (type === "messenger_button_click") return 60;
   if (type === "link_click") return 50;
   if (type === "page_view") return 40;
   if (type === "site_exit") return 30;
@@ -13494,8 +13496,10 @@ function pixelConversationMeta(event) {
   const data = event?.data || {};
   const meta = [];
   const nodeNumber = String(data.contactNodeNumber || "").trim();
+  const button = String(data.contactButton || event.targetText || "").trim();
   const pageViews = Number(data.contactPageViews || 0);
   const groupedDomain = String(data.groupedDomain || "").trim();
+  if (button && event.eventType !== "messenger_button_click") meta.push(button);
   if (nodeNumber) meta.push(`Node ${nodeNumber}`);
   if (pageViews > 0) meta.push(`${pageViews} pagina${pageViews === 1 ? "" : "s"} vista${pageViews === 1 ? "" : "s"}`);
   if (groupedDomain && !meta.includes(groupedDomain)) meta.push(groupedDomain);
@@ -13503,6 +13507,7 @@ function pixelConversationMeta(event) {
 }
 
 function pixelConversationTitle(event) {
+  if (event.eventType === "messenger_button_click") return `Clicou no botao${event.targetText ? `: ${event.targetText}` : ""}`;
   if (event.eventType === "link_click") return "Clicou no link";
   if (event.eventType === "element_click") return `Clicou em: ${event.targetText || event.eventName || "elemento"}`;
   if (event.eventType === "form_submit") return "Enviou um formulario no site";
