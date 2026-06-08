@@ -6,7 +6,7 @@ import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { safeRecordFlowMetric } from "../../_lib/flowMetrics.js";
 import { scheduleDelayWorkflow } from "../../_lib/flowDelayScheduler.js";
 import { attributionSourceKey, messengerEntryFromContext, recordMessengerAttribution } from "../../_lib/messengerAttribution.js";
-import { createMessengerContactToken } from "../../_lib/pixel.js";
+import { createMessengerContactToken, createMessengerLinkToken } from "../../_lib/pixel.js";
 import {
   consumeFlowLinkClickWait,
   consumeFlowResponseWait,
@@ -708,6 +708,130 @@ export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
       linkClickWaitId: wait.id,
       actions: result.actions
     }, activeFlow);
+  }
+
+  return {
+    processed: true,
+    replies: result.replies.length,
+    actions: result.actions.length,
+    continuation: result.continuation || null,
+    responseWait: result.responseWait || null,
+    linkClickWait: result.linkClickWait || null
+  };
+}
+
+export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEvent = {}) {
+  const pageId = String(tracking.pageId || pixelEvent.pageId || "").trim();
+  const psid = String(pixelEvent.contactPsid || "").trim();
+  const flowId = String(tracking.flowId || "").trim();
+  const nodeId = String(tracking.nodeId || "").trim();
+  const buttonId = String(tracking.buttonId || "").trim();
+  if (!pageId || !psid || !flowId || !nodeId || !buttonId) {
+    return { processed: false, skipped: true, reason: "missing_tracking" };
+  }
+
+  const log = flowEventLogger(env, pageId, psid);
+  const activeFlow = await activeFlowById(env, pageId, flowId);
+  if (!activeFlow) {
+    await log("warn", "url_button_click_inactive_flow", "Clique no botao de URL recebido, mas o fluxo nao esta mais ativo.", {
+      flowId,
+      nodeId,
+      buttonId,
+      linkId: tracking.linkId || ""
+    });
+    return { processed: false, skipped: true, reason: "Flow is not active" };
+  }
+
+  const sourceNode = activeFlow.nodes?.find((node) => node.id === nodeId);
+  if (!sourceNode || sourceNode.type !== "message") {
+    await log("warn", "url_button_click_source_missing", "Clique no botao de URL recebido, mas a mensagem de origem nao existe mais.", {
+      flowId,
+      nodeId,
+      buttonId,
+      linkId: tracking.linkId || ""
+    }, activeFlow);
+    return { processed: false, skipped: true, reason: "Source message not found" };
+  }
+
+  normalizeNodeShape(sourceNode);
+  const option = matchingTrackedMessageButton(sourceNode, tracking);
+  const start = option?.next ? activeFlow.nodes?.find((node) => node.id === option.next) : null;
+  if (!option?.next || !start || start.type === "trigger" || start.type === "comment" || start.type === "link_click_wait") {
+    await log("info", "url_button_click_no_next", "Clique no botao de URL registrado sem proximo passo direto executavel.", {
+      flowId,
+      nodeId,
+      buttonId,
+      nextNodeId: option?.next || "",
+      nextNodeType: start?.type || "",
+      linkId: tracking.linkId || ""
+    }, activeFlow);
+    return { processed: false, skipped: true, reason: "No direct next step" };
+  }
+
+  const contact = (await getContact(env, pageId, psid)) || { psid, pageId, status: "open" };
+  const eventId = urlButtonClickRuntimeEventId(tracking, pixelEvent);
+  await log("info", "url_button_click_resuming", "Executando proximo passo conectado ao botao de URL.", {
+    flowId,
+    nodeId,
+    buttonId,
+    buttonTitle: tracking.button || option.title || "",
+    startNodeId: start.id || "",
+    startNodeType: start.type || "",
+    linkId: tracking.linkId || ""
+  }, activeFlow);
+
+  const result = await executeFlowFromNode({
+    context: {
+      eventId,
+      eventType: "url_button_click",
+      text: buttonId,
+      normalizedInput: normalize(buttonId),
+      ignoreMessageOptionRouting: true,
+      linkClickEventId: pixelEvent.id || "",
+      policyExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    },
+    env,
+    pageId,
+    contact,
+    log,
+    flow: activeFlow,
+    start
+  });
+
+  if (result.actions.length) {
+    await applyContactActions(env, pageId, psid, result.actions, {
+      psid,
+      status: contact.status || "open",
+      source: "Messenger URL button",
+      lastSeen: contact.lastSeen || new Date().toISOString()
+    });
+    await log("info", "actions_applied", "Acoes do clique no botao de URL foram aplicadas no contato.", {
+      actions: result.actions
+    }, activeFlow);
+  }
+
+  if (result.replies.length) {
+    const queued = await enqueueMessengerReplies(env, {
+      pageId,
+      psid,
+      replies: result.replies.slice(0, 5),
+      flow: activeFlow,
+      eventId,
+      policyExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    });
+    await log("info", "replies_queued", "Respostas apos clique no botao de URL enfileiradas para envio.", {
+      queuedCount: queued.length,
+      queueIds: queued
+    }, activeFlow);
+
+    const hasLocalQueued = queued.some((id) => !isExternalRelayQueueId(id));
+    if (hasLocalQueued) {
+      const drain = await processMessengerSendQueue(env, {
+        pageId,
+        limit: Number(env.MESSENLEAD_URL_BUTTON_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5)
+      });
+      await log("info", "queue_drain_finished", "Fila processada apos clique no botao de URL.", drain, activeFlow);
+    }
   }
 
   return {
@@ -1539,6 +1663,17 @@ function linkClickRuntimeEventId(wait = {}, event = {}) {
   ].join(":");
 }
 
+function urlButtonClickRuntimeEventId(tracking = {}, event = {}) {
+  return [
+    "url_button",
+    tracking.linkId || "",
+    tracking.flowId || "",
+    tracking.nodeId || "",
+    tracking.buttonId || "",
+    event.id || event.createdAt || ""
+  ].filter(Boolean).join(":");
+}
+
 function linkClickTimeoutRuntimeEventId(wait = {}) {
   return [
     "link_click_timeout",
@@ -1961,6 +2096,17 @@ function matchingMessageOption(node, context = {}) {
   return [...(node.buttons || []), ...(node.quickReplies || []), ...blockButtons].find((option) => {
     return [option.id, option.payload, option.title, option.text, option.caption].some((value) => normalize(value) === input);
   });
+}
+
+function matchingTrackedMessageButton(node, tracking = {}) {
+  const buttonId = normalize(tracking.buttonId || "");
+  const buttonTitle = normalize(tracking.button || "");
+  const blockButtons = (node.contentBlocks || []).flatMap((block) => block.buttons || []);
+  const options = [...(node.buttons || []), ...blockButtons];
+  return options.find((option) => {
+    const candidates = [option.id, option.payload, option.title, option.text, option.caption].map(normalize).filter(Boolean);
+    return (buttonId && candidates.includes(buttonId)) || (buttonTitle && candidates.includes(buttonTitle));
+  }) || null;
 }
 
 async function recordIncomingMessageOptionClick(env, pageId, flow, contact, context = {}) {
@@ -2752,21 +2898,21 @@ async function messengerButtons(buttons = [], env, pageId, psid) {
   const hasTrackedUrl = buttons.some((button) => button.type === "url" && button.url);
   const contactToken = hasTrackedUrl ? await createMessengerContactToken(env, pageId, psid) : "";
 
-  return buttons.slice(0, 3).map((button) => {
+  return Promise.all(buttons.slice(0, 3).map(async (button) => {
     if (button.type === "url" && button.url) {
       return {
         type: "web_url",
         title: String(button.title || "Abrir").slice(0, 20),
-        url: trackedMessengerUrl(button.url, {
+        url: await trackedMessengerUrl(button.url, {
           pageId,
           contactToken,
           button: button.title || button.payload || button.id || "link",
-          buttonId: button.payload || button.id || "",
+          buttonId: button.id || button.payload || "",
           flowId: button.tracking?.flowId || "",
           nodeId: button.tracking?.nodeId || "",
           nodeNumber: button.tracking?.nodeNumber || "",
           nodeTitle: button.tracking?.nodeTitle || ""
-        })
+        }, env)
       };
     }
     if (button.type === "phone" && button.phone) {
@@ -2781,26 +2927,60 @@ async function messengerButtons(buttons = [], env, pageId, psid) {
       title: String(button.title || "Continuar").slice(0, 20),
       payload: String(button.payload || button.id || button.title || "NEXT").slice(0, 1000)
     };
-  });
+  }));
 }
 
-function trackedMessengerUrl(value, tracking = {}) {
+async function trackedMessengerUrl(value, tracking = {}, env = {}) {
   try {
-    const url = new URL(value);
-    if (tracking.contactToken) url.searchParams.set("ml_contact", tracking.contactToken);
-    if (tracking.pageId) url.searchParams.set("ml_page_id", tracking.pageId);
-    url.searchParams.set("ml_source", "messenger");
-    if (tracking.button) url.searchParams.set("ml_button", String(tracking.button).slice(0, 120));
-    if (tracking.buttonId) url.searchParams.set("ml_button_id", String(tracking.buttonId).slice(0, 120));
-    if (tracking.flowId) url.searchParams.set("ml_flow_id", String(tracking.flowId).slice(0, 120));
-    if (tracking.nodeId) url.searchParams.set("ml_node_id", String(tracking.nodeId).slice(0, 120));
-    if (tracking.nodeNumber) url.searchParams.set("ml_node_number", String(tracking.nodeNumber).slice(0, 12));
-    if (tracking.nodeTitle) url.searchParams.set("ml_node_title", String(tracking.nodeTitle).slice(0, 120));
-    url.searchParams.set("ml_link_id", makePixelLinkId());
+    const destination = cleanMessengerDestinationUrl(value);
+    const baseUrl = messengerPublicBaseUrl(env);
+    if (!baseUrl) return destination;
+
+    const token = await createMessengerLinkToken(env, destination, {
+      ...tracking,
+      linkId: makePixelLinkId()
+    });
+    if (!token) return destination;
+
+    const url = new URL("/api/messenger/link", baseUrl);
+    url.searchParams.set("t", token);
     return url.toString();
   } catch {
     return value;
   }
+}
+
+function cleanMessengerDestinationUrl(value) {
+  const url = new URL(value);
+  [
+    "ml_contact",
+    "ml_page_id",
+    "ml_source",
+    "ml_button",
+    "ml_button_id",
+    "ml_flow_id",
+    "ml_node_id",
+    "ml_node_number",
+    "ml_node_title",
+    "ml_link_id",
+    "ml_psid"
+  ].forEach((param) => url.searchParams.delete(param));
+  return url.toString();
+}
+
+function messengerPublicBaseUrl(env = {}) {
+  const publicUrl = String(env.MESSENLEAD_PUBLIC_URL || "").trim();
+  if (publicUrl) return publicUrl.replace(/\/+$/g, "");
+
+  const redirectUri = String(env.META_REDIRECT_URI || "").trim();
+  if (redirectUri) {
+    try {
+      return new URL(redirectUri).origin;
+    } catch {
+      return "";
+    }
+  }
+  return "";
 }
 
 function makePixelLinkId() {

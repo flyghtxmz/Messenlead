@@ -1,5 +1,5 @@
 import { getStoredPageAccessToken } from "./pages.js";
-import { createMessengerContactToken } from "./pixel.js";
+import { createMessengerContactToken, createMessengerLinkToken } from "./pixel.js";
 import { safeAddFlowLog } from "./flowLogs.js";
 import { safeRecordFlowMetric } from "./flowMetrics.js";
 
@@ -1205,21 +1205,21 @@ async function messengerButtons(buttons = [], env, pageId, psid) {
   const hasTrackedUrl = buttons.some((button) => button.type === "url" && button.url);
   const contactToken = hasTrackedUrl ? await createMessengerContactToken(env, pageId, psid) : "";
 
-  return buttons.slice(0, 3).map((button) => {
+  return Promise.all(buttons.slice(0, 3).map(async (button) => {
     if (button.type === "url" && button.url) {
       return {
         type: "web_url",
         title: String(button.title || "Abrir").slice(0, 20),
-        url: trackedMessengerUrl(button.url, {
+        url: await trackedMessengerUrl(button.url, {
           pageId,
           contactToken,
           button: button.title || button.payload || button.id || "link",
-          buttonId: button.payload || button.id || "",
+          buttonId: button.id || button.payload || "",
           flowId: button.tracking?.flowId || "",
           nodeId: button.tracking?.nodeId || "",
           nodeNumber: button.tracking?.nodeNumber || "",
           nodeTitle: button.tracking?.nodeTitle || ""
-        })
+        }, env)
       };
     }
     if (button.type === "phone" && button.phone) {
@@ -1234,26 +1234,60 @@ async function messengerButtons(buttons = [], env, pageId, psid) {
       title: String(button.title || "Continuar").slice(0, 20),
       payload: String(button.payload || button.id || button.title || "NEXT").slice(0, 1000)
     };
-  });
+  }));
 }
 
-function trackedMessengerUrl(value, tracking = {}) {
+async function trackedMessengerUrl(value, tracking = {}, env = {}) {
   try {
-    const url = new URL(value);
-    if (tracking.contactToken) url.searchParams.set("ml_contact", tracking.contactToken);
-    if (tracking.pageId) url.searchParams.set("ml_page_id", tracking.pageId);
-    url.searchParams.set("ml_source", "messenger");
-    if (tracking.button) url.searchParams.set("ml_button", String(tracking.button).slice(0, 120));
-    if (tracking.buttonId) url.searchParams.set("ml_button_id", String(tracking.buttonId).slice(0, 120));
-    if (tracking.flowId) url.searchParams.set("ml_flow_id", String(tracking.flowId).slice(0, 120));
-    if (tracking.nodeId) url.searchParams.set("ml_node_id", String(tracking.nodeId).slice(0, 120));
-    if (tracking.nodeNumber) url.searchParams.set("ml_node_number", String(tracking.nodeNumber).slice(0, 12));
-    if (tracking.nodeTitle) url.searchParams.set("ml_node_title", String(tracking.nodeTitle).slice(0, 120));
-    url.searchParams.set("ml_link_id", makePixelLinkId());
+    const destination = cleanMessengerDestinationUrl(value);
+    const baseUrl = messengerPublicBaseUrl(env);
+    if (!baseUrl) return destination;
+
+    const token = await createMessengerLinkToken(env, destination, {
+      ...tracking,
+      linkId: makePixelLinkId()
+    });
+    if (!token) return destination;
+
+    const url = new URL("/api/messenger/link", baseUrl);
+    url.searchParams.set("t", token);
     return url.toString();
   } catch {
     return value;
   }
+}
+
+function cleanMessengerDestinationUrl(value) {
+  const url = new URL(value);
+  [
+    "ml_contact",
+    "ml_page_id",
+    "ml_source",
+    "ml_button",
+    "ml_button_id",
+    "ml_flow_id",
+    "ml_node_id",
+    "ml_node_number",
+    "ml_node_title",
+    "ml_link_id",
+    "ml_psid"
+  ].forEach((param) => url.searchParams.delete(param));
+  return url.toString();
+}
+
+function messengerPublicBaseUrl(env = {}) {
+  const publicUrl = String(env.MESSENLEAD_PUBLIC_URL || "").trim();
+  if (publicUrl) return publicUrl.replace(/\/+$/g, "");
+
+  const redirectUri = String(env.META_REDIRECT_URI || "").trim();
+  if (redirectUri) {
+    try {
+      return new URL(redirectUri).origin;
+    } catch {
+      return "";
+    }
+  }
+  return "";
 }
 
 function makePixelLinkId() {

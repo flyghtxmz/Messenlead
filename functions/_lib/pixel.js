@@ -128,6 +128,61 @@ export async function readMessengerContactToken(env, token) {
   }
 }
 
+export async function createMessengerLinkToken(env, destinationUrl, tracking = {}) {
+  const destination = cleanText(destinationUrl, 3000);
+  if (!isHttpUrl(destination)) return "";
+
+  const payload = {
+    v: 1,
+    u: destination,
+    p: normalizePixelPageId(tracking.pageId),
+    c: cleanText(tracking.contactToken, 1600),
+    s: "messenger",
+    b: cleanText(tracking.button, 120),
+    bi: cleanText(tracking.buttonId, 120),
+    f: cleanText(tracking.flowId, 120),
+    n: cleanText(tracking.nodeId, 120),
+    nn: cleanText(tracking.nodeNumber, 12),
+    nt: cleanText(tracking.nodeTitle, 120),
+    l: cleanText(tracking.linkId, 120) || makeMessengerLinkId(),
+    iat: Date.now()
+  };
+  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = await hmacSign(env, body);
+  return `${body}.${signature}`;
+}
+
+export async function readMessengerLinkToken(env, token) {
+  const value = cleanText(token, 6000);
+  const [body, signature] = value.split(".");
+  if (!body || !signature) return null;
+
+  const expected = await hmacSign(env, body);
+  if (!timingSafeEqual(signature, expected)) return null;
+
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(body)));
+    const destination = cleanText(payload?.u, 3000);
+    if (!isHttpUrl(destination)) return null;
+    return {
+      url: destination,
+      pageId: normalizePixelPageId(payload.p),
+      contactToken: cleanText(payload.c, 1600),
+      source: cleanText(payload.s || "messenger", 80),
+      button: cleanText(payload.b, 120),
+      buttonId: cleanText(payload.bi, 120),
+      flowId: cleanText(payload.f, 120),
+      nodeId: cleanText(payload.n, 120),
+      nodeNumber: cleanText(payload.nn, 12),
+      nodeTitle: cleanText(payload.nt, 120),
+      linkId: cleanText(payload.l, 120),
+      issuedAt: Number(payload.iat || 0)
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function addPixelEvent(env, event = {}, request = null) {
   const hasDb = await ensurePixelSchema(env);
   if (!hasDb) return null;
@@ -592,6 +647,19 @@ function normalizeEventType(value) {
 
 function makeEventId() {
   return `px_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+}
+
+function makeMessengerLinkId() {
+  return `lnk_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+}
+
+function isHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function cleanText(value, max = MAX_TEXT) {
