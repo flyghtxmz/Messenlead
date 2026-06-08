@@ -3136,6 +3136,23 @@ svg {
   min-height: calc(100vh - 122px);
 }
 
+.conversations-panel {
+  min-height: calc(100vh - 122px);
+}
+
+.conversations-header {
+  width: 100%;
+  align-items: flex-start;
+}
+
+.conversations-header .button-row {
+  justify-content: flex-end;
+}
+
+.conversations-panel .live-inbox {
+  min-height: calc(100vh - 178px);
+}
+
 .conversation {
   display: grid;
   align-content: start;
@@ -4939,6 +4956,14 @@ svg {
 
   .chat-panel {
     min-height: 620px;
+  }
+
+  .conversations-header {
+    flex-direction: column;
+  }
+
+  .conversations-header .button-row {
+    justify-content: flex-start;
   }
 
   .live-inbox {

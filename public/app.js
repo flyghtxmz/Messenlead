@@ -20,9 +20,8 @@ const CACHE_MESSAGES_TTL_MS = 2 * 60 * 1000;
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
-  { id: "pages", label: "Páginas", icon: "pages" },
+  { id: "pages", label: "Conversas", icon: "inbox" },
   { id: "flows", label: "Fluxos", icon: "workflow" },
-  { id: "inbox", label: "Inbox", icon: "inbox" },
   { id: "subscribers", label: "Assinantes", icon: "users" },
   { id: "broadcasts", label: "Disparos", icon: "send" },
   { id: "json_templates", label: "JSON Template", icon: "pages" },
@@ -1820,9 +1819,8 @@ function renderNav() {
   const pageContacts = contactsForPage(currentFlowPageId());
   const counts = {
     dashboard: "",
-    pages: metaState.pages?.length || "",
+    pages: pageContacts.filter((contact) => contact.status === "open").length,
     flows: state.flows.filter((flow) => flow.status === "active").length,
-    inbox: pageContacts.filter((contact) => contact.status === "open").length,
     subscribers: pageContacts.length,
     broadcasts: state.campaigns.filter((campaign) => campaign.status !== "sent").length,
     json_templates: jsonTemplateState.pageId === currentFlowPageId() ? jsonTemplateState.templates.length || "" : "",
@@ -2001,7 +1999,7 @@ function renderDashboard() {
           <div class="code-block">Webhook URL: ${escapeHtml(webhookUrl())}
 Variáveis: MESSENGER_PAGE_ACCESS_TOKEN, MESSENGER_VERIFY_TOKEN, MESSENGER_APP_SECRET</div>
           <div class="button-row">
-            <button class="primary-button" type="button" data-action="go-pages">${icons.pages}<span>Ver Páginas</span></button>
+            <button class="primary-button" type="button" data-action="go-pages">${icons.inbox}<span>Ver Conversas</span></button>
             <button class="secondary-button" type="button" data-action="go-setup">${icons.plug}<span>Configurar Messenger</span></button>
           </div>
         </div>
@@ -2017,7 +2015,7 @@ function renderPages() {
         <div class="empty-state">
           ${icons.pages}
           <strong>Verificando conexão com a Meta</strong>
-          <span>O painel vai carregar as Páginas conectadas à sua conta.</span>
+          <span>O painel vai carregar as conversas da Página selecionada.</span>
         </div>
       </section>
     `;
@@ -2035,7 +2033,7 @@ function renderPages() {
           </div>
         </div>
         <div class="panel-body stack">
-          <p class="muted">Depois do login, o painel lista suas Páginas, mostra as conversas do Messenger e permite abrir o canvas de fluxo já associado à Página escolhida.</p>
+          <p class="muted">Depois do login, o painel mostra as conversas do Messenger da Página selecionada e permite abrir o canvas de fluxo associado a ela.</p>
           <div class="button-row">
             <button class="primary-button" type="button" data-action="connect-facebook">${icons.plug}<span>Entrar com Facebook</span></button>
             <button class="secondary-button" type="button" data-action="go-setup">${icons.settings}<span>Ver variáveis</span></button>
@@ -2057,8 +2055,8 @@ function renderPages() {
       <section class="panel">
         <div class="empty-state">
           ${icons.pages}
-          <strong>Carregando Páginas</strong>
-          <span>Buscando as Páginas que sua conta pode administrar.</span>
+          <strong>Carregando conversas</strong>
+          <span>Buscando as Páginas conectadas antes de carregar as conversas.</span>
         </div>
       </section>
     `;
@@ -2072,7 +2070,6 @@ function renderPages() {
   }
 
   const allPages = metaState.pages || [];
-  const pages = filterBySearch(allPages, (page) => `${page.name} ${page.id} ${page.category || ""}`);
   const selectedPage =
     allPages.find((page) => page.id === metaState.selectedPageId) ||
     allPages.find((page) => page.id === state.settings.pageId) ||
@@ -2099,6 +2096,9 @@ function renderPages() {
   }
 
   const conversations = conversationsBelongToSelectedPage ? sortMetaConversations(metaState.conversations || [], selectedPage?.id) : [];
+  const filteredConversations = selectedPage
+    ? filterBySearch(conversations, (conversation) => `${conversationTitle(conversation, selectedPage.name)} ${displayConversationSnippet(conversation)} ${conversation.id || ""}`)
+    : [];
   const unreadSummary = selectedPage ? metaUnreadSummary(conversations, selectedPage.id) : null;
   const selectedConversation = metaState.selectedConversationId
     ? conversations.find((conversation) => conversation.id === metaState.selectedConversationId) || null
@@ -2117,104 +2117,73 @@ function renderPages() {
   }
 
   workspace.innerHTML = `
-    <div class="split-page">
-      <section class="panel flat">
-        <div class="panel-header">
-          <div>
-            <h2>Suas Páginas</h2>
-            <span>${escapeHtml(metaState.profile.name || "Conta Meta")} · ${metaState.pages.length} Página${metaState.pages.length === 1 ? "" : "s"}</span>
-          </div>
-          <button class="secondary-button" type="button" data-action="logout-facebook">Sair</button>
-        </div>
-        <div class="contact-list">
-          ${
-            pages.length
-              ? pages
-                  .map(
-                    (page) => `
-                      <button class="contact-item ${selectedPage?.id === page.id ? "active" : ""}" type="button" data-action="select-meta-page" data-id="${page.id}">
-                        <span class="avatar">${initials(page.name)}</span>
-                        <span>
-                          <span class="row-between"><strong>${escapeHtml(page.name)}</strong><span class="channel-pill">Messenger</span></span>
-                          <span>${escapeHtml(page.category || "Página")} · ${escapeHtml(page.id)}</span>
-                        </span>
-                      </button>
+    <section class="panel chat-panel conversations-panel">
+      ${
+        selectedPage
+          ? `
+            <div class="panel-header">
+              <div class="row-between conversations-header">
+                <div>
+                  <h2>Conversas</h2>
+                  <span>${escapeHtml(selectedPage.name)} · ${escapeHtml(unreadSummary?.label || "Conversas reais do Messenger desta Página")}</span>
+                </div>
+                <div class="button-row">
+                  <button class="secondary-button" type="button" data-action="refresh-meta-conversations">${icons.inbox}<span>Atualizar</span></button>
+                  ${renderMetaConversationFlowLauncher(selectedPage, selectedConversation)}
+                  <button class="primary-button" type="button" data-action="open-page-flow">${icons.workflow}<span>Ver fluxos</span></button>
+                  <button class="secondary-button" type="button" data-action="logout-facebook">Sair</button>
+                </div>
+              </div>
+            </div>
+            <div class="live-inbox">
+              <aside class="live-thread-list">
+                ${
+                  conversationsBelongToSelectedPage && metaState.conversations
+                    ? filteredConversations
+                        .map(
+                          (conversation) => `
+                            <button class="campaign-item conversation-list-item ${conversationNeedsAttention(conversation, selectedPage.id) ? "has-unread" : ""} ${selectedConversation?.id === conversation.id ? "active" : ""}" type="button" data-action="select-meta-conversation" data-id="${conversation.id}">
+                              <span class="conversation-title-row">
+                                <strong>${escapeHtml(conversationTitle(conversation, selectedPage.name))}</strong>
+                                ${renderConversationUnreadBadge(conversation, selectedPage.id)}
+                              </span>
+                              <span class="conversation-snippet">${escapeHtml(displayConversationSnippet(conversation))}</span>
+                              <span>${formatDate(conversation.updated_time)}</span>
+                            </button>
+                          `
+                        )
+                        .join("") || emptyInline(searchQuery ? "Nenhuma conversa encontrada para a busca." : "Nenhuma conversa retornada pela Graph API.")
+                    : emptyInline("Carregando conversas...")
+                }
+              </aside>
+              <div class="live-thread">
+                ${
+                  selectedConversation
+                    ? `
+                      <div class="thread-status-row">
+                        <strong>${escapeHtml(conversationTitle(selectedConversation, selectedPage.name))}</strong>
+                        ${renderConversationStatus(selectedConversation, selectedPage.id)}
+                      </div>
+                      <div class="conversation" data-conversation-scroll>
+                        ${
+                          metaState.messages
+                            ? renderMetaConversationMessages(metaState.messages, selectedPage.id, metaState.pixelEvents || [], metaState.attributionEvents || [], metaState.unreadAnchorId)
+                            : `<div class="empty-state">${icons.inbox}<span>Carregando mensagens...</span></div>`
+                        }
+                      </div>
+                      <div class="composer">
+                        <textarea id="metaComposerText" placeholder="Responder como ${escapeHtml(selectedPage.name)}"></textarea>
+                        <button class="primary-button" type="button" data-action="send-meta-message">${icons.send}<span>Enviar</span></button>
+                      </div>
                     `
-                  )
-                  .join("")
-              : emptyInline("Nenhuma Página encontrada para esta conta.")
-          }
-          ${!pages.length && metaState.pageDebug ? `<div class="code-block">${escapeHtml(pageDebugText(metaState.pageDebug))}</div>` : ""}
-        </div>
-      </section>
-
-      <section class="panel chat-panel">
-        ${
-          selectedPage
-            ? `
-              <div class="panel-header">
-                <div class="row-between" style="width:100%">
-                  <div>
-                    <h2>${escapeHtml(selectedPage.name)}</h2>
-                    <span>${escapeHtml(unreadSummary?.label || "Conversas reais do Messenger desta Pagina")}</span>
-                  </div>
-                  <div class="button-row">
-                    <button class="secondary-button" type="button" data-action="refresh-meta-conversations">${icons.inbox}<span>Atualizar</span></button>
-                    ${renderMetaConversationFlowLauncher(selectedPage, selectedConversation)}
-                    <button class="primary-button" type="button" data-action="open-page-flow">${icons.workflow}<span>Ver fluxos</span></button>
-                  </div>
-                </div>
+                    : `<div class="empty-state">${icons.inbox}<strong>Selecione uma conversa</strong><span>As mensagens aparecerão aqui.</span></div>`
+                }
               </div>
-              <div class="live-inbox">
-                <aside class="live-thread-list">
-                  ${
-                    conversationsBelongToSelectedPage && metaState.conversations
-                      ? conversations
-                          .map(
-                            (conversation) => `
-                              <button class="campaign-item conversation-list-item ${conversationNeedsAttention(conversation, selectedPage.id) ? "has-unread" : ""} ${selectedConversation?.id === conversation.id ? "active" : ""}" type="button" data-action="select-meta-conversation" data-id="${conversation.id}">
-                                <span class="conversation-title-row">
-                                  <strong>${escapeHtml(conversationTitle(conversation, selectedPage.name))}</strong>
-                                  ${renderConversationUnreadBadge(conversation, selectedPage.id)}
-                                </span>
-                                <span class="conversation-snippet">${escapeHtml(displayConversationSnippet(conversation))}</span>
-                                <span>${formatDate(conversation.updated_time)}</span>
-                              </button>
-                            `
-                          )
-                          .join("") || emptyInline("Nenhuma conversa retornada pela Graph API.")
-                      : emptyInline("Carregando conversas...")
-                  }
-                </aside>
-                <div class="live-thread">
-                  ${
-                    selectedConversation
-                      ? `
-                        <div class="thread-status-row">
-                          <strong>${escapeHtml(conversationTitle(selectedConversation, selectedPage.name))}</strong>
-                          ${renderConversationStatus(selectedConversation, selectedPage.id)}
-                        </div>
-                        <div class="conversation" data-conversation-scroll>
-                          ${
-                            metaState.messages
-                              ? renderMetaConversationMessages(metaState.messages, selectedPage.id, metaState.pixelEvents || [], metaState.attributionEvents || [], metaState.unreadAnchorId)
-                              : `<div class="empty-state">${icons.inbox}<span>Carregando mensagens...</span></div>`
-                          }
-                        </div>
-                        <div class="composer">
-                          <textarea id="metaComposerText" placeholder="Responder como ${escapeHtml(selectedPage.name)}"></textarea>
-                          <button class="primary-button" type="button" data-action="send-meta-message">${icons.send}<span>Enviar</span></button>
-                        </div>
-                      `
-                      : `<div class="empty-state">${icons.inbox}<strong>Selecione uma conversa</strong><span>As mensagens aparecerão aqui.</span></div>`
-                  }
-                </div>
-              </div>
-            `
-            : emptyState("Nenhuma Página", "A conta conectada não retornou Páginas administráveis.", "pages", "Reconectar", "connect-facebook")
-        }
-      </section>
-    </div>
+            </div>
+          `
+          : emptyState("Nenhuma Página", "A conta conectada não retornou Páginas administráveis.", "pages", "Reconectar", "connect-facebook")
+      }
+    </section>
   `;
 }
 
@@ -13788,7 +13757,7 @@ function navigate(view) {
 function placeholderForView(view) {
   const placeholders = {
     dashboard: "Buscar no painel",
-    pages: "Buscar Página ou conversa",
+    pages: "Buscar conversa",
     flows: "Buscar fluxo ou gatilho",
     inbox: "Buscar conversa Messenger",
     subscribers: "Buscar assinante ou PSID",
