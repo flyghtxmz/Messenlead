@@ -6282,6 +6282,78 @@ function renderInspector(flow, node) {
   return renderActionSettings(flow, node);
 }
 
+function nodeEditableTitle(flow, node, fallback = "Bloco") {
+  const value = String(node?.title || "").trim();
+  if (node?.type === "action") {
+    const defaultTitle = `Ações #${nodeIndexByType(flow, node, "action")}`;
+    return value && value !== nodeLabels.action ? value : defaultTitle;
+  }
+  if (node?.type === "trigger") return value || "Quando...";
+  return value || fallback || nodeLabels[node?.type] || "Bloco";
+}
+
+function nodeIndexByType(flow, node, type) {
+  const nodes = Array.isArray(flow?.nodes) ? flow.nodes : [];
+  const index = nodes.filter((item) => item.type === type).findIndex((item) => item.id === node?.id);
+  return index >= 0 ? index + 1 : 1;
+}
+
+function renderEditableNodeHeader(flow, node, options = {}) {
+  const {
+    className = "message-inspector-title",
+    fallback = "Bloco",
+    ariaLabel = "Nome do bloco"
+  } = options;
+  return `
+    <div class="${attr(className)}">
+      <input data-node-field="title" value="${attr(nodeEditableTitle(flow, node, fallback))}" aria-label="${attr(ariaLabel)}" />
+      ${icons.edit}
+    </div>
+  `;
+}
+
+function renderEditableSettingsSectionHeader(flow, node, title, subtitle, icon) {
+  return `
+    <div class="settings-section-header editable-node-section-header">
+      <span class="settings-section-icon">${icon}</span>
+      <div>
+        <label class="editable-node-title-row">
+          <input data-node-field="title" value="${attr(nodeEditableTitle(flow, node, title))}" aria-label="${attr(`Nome do bloco ${title}`)}" />
+          ${icons.edit}
+        </label>
+        <span>${escapeHtml(subtitle)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function updateCanvasNodeTitle(flow, node) {
+  const title = nodeEditableTitle(flow, node, nodeLabels[node?.type] || "Bloco");
+  document.querySelectorAll(`[data-node-title="${node.id}"]`).forEach((element) => {
+    element.textContent = title;
+  });
+}
+
+function nextNumberedName(value, existingValues = [], fallback = "Item") {
+  const base = numberedNameBase(value, fallback);
+  const pattern = new RegExp(`^${escapeRegExp(base)}(?:\\s+#(\\d+))?$`, "i");
+  const max = existingValues.reduce((highest, item) => {
+    const match = pattern.exec(String(item || "").trim());
+    if (!match) return highest;
+    return Math.max(highest, match[1] ? Number(match[1]) || 0 : 0);
+  }, 0);
+  return `${base} #${max + 1}`;
+}
+
+function numberedNameBase(value, fallback = "Item") {
+  const text = String(value || "").trim() || fallback;
+  return text.replace(/\s+#\d+$/u, "").trim() || fallback;
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function renderPublishedNodeMetrics(flow, node) {
   if (node.type === "trigger") return renderPublishedTriggerMetrics(flow, node);
   if (node.type === "comment") return renderPublishedComment(node);
@@ -6459,7 +6531,11 @@ function metricPercent(value, total) {
 function renderTriggerSettings(flow, node) {
   return `
     <form class="inspector-form manychat-settings">
-      <div class="manychat-trigger-head">Quando...</div>
+      ${renderEditableNodeHeader(flow, node, {
+        className: "manychat-trigger-head",
+        fallback: "Quando...",
+        ariaLabel: "Nome do gatilho"
+      })}
       <div class="trigger-card-list">
         ${nodeTriggerEvents(node).map((id, index) => renderTriggerSettingCard(node, id, index)).join("")}
         <button class="dashed-add-button" type="button" data-action="open-trigger-picker" data-id="${node.id}">+ Novo Gatilho</button>
@@ -6594,10 +6670,11 @@ function renderMessageSettingsManychatVisual(flow, node) {
   const firstTextBlock = node.contentBlocks.find((block) => block.type === "text");
   return `
     <form class="message-inspector manychat-settings">
-      <div class="message-inspector-title">
-        <input data-node-field="title" value="${attr(node.title || "Mensagem")}" aria-label="Nome do bloco de mensagem" />
-        ${icons.edit}
-      </div>
+      ${renderEditableNodeHeader(flow, node, {
+        className: "message-inspector-title",
+        fallback: "Mensagem",
+        ariaLabel: "Nome do bloco de mensagem"
+      })}
       <label class="message-send-window">
         <span>Enviar</span>
         <select aria-label="Janela de envio da mensagem">
@@ -7202,10 +7279,11 @@ function renderConditionSettings(flow, node) {
   if (customFieldStore.pageId !== pageId && !customFieldStore.loading) loadCustomFieldsForPage(pageId);
   return `
     <form class="inspector-form manychat-condition-settings">
-      <div class="manychat-condition-head">
-        <strong>Condição</strong>
-        <button class="mini-menu-button" type="button" data-action="select-node" data-id="${node.id}" title="Editar nome">✎</button>
-      </div>
+      ${renderEditableNodeHeader(flow, node, {
+        className: "manychat-condition-head",
+        fallback: "Condição",
+        ariaLabel: "Nome da condição"
+      })}
       <div class="manychat-condition-content">
         <div class="condition-match-row">
           <div class="condition-match-copy">
@@ -7514,11 +7592,7 @@ function renderDelaySettings(flow, node) {
   if (customFieldStore.pageId !== pageId && !customFieldStore.loading) loadCustomFieldsForPage(pageId);
   return `
     <form class="inspector-form manychat-settings">
-      ${settingsSectionHeader("Atraso Inteligente", "Controlar quando o fluxo continua", icons.delay)}
-      <label class="settings-field">
-        <span>Nome do atraso</span>
-        <input data-node-field="title" value="${attr(node.title || "")}" />
-      </label>
+      ${renderEditableSettingsSectionHeader(flow, node, "Atraso Inteligente", "Controlar quando o fluxo continua", icons.delay)}
       <div class="settings-card">
         <label class="settings-field">
           <span>Tipo</span>
@@ -7585,11 +7659,7 @@ function renderUserInputSettings(flow, node) {
   normalizeNodeStructure(node);
   return `
     <form class="inspector-form manychat-settings">
-      ${settingsSectionHeader("Aguardar resposta", "Pausar o fluxo até o contato responder", icons.user_input)}
-      <label class="settings-field">
-        <span>Nome do bloco</span>
-        <input data-node-field="title" value="${attr(node.title || "")}" />
-      </label>
+      ${renderEditableSettingsSectionHeader(flow, node, "Aguardar resposta", "Pausar o fluxo até o contato responder", icons.user_input)}
       <div class="settings-card">
         <label class="toggle-row">
           <input type="checkbox" data-node-field="saveResponse" ${node.saveResponse ? "checked" : ""} />
@@ -7621,11 +7691,7 @@ function renderLinkClickWaitSettings(flow, node) {
   normalizeNodeStructure(node);
   return `
     <form class="inspector-form manychat-settings">
-      ${settingsSectionHeader("Aguardar clique no link", "Pausar ate o contato clicar no link anterior", icons.link_click_wait)}
-      <label class="settings-field">
-        <span>Nome do bloco</span>
-        <input data-node-field="title" value="${attr(node.title || "")}" />
-      </label>
+      ${renderEditableSettingsSectionHeader(flow, node, "Aguardar clique no link", "Pausar ate o contato clicar no link anterior", icons.link_click_wait)}
       <div class="settings-card">
         <label class="settings-field">
           <span>Tempo limite em minutos</span>
@@ -7670,11 +7736,7 @@ function renderJumpSettings(flow, node) {
 
   return `
     <form class="inspector-form manychat-settings">
-      ${settingsSectionHeader("Selecionar passo existente", "Continuar em um passo de outro fluxo publicado", icons.jump)}
-      <label class="settings-field">
-        <span>Nome do bloco</span>
-        <input data-node-field="title" value="${attr(node.title || "")}" />
-      </label>
+      ${renderEditableSettingsSectionHeader(flow, node, "Selecionar passo existente", "Continuar em um passo de outro fluxo publicado", icons.jump)}
       <label class="settings-field">
         <span>Fluxo de destino</span>
         <select data-node-field="targetFlowId">
@@ -7733,11 +7795,7 @@ function renderRandomizerSettings(flow, node) {
   normalizeNodeStructure(node);
   return `
     <form class="inspector-form manychat-settings">
-      ${settingsSectionHeader("Randomizador", "Distribuir contatos entre caminhos", icons.workflow)}
-      <label class="settings-field">
-        <span>Nome do randomizador</span>
-        <input data-node-field="title" value="${attr(node.title || "")}" />
-      </label>
+      ${renderEditableSettingsSectionHeader(flow, node, "Randomizador", "Distribuir contatos entre caminhos", icons.workflow)}
       <label class="toggle-row">
         <input type="checkbox" data-node-field="randomEveryTime" ${node.randomEveryTime ? "checked" : ""} />
         <span>Caminho aleatório sempre que o contato passar por aqui</span>
@@ -7790,11 +7848,7 @@ function targetSelectField(flow, node, value, label, data = {}) {
 function renderCommentSettings(flow, node) {
   return `
     <form class="inspector-form manychat-settings">
-      ${settingsSectionHeader("Comentário", "Anotação interna no canvas", icons.comment)}
-      <label class="settings-field">
-        <span>Título</span>
-        <input data-node-field="title" value="${attr(node.title || "")}" />
-      </label>
+      ${renderEditableSettingsSectionHeader(flow, node, "Comentário", "Anotação interna no canvas", icons.comment)}
       <label class="settings-field">
         <span>Comentário</span>
         <textarea data-node-field="message">${escapeHtml(node.message || "")}</textarea>
@@ -7807,12 +7861,13 @@ function renderCommentSettings(flow, node) {
 function renderActionSettings(flow, node) {
   const pageId = currentFlowPageId();
   if (customFieldStore.pageId !== pageId && !customFieldStore.loading) loadCustomFieldsForPage(pageId);
-  const actionNumber = Math.max(1, flow.nodes.filter((item) => item.type === "action").findIndex((item) => item.id === node.id) + 1);
   return `
     <form class="inspector-form manychat-settings">
-      <div class="manychat-action-head">
-        <strong>Ações #${actionNumber}</strong>
-      </div>
+      ${renderEditableNodeHeader(flow, node, {
+        className: "manychat-action-head",
+        fallback: "Ações",
+        ariaLabel: "Nome das ações"
+      })}
       <div class="action-settings-copy">Realize as seguintes ações:</div>
       <div class="action-step-list">
         ${nodeActionSteps(node).map((step) => renderActionStep(node.id, step)).join("")}
@@ -8363,6 +8418,7 @@ function handleWorkspaceInput(event) {
     if (fieldName === "delayValue" || fieldName === "delayUnit") node.delayMinutes = delayToMinutes(node);
     if (fieldName === "dynamicFieldId") syncDelayDynamicField(node, target.value);
     if (fieldName === "message") syncTextBlockFromLegacyMessage(node);
+    if (fieldName === "title") updateCanvasNodeTitle(flow, node);
     flow.updatedAt = new Date().toISOString();
     saveState();
   }
@@ -8615,6 +8671,7 @@ function handleWorkspaceChange(event) {
       if (fieldName === "targetFlowId" && node.type === "jump") node.targetNodeId = "";
       if (fieldName === "delayValue" || fieldName === "delayUnit") node.delayMinutes = delayToMinutes(node);
       if (fieldName === "dynamicFieldId") syncDelayDynamicField(node, target.value);
+      if (fieldName === "title") updateCanvasNodeTitle(flow, node);
       flow.updatedAt = new Date().toISOString();
       saveState();
       if (node.type === "jump" && (fieldName === "targetFlowId" || fieldName === "targetNodeId")) render();
@@ -9192,7 +9249,7 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
   copy.publishedMeta = null;
   copy.hasDraftChanges = true;
   copy.publishedAt = "";
-  copy.name = `${flow.name} cópia`;
+  copy.name = nextNumberedName(flow.name || "Fluxo", state.flows.map((item) => item.name), "Fluxo");
   copy.status = "draft";
   copy.updatedAt = new Date().toISOString();
   copy.nodes.forEach((node) => {
@@ -9555,7 +9612,11 @@ function duplicateSelectedNode() {
 
   const copy = JSON.parse(JSON.stringify(node));
   copy.id = makeId("node");
-  copy.title = node.title ? `${node.title} cópia` : nodeLabels[node.type] || "Bloco";
+  copy.title = nextNumberedName(
+    nodeEditableTitle(flow, node, nodeLabels[node.type] || "Bloco"),
+    flow.nodes.map((item) => nodeEditableTitle(flow, item, nodeLabels[item.type] || "Bloco")),
+    nodeLabels[node.type] || "Bloco"
+  );
   copy.next = null;
   copy.yesNext = null;
   copy.noNext = null;
@@ -12404,6 +12465,7 @@ function renderNode(node, selected) {
   const summary = nodeCardSummary(node);
   const outputRows = node.type === "message" ? renderMessageOutputPorts(node) : "";
   const quickReplies = node.quickReplies?.length ? `${node.quickReplies.length} respostas rápidas` : "Sem respostas rápidas";
+  const title = nodeEditableTitle(flow, node, nodeLabels[node.type] || "Bloco");
   return `
     <article class="node ${node.type} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${messageNumber ? `<span class="node-sequence-badge">${messageNumber}</span>` : ""}
@@ -12413,7 +12475,7 @@ function renderNode(node, selected) {
           ${icon}
           <span>
             <span class="node-type">${nodeLabels[node.type]}</span>
-            <strong>${escapeHtml(node.title)}</strong>
+            <strong data-node-title="${attr(node.id)}">${escapeHtml(title)}</strong>
           </span>
         </div>
         <button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>
@@ -12438,6 +12500,7 @@ function renderMessageNode(node, selected) {
   const messageNumber = messageNodeNumber(flow, node);
   const defaultOutput = messageOutputItems(node).find((item) => item.field === "next");
   const contentPreview = node.contentBlocks.map((block) => renderMessengerPreviewContentBlock(node, block, { firstTextBlock })).join("");
+  const title = nodeEditableTitle(flow, node, "Mensagem");
   return `
     <article class="node message messenger-preview-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${messageNumber ? `<span class="node-sequence-badge">${messageNumber}</span>` : ""}
@@ -12446,7 +12509,7 @@ function renderMessageNode(node, selected) {
         <span class="messenger-preview-icon">${icons.message}</span>
         <span>
           <small>Facebook</small>
-          <strong>${escapeHtml(node.title || "Mensagem")}</strong>
+          <strong data-node-title="${attr(node.id)}">${escapeHtml(title)}</strong>
         </span>
         ${viewingPublished ? "" : `<button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>`}
       </div>
@@ -12773,15 +12836,17 @@ function messageBlockCountsSummary(blocks = []) {
 }
 
 function renderConditionNode(node, selected) {
+  const flow = canvasDisplayFlow(selectedFlow());
   normalizeNodeStructure(node);
   const conditionLines = conditionNodeLines(node);
   const hasBranchPorts = conditionLines.length || node.yesNext || node.noNext;
+  const title = nodeEditableTitle(flow, node, "Condição");
   return `
     <article class="node condition condition-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${renderNodeHoverActions(node)}
       <div class="condition-node-head">
         <span>${icons.condition}</span>
-        <strong>Condição</strong>
+        <strong data-node-title="${attr(node.id)}">${escapeHtml(title)}</strong>
       </div>
       <div class="condition-node-body">
         ${
@@ -12800,7 +12865,9 @@ function renderConditionNode(node, selected) {
 }
 
 function renderCommentNode(node, selected) {
+  const flow = canvasDisplayFlow(selectedFlow());
   const viewingPublished = flowCanvasMode === "published";
+  const title = nodeEditableTitle(flow, node, "Comentário");
   return `
     <article class="node comment ${viewingPublished ? "published-comment-node" : ""} ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${
@@ -12813,7 +12880,7 @@ function renderCommentNode(node, selected) {
                 ${icons.comment}
                 <span>
                   <span class="node-type">Comentário</span>
-                  <strong>${escapeHtml(node.title || "Comentário")}</strong>
+                  <strong data-node-title="${attr(node.id)}">${escapeHtml(title)}</strong>
                 </span>
               </div>
             </div>
@@ -12943,14 +13010,15 @@ function isSafeCommentMarkdownUrl(value) {
 }
 
 function renderActionNode(node, selected) {
+  const flow = canvasDisplayFlow(selectedFlow());
   const steps = nodeActionSteps(node);
-  const actionNumber = actionNodeNumber(node);
+  const title = nodeEditableTitle(flow, node, "Ações");
   return `
     <article class="node action action-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${renderNodeHoverActions(node)}
       <div class="action-node-head">
         <span>${icons.action}</span>
-        <strong>Ações #${actionNumber}</strong>
+        <strong data-node-title="${attr(node.id)}">${escapeHtml(title)}</strong>
       </div>
       <div class="action-node-body">
         ${
@@ -12969,8 +13037,7 @@ function renderActionNode(node, selected) {
 
 function actionNodeNumber(node) {
   const flow = canvasDisplayFlow(selectedFlow());
-  const index = (flow?.nodes || []).filter((item) => item.type === "action").findIndex((item) => item.id === node.id);
-  return index >= 0 ? index + 1 : 1;
+  return nodeIndexByType(flow, node, "action");
 }
 
 function renderActionNodeStep(step) {
@@ -12990,10 +13057,12 @@ function renderActionNodeStep(step) {
 }
 
 function renderTriggerNode(node, selected) {
+  const flow = canvasDisplayFlow(selectedFlow());
   const activeTriggers = nodeTriggerEvents(node);
   const triggerItems = activeTriggers
     .map((id, index) => ({ id, option: triggerOptionById(id), index }))
     .filter((item) => item.option);
+  const title = nodeEditableTitle(flow, node, "Quando...");
 
   return `
     <article class="node trigger trigger-start ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
@@ -13002,7 +13071,7 @@ function renderTriggerNode(node, selected) {
         <div class="node-title">
           ${icons.trigger}
           <span>
-            <strong>Quando...</strong>
+            <strong data-node-title="${attr(node.id)}">${escapeHtml(title)}</strong>
           </span>
         </div>
       </div>
