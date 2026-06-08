@@ -13,7 +13,7 @@ const AD_TEST_CONTACT_TAG = "tester";
 const PIXEL_HEARTBEAT_STALE_MS = 90000;
 const META_THREAD_REFRESH_MS = 15000;
 const CACHE_PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
-const CACHE_PAGES_TTL_MS = 60 * 60 * 1000;
+const CACHE_PAGES_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_FLOWS_TTL_MS = 10 * 60 * 1000;
 const CACHE_CONVERSATIONS_TTL_MS = 2 * 60 * 1000;
 const CACHE_MESSAGES_TTL_MS = 2 * 60 * 1000;
@@ -450,8 +450,10 @@ let mediaState = {
 };
 let metaState = {
   authChecked: false,
+  loadingProfile: false,
   profile: null,
   profileFromCache: false,
+  loadingPages: false,
   pages: null,
   pagesFromCache: false,
   pageDebug: null,
@@ -2019,7 +2021,7 @@ function renderPages() {
         </div>
       </section>
     `;
-    loadMetaProfile();
+    if (!metaState.loadingProfile) loadMetaProfile();
     return;
   }
 
@@ -2047,7 +2049,7 @@ function renderPages() {
 
   if (metaState.profileFromCache) {
     metaState.profileFromCache = false;
-    loadMetaProfile({ background: true });
+    if (!metaState.loadingProfile) loadMetaProfile({ background: true });
   }
 
   if (!metaState.pages) {
@@ -2060,13 +2062,13 @@ function renderPages() {
         </div>
       </section>
     `;
-    loadMetaPages();
+    if (!metaState.loadingPages) loadMetaPages();
     return;
   }
 
   if (metaState.pagesFromCache) {
     metaState.pagesFromCache = false;
-    loadMetaPages({ background: true });
+    if (!metaState.loadingPages) loadMetaPages({ background: true });
   }
 
   const allPages = metaState.pages || [];
@@ -2658,7 +2660,7 @@ function renderBroadcasts() {
         </div>
       </section>
     `;
-    loadMetaProfile();
+    if (!metaState.loadingProfile) loadMetaProfile();
     return;
   }
 
@@ -2686,7 +2688,7 @@ function renderBroadcasts() {
         </div>
       </section>
     `;
-    loadMetaPages();
+    if (!metaState.loadingPages) loadMetaPages();
     return;
   }
 
@@ -3161,7 +3163,7 @@ function renderOrigins() {
         </div>
       </section>
     `;
-    loadMetaProfile();
+    if (!metaState.loadingProfile) loadMetaProfile();
     return;
   }
 
@@ -3192,7 +3194,7 @@ function renderOrigins() {
         </div>
       </section>
     `;
-    loadMetaPages();
+    if (!metaState.loadingPages) loadMetaPages();
     return;
   }
 
@@ -4692,6 +4694,8 @@ function clearLocalContactTagsForPage(pageId) {
 }
 
 async function loadMetaProfile(options = {}) {
+  if (metaState.loadingProfile) return;
+  metaState.loadingProfile = true;
   try {
     const profile = await apiGet("/api/meta/me");
     metaState.profile = profile.user || null;
@@ -4704,14 +4708,18 @@ async function loadMetaProfile(options = {}) {
     metaState.profileFromCache = false;
     metaState.error = error.message === "Not authenticated" || options.background ? metaState.error : error.message;
   } finally {
+    metaState.loadingProfile = false;
     metaState.authChecked = true;
     render();
   }
 }
 
 async function loadMetaPages(options = {}) {
+  if (metaState.loadingPages) return;
+  metaState.loadingPages = true;
   try {
-    const result = await apiGet("/api/meta/pages");
+    const endpoint = options.force ? "/api/meta/pages?refresh=1" : "/api/meta/pages";
+    const result = await apiGet(endpoint);
     metaState.pages = result.pages || [];
     metaState.pagesFromCache = false;
     metaState.pageDebug = result.debug || null;
@@ -4744,6 +4752,7 @@ async function loadMetaPages(options = {}) {
     metaState.error = error.message;
     if (!options.background) toastMessage(error.message);
   } finally {
+    metaState.loadingPages = false;
     render();
   }
 }
@@ -5105,8 +5114,10 @@ async function logoutFacebook() {
   clearDashboardCache();
   metaState = {
     authChecked: true,
+    loadingProfile: false,
     profile: null,
     profileFromCache: false,
+    loadingPages: false,
     pages: null,
     pagesFromCache: false,
     pageDebug: null,

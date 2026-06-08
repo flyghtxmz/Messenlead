@@ -60,13 +60,79 @@ export async function upsertConnectedPages(env, userId, pages) {
   return true;
 }
 
-export async function getStoredPageAccessToken(env, pageId) {
+export async function listStoredConnectedPages(env, userId = "", options = {}) {
+  const hasDb = await ensurePageSchema(env);
+  if (!hasDb) return [];
+
+  const maxAgeMs = Math.max(0, Number(options.maxAgeMs || 0));
+  const minUpdatedAt = maxAgeMs ? new Date(Date.now() - maxAgeMs).toISOString() : "";
+  const binds = [];
+  const where = [];
+
+  if (userId) {
+    where.push("(user_id = ? OR user_id = '' OR user_id IS NULL)");
+    binds.push(userId);
+  }
+
+  if (minUpdatedAt) {
+    where.push("updated_at >= ?");
+    binds.push(minUpdatedAt);
+  }
+
+  const query = `
+    SELECT page_id, user_id, name, category, picture_url, tasks_json, access_token, updated_at
+    FROM connected_pages
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY name COLLATE NOCASE ASC
+  `;
+  const statement = env.DB.prepare(query);
+  const result = binds.length ? await statement.bind(...binds).all() : await statement.all();
+  return (result.results || []).map(storedPageFromRow).filter(Boolean);
+}
+
+export async function getStoredPageAccessToken(env, pageId, userId = "") {
   const hasDb = await ensurePageSchema(env);
   if (!hasDb || !pageId) return "";
 
-  const row = await env.DB.prepare("SELECT access_token FROM connected_pages WHERE page_id = ?")
-    .bind(pageId)
-    .first();
+  let row = null;
+
+  if (userId) {
+    row = await env.DB.prepare(
+      "SELECT access_token FROM connected_pages WHERE page_id = ? AND (user_id = ? OR user_id = '' OR user_id IS NULL)"
+    )
+      .bind(pageId, userId)
+      .first();
+  }
+
+  if (!row) {
+    row = await env.DB.prepare("SELECT access_token FROM connected_pages WHERE page_id = ?")
+      .bind(pageId)
+      .first();
+  }
 
   return row?.access_token || "";
+}
+
+function storedPageFromRow(row) {
+  if (!row?.page_id) return null;
+  return {
+    id: row.page_id,
+    user_id: row.user_id || "",
+    name: row.name || "Pagina sem nome",
+    category: row.category || "",
+    picture: row.picture_url ? { data: { url: row.picture_url } } : null,
+    tasks: parseTasks(row.tasks_json),
+    access_token: row.access_token || "",
+    updated_at: row.updated_at || ""
+  };
+}
+
+function parseTasks(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }

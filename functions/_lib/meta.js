@@ -1,3 +1,5 @@
+import { getStoredPageAccessToken } from "./pages.js";
+
 const DEFAULT_SCOPES = [
   "pages_show_list",
   "pages_messaging",
@@ -405,6 +407,9 @@ function appAccessToken(config) {
 export async function getPageAccessToken(request, env, pageId) {
   const session = await getSession(request, env);
   if (!session?.accessToken) return "";
+
+  const storedToken = await getStoredPageAccessToken(env, pageId, session.user?.id || "");
+  if (storedToken) return storedToken;
 
   const config = getMetaConfig(request, env);
   const pages = await getManagedPages(session.accessToken, config);
