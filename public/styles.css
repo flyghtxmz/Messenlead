@@ -2408,6 +2408,45 @@ svg {
   object-fit: cover;
 }
 
+.messenger-preview-audio-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 54px;
+  padding: 9px;
+  border-radius: 9px;
+  background: #f4f6f8;
+  color: #344054;
+}
+
+.messenger-preview-audio-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #e8f1ff;
+  color: #0877ff;
+}
+
+.messenger-preview-audio-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.messenger-preview-audio-card audio {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+}
+
+.messenger-preview-audio-card.empty {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .messenger-preview-image-buttons {
   display: grid;
   gap: 5px;

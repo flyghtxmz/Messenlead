@@ -9021,7 +9021,7 @@ async function publishSelectedFlow() {
 
   normalizeFlowStructure(flow);
   const now = new Date().toISOString();
-  flow.status = "active";
+  if (flow.status !== "active") flow.status = "paused";
   flow.publishedNodes = cloneFlowNodes(flow.nodes);
   flow.publishedMeta = flowPublicationMeta(flow);
   flow.hasDraftChanges = false;
@@ -9033,7 +9033,8 @@ async function publishSelectedFlow() {
   render();
 
   const synced = flowStore.loading ? false : await syncFlowToServer(flow, { force: true });
-  toastMessage(synced ? "Fluxo publicado." : `Fluxo publicado localmente: ${flowStore.status}`);
+  const activeHint = flow.status === "active" ? "" : " Ele continua inativo ate voce ligar.";
+  toastMessage(synced ? `Fluxo publicado.${activeHint}` : `Fluxo publicado localmente: ${flowStore.status}${activeHint}`);
   flowMetricState = { pageId: "", flowId: "", loading: false, metrics: null, error: "" };
   render();
 }
@@ -12305,13 +12306,17 @@ function renderMessageNode(node, selected) {
   const flow = canvasDisplayFlow(selectedFlow());
   const viewingPublished = flowCanvasMode === "published";
   normalizeNodeStructure(node);
-  const text = String(node.contentBlocks.find((block) => block.type === "text" && block.text)?.text || node.message || "").trim();
+  const firstTextBlock = node.contentBlocks.find((block) => block.type === "text");
+  const text = String(firstTextBlock?.text || "").trim();
+  const textButtons = firstTextBlock ? node.buttons : [];
   const attachments = node.contentBlocks.filter((block) => block.type !== "text");
   const imageBlocks = attachments.filter((block) => block.type === "image");
-  const otherAttachments = attachments.filter((block) => block.type !== "image");
+  const audioBlocks = attachments.filter((block) => block.type === "audio");
+  const otherAttachments = attachments.filter((block) => block.type !== "image" && block.type !== "audio");
   const otherAttachmentChips = otherAttachments.length ? messageNodeContentChips({ ...node, contentBlocks: otherAttachments }) : [];
   const messageNumber = messageNodeNumber(flow, node);
   const defaultOutput = messageOutputItems(node).find((item) => item.field === "next");
+  const hasTextBubble = Boolean(text || textButtons.length);
   return `
     <article class="node message messenger-preview-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${messageNumber ? `<span class="node-sequence-badge">${messageNumber}</span>` : ""}
@@ -12325,11 +12330,16 @@ function renderMessageNode(node, selected) {
         ${viewingPublished ? "" : `<button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>`}
       </div>
       ${viewingPublished ? renderPublishedMessageNodeMetrics(node) : ""}
-      <div class="messenger-preview-bubble">
-        <p>${escapeHtml(text || "Digite uma mensagem.")}</p>
-        ${node.buttons.map((option) => renderMessengerPreviewButton(node, option)).join("")}
-      </div>
+      ${
+        hasTextBubble
+          ? `<div class="messenger-preview-bubble">
+              ${text ? `<p>${escapeHtml(text)}</p>` : ""}
+              ${textButtons.map((option) => renderMessengerPreviewButton(node, option)).join("")}
+            </div>`
+          : ""
+      }
       ${imageBlocks.map((block) => renderMessengerPreviewImageBlock(node, block)).join("")}
+      ${audioBlocks.map((block) => renderMessengerPreviewAudioBlock(block)).join("")}
       ${otherAttachments.length ? `<div class="messenger-preview-meta">${escapeHtml(otherAttachmentChips.join(" · ") || `${otherAttachments.length} anexo${otherAttachments.length === 1 ? "" : "s"}`)}</div>` : ""}
       ${node.quickReplies.length ? `<div class="messenger-preview-quick-replies">${node.quickReplies.map((option) => renderMessengerPreviewQuickReply(node, option)).join("")}</div>` : ""}
       <div class="messenger-preview-next ${defaultOutput?.targetId ? "connected" : ""}">
@@ -12337,6 +12347,20 @@ function renderMessageNode(node, selected) {
         ${renderMessageNodePort(node, defaultOutput)}
       </div>
     </article>
+  `;
+}
+
+function renderMessengerPreviewAudioBlock(block = {}) {
+  const audioUrl = String(block.url || "").trim();
+  return `
+    <div class="messenger-preview-audio-card ${audioUrl ? "has-audio" : "empty"}">
+      <span class="messenger-preview-audio-icon">${icons.send}</span>
+      ${
+        audioUrl
+          ? `<audio src="${attr(audioUrl)}" controls preload="metadata"></audio>`
+          : `<span>Áudio</span>`
+      }
+    </div>
   `;
 }
 
