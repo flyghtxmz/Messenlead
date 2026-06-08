@@ -5564,8 +5564,8 @@ svg {
 
 .app-shell.canvas-mode .canvas-floating-tools {
   position: absolute;
-  top: 50%;
-  right: 14px;
+  top: 74px;
+  right: 18px;
   z-index: 30;
   display: grid;
   gap: 8px;
@@ -5574,7 +5574,6 @@ svg {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.16);
-  transform: translateY(-50%);
 }
 
 .app-shell.canvas-mode .canvas-floating-tools .chip-button {

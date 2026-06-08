@@ -11733,12 +11733,13 @@ function enableCanvasWheelZoom() {
 function enableMiniMapNavigation() {
   const miniMap = document.querySelector("#canvasMinimap");
   const canvas = document.querySelector("#flowCanvas");
-  const svg = miniMap?.querySelector("svg");
-  if (!miniMap || !canvas || !svg) return;
+  if (!miniMap || !canvas) return;
 
   const moveToEventPoint = (event, options = {}) => {
     event.preventDefault();
     event.stopPropagation();
+    const svg = miniMap.querySelector("svg");
+    if (!svg) return false;
     const point = miniMapPointFromEvent(event, svg, options);
     if (!point) return false;
     centerCanvasOnMiniMapPoint(point.x, point.y);
@@ -11753,14 +11754,16 @@ function enableMiniMapNavigation() {
     const onMove = (moveEvent) => moveToEventPoint(moveEvent);
     const onUp = () => {
       miniMap.classList.remove("dragging");
-      miniMap.removeEventListener("pointermove", onMove);
-      miniMap.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       if (miniMap.hasPointerCapture?.(event.pointerId)) miniMap.releasePointerCapture(event.pointerId);
       rememberCanvasScroll();
     };
 
-    miniMap.addEventListener("pointermove", onMove);
-    miniMap.addEventListener("pointerup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   });
 }
 
@@ -12432,16 +12435,9 @@ function renderMessageNode(node, selected) {
   const viewingPublished = flowCanvasMode === "published";
   normalizeNodeStructure(node);
   const firstTextBlock = node.contentBlocks.find((block) => block.type === "text");
-  const text = String(firstTextBlock?.text || "").trim();
-  const textButtons = firstTextBlock ? node.buttons : [];
-  const attachments = node.contentBlocks.filter((block) => block.type !== "text");
-  const imageBlocks = attachments.filter((block) => block.type === "image");
-  const audioBlocks = attachments.filter((block) => block.type === "audio");
-  const otherAttachments = attachments.filter((block) => block.type !== "image" && block.type !== "audio");
-  const otherAttachmentChips = otherAttachments.length ? messageNodeContentChips({ ...node, contentBlocks: otherAttachments }) : [];
   const messageNumber = messageNodeNumber(flow, node);
   const defaultOutput = messageOutputItems(node).find((item) => item.field === "next");
-  const hasTextBubble = Boolean(text || textButtons.length);
+  const contentPreview = node.contentBlocks.map((block) => renderMessengerPreviewContentBlock(node, block, { firstTextBlock })).join("");
   return `
     <article class="node message messenger-preview-node ${selected ? "selected" : ""}" data-action="select-node" data-id="${node.id}" style="left:${canvasNodeLeft(node)}px; top:${canvasNodeTop(node)}px">
       ${messageNumber ? `<span class="node-sequence-badge">${messageNumber}</span>` : ""}
@@ -12455,17 +12451,7 @@ function renderMessageNode(node, selected) {
         ${viewingPublished ? "" : `<button class="node-action" type="button" data-action="select-node" data-id="${node.id}" title="Editar bloco">${icons.settings}</button>`}
       </div>
       ${viewingPublished ? renderPublishedMessageNodeMetrics(node) : ""}
-      ${
-        hasTextBubble
-          ? `<div class="messenger-preview-bubble">
-              ${text ? `<p>${escapeHtml(text)}</p>` : ""}
-              ${textButtons.map((option) => renderMessengerPreviewButton(node, option)).join("")}
-            </div>`
-          : ""
-      }
-      ${imageBlocks.map((block) => renderMessengerPreviewImageBlock(node, block)).join("")}
-      ${audioBlocks.map((block) => renderMessengerPreviewAudioBlock(block)).join("")}
-      ${otherAttachments.length ? `<div class="messenger-preview-meta">${escapeHtml(otherAttachmentChips.join(" · ") || `${otherAttachments.length} anexo${otherAttachments.length === 1 ? "" : "s"}`)}</div>` : ""}
+      ${contentPreview}
       ${node.quickReplies.length ? `<div class="messenger-preview-quick-replies">${node.quickReplies.map((option) => renderMessengerPreviewQuickReply(node, option)).join("")}</div>` : ""}
       <div class="messenger-preview-next ${defaultOutput?.targetId ? "connected" : ""}">
         <span>Próximo Passo</span>
@@ -12473,6 +12459,26 @@ function renderMessageNode(node, selected) {
       </div>
     </article>
   `;
+}
+
+function renderMessengerPreviewContentBlock(node, block = {}, context = {}) {
+  if (block.type === "text") {
+    const text = String(block.text || "").trim();
+    const textButtons = context.firstTextBlock?.id === block.id ? node.buttons : [];
+    if (!text && !textButtons.length) return "";
+    return `
+      <div class="messenger-preview-bubble">
+        ${text ? `<p>${escapeHtml(text)}</p>` : ""}
+        ${textButtons.map((option) => renderMessengerPreviewButton(node, option)).join("")}
+      </div>
+    `;
+  }
+
+  if (block.type === "image") return renderMessengerPreviewImageBlock(node, block);
+  if (block.type === "audio") return renderMessengerPreviewAudioBlock(block);
+
+  const label = messageNodeContentChips({ ...node, contentBlocks: [block] }).join(" · ");
+  return label ? `<div class="messenger-preview-meta">${escapeHtml(label)}</div>` : "";
 }
 
 function renderMessengerPreviewAudioBlock(block = {}) {
