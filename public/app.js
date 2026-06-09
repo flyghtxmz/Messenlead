@@ -218,10 +218,10 @@ const conditionOptions = [
   { id: "entry_source_key", category: "system", label: "Chave curta da entrada", icon: "text", conditionType: "entry", fieldName: "source_key", operator: "equals", placeholder: "src_abc123" }
 ];
 
-const CANVAS_WIDTH = 8000;
-const CANVAS_HEIGHT = 6000;
-const CANVAS_ORIGIN_X = 3600;
-const CANVAS_ORIGIN_Y = 2600;
+const CANVAS_WIDTH = 24000;
+const CANVAS_HEIGHT = 18000;
+const CANVAS_ORIGIN_X = 11000;
+const CANVAS_ORIGIN_Y = 8000;
 const NODE_WIDTH = 260;
 const NODE_CENTER_Y = 70;
 const NODE_CONNECT_Y = 112;
@@ -234,7 +234,7 @@ const CANVAS_MIN_Y = -CANVAS_ORIGIN_Y + 80;
 const CANVAS_MAX_Y = CANVAS_HEIGHT - CANVAS_ORIGIN_Y - 190;
 const MINIMAP_WIDTH = 160;
 const MINIMAP_HEIGHT = 110;
-const ZOOM_MIN = 0.45;
+const ZOOM_MIN = 0.32;
 const ZOOM_MAX = 1.15;
 const MESSENGER_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FLOW_UNDO_LIMIT = 80;
