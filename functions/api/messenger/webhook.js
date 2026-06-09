@@ -2118,17 +2118,7 @@ function matchingTrackedMessageButton(node, tracking = {}) {
   const buttonId = normalize(tracking.buttonId || "");
   const buttonTitle = normalize(tracking.button || "");
   const blockButtons = (node.contentBlocks || []).flatMap((block) => block.buttons || []);
-  const cardClicks = (node.contentBlocks || [])
-    .filter((block) => block.type === "card")
-    .map((block) => ({
-      id: `card_${block.id}`,
-      payload: `card_${block.id}`,
-      title: block.title || "Cartao",
-      text: block.title || "Cartao",
-      caption: "Imagem do cartao",
-      next: block.cardNext || null
-    }));
-  const options = [...(node.buttons || []), ...blockButtons, ...cardClicks];
+  const options = [...(node.buttons || []), ...blockButtons];
   return options.find((option) => {
     const candidates = [option.id, option.payload, option.title, option.text, option.caption].map(normalize).filter(Boolean);
     return (buttonId && candidates.includes(buttonId)) || (buttonTitle && candidates.includes(buttonTitle));
@@ -2188,7 +2178,6 @@ function normalizeNodeShape(node) {
       text: block.text || "",
       url: block.url || "",
       cardUrl: normalizeCardClickUrl(block),
-      cardNext: block.cardNext || block.card_next || null,
       title: block.title || "",
       subtitle: block.subtitle || "",
       imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio || block.image_aspect_ratio),
@@ -2773,13 +2762,11 @@ function nodeOutputTargetIds(node = {}) {
   if (node.type === "jump") return [];
   if (node.type === "message") {
     const blockButtons = (node.contentBlocks || []).flatMap((block) => block.buttons || []);
-    const cardTargets = (node.contentBlocks || []).filter((block) => block.type === "card").map((block) => block.cardNext);
     return [
       node.next,
       ...(node.buttons || []).map((option) => option.next),
       ...(node.quickReplies || []).map((option) => option.next),
-      ...blockButtons.map((option) => option.next),
-      ...cardTargets
+      ...blockButtons.map((option) => option.next)
     ].filter(Boolean);
   }
   if (node.type === "link_click_wait") return [node.clickedNext || node.next, node.noClickNext].filter(Boolean);

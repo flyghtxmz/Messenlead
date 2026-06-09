@@ -2444,7 +2444,6 @@ svg {
 }
 
 .messenger-preview-card-image {
-  position: relative;
   display: grid;
   aspect-ratio: 1.91 / 1;
   min-height: 82px;
@@ -2676,12 +2675,6 @@ svg {
 
 .messenger-preview-button .message-node-port {
   right: -21px;
-}
-
-.messenger-preview-card-image .message-node-port {
-  top: 50%;
-  right: -21px;
-  transform: translateY(-50%);
 }
 
 .published-view .node {

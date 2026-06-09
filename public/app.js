@@ -1580,7 +1580,6 @@ function normalizeNodeStructure(node) {
       text: block.text ?? (block.type === "text" ? node.message || "" : ""),
       url: block.url || "",
       cardUrl: normalizeCardClickUrl(block),
-      cardNext: block.cardNext || null,
       title: block.title || "",
       subtitle: block.subtitle || "",
       imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio || block.image_aspect_ratio),
@@ -9715,7 +9714,6 @@ function duplicateFlow(flowId = selectedFlowId, options = {}) {
     });
     node.contentBlocks?.forEach((block) => {
       block.id = makeId("block");
-      if (block.cardNext) block.cardNext = idMap.get(block.cardNext) || null;
       block.buttons?.forEach((option) => {
         option.id = makeId("btn");
         if (option.next) option.next = idMap.get(option.next) || null;
@@ -9848,7 +9846,6 @@ function remapImportedNodeReferences(node, idMap) {
   });
   if (Array.isArray(node.contentBlocks)) node.contentBlocks.forEach((block) => {
     block.id = makeId("block");
-    block.cardNext = remapImportedTarget(block.cardNext, idMap);
     if (Array.isArray(block.buttons)) block.buttons.forEach((option) => {
       option.id = makeId("btn");
       option.next = remapImportedTarget(option.next, idMap);
@@ -9971,7 +9968,6 @@ function replaceNodeReference(node, oldId, newId = null) {
     if (option.next === oldId) option.next = newId;
   });
   node.contentBlocks?.forEach((block) => {
-    if (block.cardNext === oldId) block.cardNext = newId;
     block.buttons?.forEach((option) => {
       if (option.next === oldId) option.next = newId;
     });
@@ -10032,11 +10028,6 @@ function clearOutputTarget(node, ref = {}) {
     if (ref.kind === "image_button" && ref.blockId && ref.optionId) {
       const option = findMessageBlockButton(node, ref.blockId, ref.optionId);
       if (option) option.next = null;
-      return;
-    }
-    if (ref.kind === "card_click" && ref.blockId) {
-      const block = node.contentBlocks?.find((item) => item.id === ref.blockId && item.type === "card");
-      if (block) block.cardNext = null;
       return;
     }
   }
@@ -10572,7 +10563,6 @@ function defaultMessageBlock(type) {
     text: type === "text" ? "Nova mensagem" : "",
     url: "",
     cardUrl: "",
-    cardNext: null,
     title: "",
     subtitle: "",
     imageAspectRatio: type === "card" || type === "gallery" ? "horizontal" : "",
@@ -12297,11 +12287,6 @@ function assignOutputTarget(node, targetId, output = "") {
       }
       return;
     }
-    if (ref.kind === "card_click" && ref.blockId) {
-      const block = node.contentBlocks?.find((item) => item.id === ref.blockId && item.type === "card");
-      if (block) block.cardNext = targetId;
-      return;
-    }
   }
   assignPrimaryTarget(node, targetId);
 }
@@ -12927,14 +12912,6 @@ function messageOutputItems(node) {
   });
 
   node.contentBlocks.forEach((block) => {
-    if (block.type === "card") {
-      items.push({
-        targetId: block.cardNext || null,
-        label: `Imagem do cartao: ${block.title || "sem titulo"}`,
-        kind: "card_click",
-        blockId: block.id
-      });
-    }
     block.buttons?.forEach((option) => {
       const prefix = block.type === "card" ? "Cartao" : "Imagem";
       items.push({
@@ -12956,7 +12933,6 @@ function messageOutputIndex(node, output = {}) {
     0,
     messageOutputItems(node).findIndex((item) => {
       if (ref.field === "next" || ref.kind === "default") return item.field === "next";
-      if (ref.kind === "card_click") return item.kind === ref.kind && item.blockId === ref.blockId;
       if (ref.kind === "image_button") return item.kind === ref.kind && item.optionId === ref.optionId && item.blockId === ref.blockId;
       if (ref.kind === "button" || ref.kind === "quick_reply") return item.kind === ref.kind && item.optionId === ref.optionId;
       return false;
@@ -13205,12 +13181,10 @@ function renderMessengerPreviewCardBlock(node, block = {}) {
   const imageUrl = String(block.url || "").trim();
   const buttons = Array.isArray(block.buttons) ? block.buttons : [];
   const aspect = normalizeCardImageAspectRatio(block.imageAspectRatio);
-  const cardClickOutput = messageOutputItems(node).find((item) => item.kind === "card_click" && item.blockId === block.id);
   return `
-    <div class="messenger-preview-card-block aspect-${attr(aspect)} ${buttons.length ? "has-buttons" : ""} ${cardClickOutput?.targetId ? "card-click-connected" : ""}">
+    <div class="messenger-preview-card-block aspect-${attr(aspect)} ${buttons.length ? "has-buttons" : ""}">
       <div class="messenger-preview-card-image ${imageUrl ? "has-image" : "empty"}">
         ${imageUrl ? `<img src="${attr(imageUrl)}" alt="${attr(block.title || "Imagem do cartao")}" loading="lazy" draggable="false" />` : icons.image}
-        ${cardClickOutput ? renderMessageNodePort(node, cardClickOutput) : ""}
       </div>
       <div class="messenger-preview-card-copy">
         <strong>${escapeHtml(block.title || "Inserir titulo...")}</strong>
