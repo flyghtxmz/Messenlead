@@ -810,6 +810,21 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
     }, activeFlow);
   }
 
+  const continuationDrain = await processMessengerFlowContinuations(env, {
+    pageId,
+    limit: Number(env.MESSENLEAD_URL_BUTTON_CONTINUATION_DRAIN_LIMIT || 3)
+  }).catch((error) => ({ error: error.message || "Continuation drain failed" }));
+  if (continuationDrain.processed || continuationDrain.resumed || continuationDrain.failed || continuationDrain.error) {
+    await log(continuationDrain.error ? "warn" : "info", "url_button_click_continuations_drained", "Continuacoes vencidas processadas apos clique no botao de URL.", {
+      processed: continuationDrain.processed || 0,
+      resumed: continuationDrain.resumed || 0,
+      scheduled: continuationDrain.scheduled || 0,
+      skipped: continuationDrain.skipped || 0,
+      failed: continuationDrain.failed || 0,
+      error: continuationDrain.error || ""
+    }, activeFlow);
+  }
+
   if (result.replies.length) {
     const queued = await enqueueMessengerReplies(env, {
       pageId,
