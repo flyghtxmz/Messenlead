@@ -812,6 +812,7 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
 
   const continuationDrain = await processMessengerFlowContinuations(env, {
     pageId,
+    psid,
     limit: Number(env.MESSENLEAD_URL_BUTTON_CONTINUATION_DRAIN_LIMIT || 3)
   }).catch((error) => ({ error: error.message || "Continuation drain failed" }));
   if (continuationDrain.processed || continuationDrain.resumed || continuationDrain.failed || continuationDrain.error) {

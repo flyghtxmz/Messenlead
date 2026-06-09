@@ -500,6 +500,10 @@ export async function processFlowContinuations(env, processor, options = {}) {
     filters.push("AND page_id = ?");
     params.push(normalizePageId(options.pageId));
   }
+  if (options.psid) {
+    filters.push("AND psid = ?");
+    params.push(String(options.psid || "").trim());
+  }
   if (options.continuationId) {
     filters.push("AND id = ?");
     params.push(String(options.continuationId || "").trim());
