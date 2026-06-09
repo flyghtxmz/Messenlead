@@ -1,5 +1,6 @@
 const STORAGE_KEY = "messenlead.messenger.workspace.v2";
 const APP_LOGIN_SESSION_KEY = "messenlead.app.login.v1";
+const ACTIVE_VIEW_KEY = "messenlead.active.view.v1";
 const APP_LOGIN_EMAIL = "teste@facebook.com";
 const APP_LOGIN_PASSWORD = "facebook";
 const DASHBOARD_CACHE_KEY = "messenlead.dashboard.cache.v1";
@@ -484,6 +485,7 @@ mainNav.addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
   if (!button) return;
   activeView = button.dataset.view;
+  persistActiveView(activeView);
   if (activeView === "pages") {
     metaState.selectedConversationId = "";
     metaState.messages = null;
@@ -550,6 +552,7 @@ importFile.addEventListener("change", importWorkspace);
 initSidebarToggle();
 window.addEventListener("hashchange", () => {
   activeView = getInitialView();
+  persistActiveView(activeView);
   if (activeView === "flows") {
     flowCanvasOpen = false;
     flowCanvasMode = "edit";
@@ -1052,9 +1055,16 @@ function hydrateDashboardCache() {
     metaState.pages = pagesCache.pages;
     metaState.pagesFromCache = true;
     metaState.pageDebug = pagesCache.debug || null;
-    if (!metaState.selectedPageId && state.settings.pageId) metaState.selectedPageId = state.settings.pageId;
-    const selectedStillExists = metaState.pages.some((page) => page.id === metaState.selectedPageId);
-    if (!selectedStillExists && metaState.pages[0]) metaState.selectedPageId = metaState.pages[0].id;
+    const selectedPage = selectedMetaPageFrom(metaState.pages, { preferSaved: true });
+    if (selectedPage) {
+      const previousPageId = currentFlowPageId();
+      const selectedPageId = normalizeFlowPageId(selectedPage.id);
+      const pageChanged = normalizeFlowPageId(previousPageId) !== selectedPageId;
+      if (pageChanged) cacheCurrentPageFlows(previousPageId);
+      const selectionChanged = applySelectedMetaPage(selectedPage);
+      if (pageChanged) setActiveFlowsForPage(selectedPageId);
+      if (selectionChanged || pageChanged) persistLocalState();
+    }
   }
 
   const pageId = normalizeFlowPageId(metaState.selectedPageId || state.settings.pageId);
@@ -1103,6 +1113,45 @@ function hydrateCachedMessagesForConversation(pageId, conversationId) {
 
 function conversationCacheKey(pageId, conversationId) {
   return `${normalizeFlowPageId(pageId)}:${String(conversationId || "").trim()}`;
+}
+
+function selectedMetaPageFrom(pages = metaState.pages || [], options = {}) {
+  const list = Array.isArray(pages) ? pages : [];
+  if (!list.length) return null;
+
+  const selectedId = normalizeFlowPageId(metaState.selectedPageId);
+  const savedId = normalizeFlowPageId(state.settings.pageId);
+  const selectedPage = list.find((page) => normalizeFlowPageId(page.id) === selectedId) || null;
+  const savedPage = list.find((page) => normalizeFlowPageId(page.id) === savedId) || null;
+
+  return options.preferSaved ? savedPage || selectedPage || list[0] : selectedPage || savedPage || list[0];
+}
+
+function applySelectedMetaPage(page) {
+  if (!page?.id) return false;
+  const pageId = normalizeFlowPageId(page.id);
+  const pageName = String(page.name || selectedPageName(pageId) || state.settings.pageName || pageId).trim();
+  const changed =
+    normalizeFlowPageId(metaState.selectedPageId) !== pageId ||
+    normalizeFlowPageId(state.settings.pageId) !== pageId ||
+    Boolean(pageName && state.settings.pageName !== pageName);
+
+  metaState.selectedPageId = pageId;
+  state.settings.pageId = pageId;
+  if (pageName) state.settings.pageName = pageName;
+  return changed;
+}
+
+function clearSelectedMetaConversation() {
+  metaState.conversations = null;
+  metaState.conversationsPageId = "";
+  metaState.conversationsFromCachePageId = "";
+  metaState.loadingConversationsPageId = "";
+  metaState.selectedConversationId = "";
+  metaState.messages = null;
+  metaState.pixelEvents = null;
+  metaState.attributionEvents = null;
+  metaState.unreadAnchorId = "";
 }
 
 function normalizeWorkspaceState(workspace) {
@@ -1716,7 +1765,23 @@ function saveConversationReadState() {
 
 function getInitialView() {
   const hash = location.hash.replace("#", "").split("?")[0];
-  return navItems.some((item) => item.id === hash) ? hash : "pages";
+  if (navItems.some((item) => item.id === hash)) return hash;
+  try {
+    const storedView = localStorage.getItem(ACTIVE_VIEW_KEY);
+    if (navItems.some((item) => item.id === storedView)) return storedView;
+  } catch {
+    // Local storage is optional for restoring the last screen.
+  }
+  return "pages";
+}
+
+function persistActiveView(view) {
+  if (!navItems.some((item) => item.id === view)) return;
+  try {
+    localStorage.setItem(ACTIVE_VIEW_KEY, view);
+  } catch {
+    // Best effort only.
+  }
 }
 
 function oauthErrorFromHash() {
@@ -2083,14 +2148,21 @@ function renderPages() {
   }
 
   const allPages = metaState.pages || [];
-  const selectedPage =
-    allPages.find((page) => page.id === metaState.selectedPageId) ||
-    allPages.find((page) => page.id === state.settings.pageId) ||
-    allPages[0] ||
-    null;
+  const selectedPage = selectedMetaPageFrom(allPages);
 
-  if (selectedPage && selectedPage.id !== metaState.selectedPageId) {
-    metaState.selectedPageId = selectedPage.id;
+  if (selectedPage) {
+    const previousPageId = currentFlowPageId();
+    const selectedPageId = normalizeFlowPageId(selectedPage.id);
+    const pageChanged = normalizeFlowPageId(previousPageId) !== selectedPageId;
+    if (pageChanged) cacheCurrentPageFlows(previousPageId);
+    const selectionChanged = applySelectedMetaPage(selectedPage);
+    if (pageChanged) {
+      clearSelectedMetaConversation();
+      setActiveFlowsForPage(selectedPageId);
+      hydrateCachedFlowsForPage(selectedPageId);
+      hydrateCachedConversationsForPage(selectedPageId);
+    }
+    if (selectionChanged || pageChanged) persistLocalState();
   }
 
   const conversationsBelongToSelectedPage =
@@ -4986,23 +5058,27 @@ async function loadMetaPages(options = {}) {
     metaState.pageDebug = result.debug || null;
     setDashboardCache("pages", "", { pages: metaState.pages, debug: metaState.pageDebug });
     metaState.error = "";
-    const selectedStillExists = metaState.pages.some((page) => page.id === metaState.selectedPageId);
-    const savedPage = metaState.pages.find((page) => page.id === state.settings.pageId);
-    const nextPage = selectedStillExists
-      ? metaState.pages.find((page) => page.id === metaState.selectedPageId)
-      : savedPage || metaState.pages[0] || null;
+    const nextPage = selectedMetaPageFrom(metaState.pages);
 
-    if (nextPage && metaState.selectedPageId !== nextPage.id) {
-      metaState.selectedPageId = nextPage.id;
-      metaState.conversations = null;
-      metaState.conversationsPageId = "";
-      metaState.conversationsFromCachePageId = "";
-      metaState.loadingConversationsPageId = "";
-      metaState.selectedConversationId = "";
-      metaState.messages = null;
-      metaState.pixelEvents = null;
-      metaState.attributionEvents = null;
-      metaState.unreadAnchorId = "";
+    if (nextPage) {
+      const previousPageId = currentFlowPageId();
+      const nextPageId = normalizeFlowPageId(nextPage.id);
+      const pageChanged = normalizeFlowPageId(previousPageId) !== nextPageId;
+      if (pageChanged) cacheCurrentPageFlows(previousPageId);
+      const selectionChanged = applySelectedMetaPage(nextPage);
+      if (pageChanged) {
+        clearSelectedMetaConversation();
+        subscriberTagFilter = "";
+        setActiveFlowsForPage(nextPageId);
+        flowStore.pageId = "";
+        contactStore.pageId = "";
+        customFieldStore.pageId = "";
+        pixelState.pageId = "";
+        jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
+        hydrateCachedFlowsForPage(nextPageId);
+        hydrateCachedConversationsForPage(nextPageId);
+      }
+      if (selectionChanged || pageChanged) persistLocalState();
     }
   } catch (error) {
     if (!options.background || !Array.isArray(metaState.pages)) {
@@ -5415,33 +5491,22 @@ async function logoutFacebook() {
 function selectMetaPage(pageId) {
   cacheCurrentPageFlows();
   const page = metaState.pages?.find((item) => item.id === pageId);
-  metaState.selectedPageId = pageId;
-  metaState.conversations = null;
-  metaState.conversationsPageId = "";
-  metaState.conversationsFromCachePageId = "";
-  metaState.loadingConversationsPageId = "";
-  metaState.selectedConversationId = "";
-  metaState.messages = null;
-  metaState.pixelEvents = null;
-  metaState.attributionEvents = null;
-  metaState.unreadAnchorId = "";
+  if (!page) return;
+  applySelectedMetaPage(page);
+  clearSelectedMetaConversation();
 
-  if (page) {
-    state.settings.pageId = page.id;
-    state.settings.pageName = page.name;
-    subscriberTagFilter = "";
-    setActiveFlowsForPage(page.id);
-    persistLocalState();
-    flowStore.pageId = "";
-    contactStore.pageId = "";
-    customFieldStore.pageId = "";
-    pixelState.pageId = "";
-    jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
-    hydrateCachedFlowsForPage(page.id);
-    hydrateCachedConversationsForPage(page.id);
-    loadFlowsForPage(page.id);
-    loadContactsForPage(page.id);
-  }
+  subscriberTagFilter = "";
+  setActiveFlowsForPage(page.id);
+  persistLocalState();
+  flowStore.pageId = "";
+  contactStore.pageId = "";
+  customFieldStore.pageId = "";
+  pixelState.pageId = "";
+  jsonTemplateState = { pageId: "", loading: false, templates: [], error: "" };
+  hydrateCachedFlowsForPage(page.id);
+  hydrateCachedConversationsForPage(page.id);
+  loadFlowsForPage(page.id);
+  loadContactsForPage(page.id);
 
   render();
 }
@@ -5451,18 +5516,8 @@ function selectSidebarPage(pageId) {
   const page = metaState.pages?.find((item) => item.id === pageId);
   if (!page) return;
 
-  metaState.selectedPageId = page.id;
-  metaState.conversations = null;
-  metaState.conversationsPageId = "";
-  metaState.conversationsFromCachePageId = "";
-  metaState.loadingConversationsPageId = "";
-  metaState.selectedConversationId = "";
-  metaState.messages = null;
-  metaState.pixelEvents = null;
-  metaState.attributionEvents = null;
-  metaState.unreadAnchorId = "";
-  state.settings.pageId = page.id;
-  state.settings.pageName = page.name;
+  applySelectedMetaPage(page);
+  clearSelectedMetaConversation();
   subscriberTagFilter = "";
   setActiveFlowsForPage(page.id);
   selectedNodeId = state.flows[0]?.nodes[0]?.id;
@@ -14145,6 +14200,7 @@ function defaultNodeMessage(type) {
 
 function navigate(view) {
   activeView = view;
+  persistActiveView(view);
   if (view === "flows") {
     flowCanvasOpen = false;
     flowCanvasMode = "edit";
