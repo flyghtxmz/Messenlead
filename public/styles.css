@@ -1260,6 +1260,43 @@ svg {
   padding: 10px;
 }
 
+.contact-tag-picker-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: stretch;
+  padding: 8px;
+  border-top: 1px solid #eef2f5;
+  background: #fff;
+}
+
+.contact-tag-create-button {
+  display: inline-flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px dashed #9fc4d8;
+  border-radius: 7px;
+  background: #f8fbfd;
+  color: #0874c9;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.contact-tag-create-button:hover,
+.contact-tag-create-button:focus-visible {
+  outline: 0;
+  border-color: #0874c9;
+  background: #eef8ff;
+}
+
+.contact-tag-create-button svg {
+  width: 14px;
+  height: 14px;
+}
+
 .compact-filter {
   display: grid;
   gap: 4px;

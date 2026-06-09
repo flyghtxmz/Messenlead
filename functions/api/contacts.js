@@ -10,11 +10,13 @@ export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const pageId = url.searchParams.get("pageId");
   if (!pageId) return json({ error: "pageId is required" }, 400);
+  const shouldEnrich = !["0", "false", "no"].includes(String(url.searchParams.get("enrich") || "").toLowerCase());
 
   const authError = await requirePageAccess(request, env, pageId);
   if (authError) return authError;
 
   const contacts = await listContacts(env, pageId);
+  if (!shouldEnrich) return json({ contacts });
   return json({ contacts: await enrichContactsWithMessengerProfiles(request, env, pageId, contacts) });
 }
 

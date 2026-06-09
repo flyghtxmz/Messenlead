@@ -382,6 +382,7 @@ let contactStore = {
   serverAvailable: null,
   status: "Local"
 };
+const contactNameEnrichmentPages = new Set();
 let customFieldStore = {
   pageId: "",
   loading: false,
@@ -5389,13 +5390,14 @@ async function loadContactsForPage(pageId) {
   };
 
   try {
-    const result = await apiGet(`/api/contacts?pageId=${encodeURIComponent(normalizedPageId)}`);
+    const result = await apiGet(`/api/contacts?pageId=${encodeURIComponent(normalizedPageId)}&enrich=0`);
     if (currentFlowPageId() !== normalizedPageId && activeView !== "subscribers") return;
     const mergedContacts = mergeContactsForPage(normalizedPageId, result.contacts || []);
     mergeContactTagsIntoLibraryForPage(normalizedPageId, mergedContacts);
     contactStore.serverAvailable = true;
     contactStore.status = "Contatos no D1";
     persistLocalState();
+    scheduleContactNameEnrichment(normalizedPageId, mergedContacts);
   } catch (error) {
     contactStore.serverAvailable = false;
     contactStore.status = contactStoreStatusFromError(error);
@@ -5449,6 +5451,34 @@ function mergeContactTagsIntoLibraryForPage(pageId, contacts = []) {
 
   if (changed) store.tags = uniqueTagRecords(store.tags).sort((left, right) => left.name.localeCompare(right.name));
   return changed;
+}
+
+function scheduleContactNameEnrichment(pageId, contacts = []) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  if (contactNameEnrichmentPages.has(normalizedPageId)) return;
+  if (!contacts.some((contact) => contact?.psid && isTechnicalContactName(contact.name, contact.psid))) return;
+
+  contactNameEnrichmentPages.add(normalizedPageId);
+  window.setTimeout(() => enrichContactNamesForPage(normalizedPageId), 0);
+}
+
+async function enrichContactNamesForPage(pageId) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+
+  try {
+    const result = await apiGet(`/api/contacts?pageId=${encodeURIComponent(normalizedPageId)}&enrich=1`);
+    if (currentFlowPageId() !== normalizedPageId && activeView !== "subscribers") return;
+    const mergedContacts = mergeContactsForPage(normalizedPageId, result.contacts || []);
+    mergeContactTagsIntoLibraryForPage(normalizedPageId, mergedContacts);
+    persistLocalState();
+  } catch {
+    // Name enrichment is best effort; the D1 contact list is already loaded.
+  } finally {
+    contactNameEnrichmentPages.delete(normalizedPageId);
+    if (["subscribers", "inbox", "broadcasts"].includes(activeView)) render();
+    renderPageSwitcher();
+    renderNav();
+  }
 }
 
 function mergeConversationsAsContacts(pageId, pageName, conversations) {
@@ -8784,6 +8814,7 @@ function handleWorkspaceClick(event) {
   if (action === "refresh-contacts") return refreshContacts();
   if (action === "open-contact-tag-picker") return openContactTagPicker(id);
   if (action === "select-contact-tag") return selectContactTag(id, button.dataset.tag);
+  if (action === "create-contact-tag") return openCreateContactTagModal(id);
   if (action === "add-contact-tag") return addTagFromContactEditor(id, button.dataset.inputId);
   if (action === "remove-contact-tag") return removeContactTag(id, button.dataset.tag);
   if (action === "clear-contact-custom-field") return clearContactCustomField(id, button.dataset.fieldName, button.dataset.fieldId);
@@ -11216,6 +11247,39 @@ function selectContactTag(contactId, value) {
   saveState();
   syncContactToServer(contact, { action: "add_tag", tag: tagName });
   render();
+}
+
+function openCreateContactTagModal(contactId) {
+  const contact = state.contacts.find((item) => item.id === contactId);
+  if (!contact) return;
+
+  const pageId = normalizeFlowPageId(contact.pageId || currentFlowPageId());
+  contactTagPickerContactId = "";
+  openFormModal({
+    title: "Criar tag",
+    className: "tag-create-modal",
+    submitLabel: "Criar e aplicar",
+    fields: [
+      { name: "name", label: "Nome", value: "", required: true, placeholder: "Inserir nome da tag" },
+      {
+        name: "folder",
+        label: "Pasta",
+        type: "select",
+        value: DEFAULT_TAG_FOLDER_ID,
+        options: tagFoldersForPage(pageId).map((folder) => ({ value: folder.id, label: folder.name }))
+      }
+    ],
+    onSubmit: ({ name, folder }) => {
+      const tagName = normalizeTagName(name);
+      if (!tagName) throw new Error("Informe o nome da tag.");
+
+      addTagToLibrary(tagName, pageId, folder || DEFAULT_TAG_FOLDER_ID);
+      addTagToContact(contact, tagName);
+      saveState();
+      syncContactToServer(contact, { action: "add_tag", tag: tagName });
+      render();
+    }
+  });
 }
 
 function isSavedTagForPage(value, pageId = currentFlowPageId()) {
@@ -14613,35 +14677,34 @@ function renderContactTagPicker(contact) {
   const records = tagRecordsForPage(pageId);
   const applied = new Set(contactTags(contact).map(normalizeTagKey));
 
-  if (!records.length) {
-    return `
-      <div class="contact-tag-picker">
-        <div class="contact-tag-picker-empty">Nenhuma tag salva nesta Pagina.</div>
-      </div>
-    `;
-  }
-
   return `
     <div class="contact-tag-picker">
-      ${folders
-        .map((folder) => {
-          const folderTags = records.filter((record) => (record.folderId || DEFAULT_TAG_FOLDER_ID) === folder.id);
-          if (!folderTags.length) return "";
-          return `
-            <div class="contact-tag-folder">
-              <strong>${escapeHtml(folder.name)}</strong>
-              <div class="contact-tag-option-list">
-                ${folderTags
-                  .map((record) => {
-                    const selected = applied.has(normalizeTagKey(record.name));
-                    return `<button type="button" data-action="select-contact-tag" data-id="${attr(contact.id)}" data-tag="${attr(record.name)}" ${selected ? "disabled" : ""}>${escapeHtml(record.name)}${selected ? `<span>aplicada</span>` : ""}</button>`;
-                  })
-                  .join("")}
-              </div>
-            </div>
-          `;
-        })
-        .join("")}
+      ${
+        records.length
+          ? folders
+              .map((folder) => {
+                const folderTags = records.filter((record) => (record.folderId || DEFAULT_TAG_FOLDER_ID) === folder.id);
+                if (!folderTags.length) return "";
+                return `
+                  <div class="contact-tag-folder">
+                    <strong>${escapeHtml(folder.name)}</strong>
+                    <div class="contact-tag-option-list">
+                      ${folderTags
+                        .map((record) => {
+                          const selected = applied.has(normalizeTagKey(record.name));
+                          return `<button type="button" data-action="select-contact-tag" data-id="${attr(contact.id)}" data-tag="${attr(record.name)}" ${selected ? "disabled" : ""}>${escapeHtml(record.name)}${selected ? `<span>aplicada</span>` : ""}</button>`;
+                        })
+                        .join("")}
+                    </div>
+                  </div>
+                `;
+              })
+              .join("")
+          : `<div class="contact-tag-picker-empty">Nenhuma tag salva nesta Pagina.</div>`
+      }
+      <div class="contact-tag-picker-actions">
+        <button class="contact-tag-create-button" type="button" data-action="create-contact-tag" data-id="${attr(contact.id)}">${icons.plus}<span>Criar Tag</span></button>
+      </div>
     </div>
   `;
 }
