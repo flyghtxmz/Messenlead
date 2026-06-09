@@ -2535,7 +2535,7 @@ function renderInbox() {
   if (conversation) conversation.scrollTop = conversation.scrollHeight;
 }
 
-function renderSubscribers() {
+function renderSubscribersLegacy() {
   const currentPageId = currentFlowPageId();
   if (shouldLoadContactsForCurrentPage()) loadContactsForPage(currentPageId);
 
@@ -2611,6 +2611,259 @@ function renderSubscribers() {
       </div>
     </section>
   `;
+}
+
+function renderSubscribers() {
+  const currentPageId = currentFlowPageId();
+  if (shouldLoadContactsForCurrentPage()) loadContactsForPage(currentPageId);
+  if (customFieldStore.pageId !== currentPageId && !customFieldStore.loading) loadCustomFieldsForPage(currentPageId);
+
+  const contacts = contactsForPage(currentPageId);
+  const tags = allContactTags(contacts);
+  const filtered = filterBySearch(contacts, contactSearchText).filter((contact) =>
+    subscriberTagFilter ? contactHasTag(contact, subscriberTagFilter) : true
+  );
+  const pageName = selectedPageName(currentPageId);
+  const selectedContact =
+    filtered.find((contact) => contact.id === selectedContactId) ||
+    contacts.find((contact) => contact.id === selectedContactId) ||
+    filtered[0] ||
+    contacts[0] ||
+    null;
+
+  if (selectedContact && selectedContactId !== selectedContact.id) selectedContactId = selectedContact.id;
+
+  const openCount = contacts.filter((contact) => contact.status === "open").length;
+  const fieldCount = customFieldRecordsForPage(currentPageId).length;
+  const taggedCount = contacts.filter((contact) => contactTags(contact).length).length;
+
+  workspace.innerHTML = `
+    <div class="subscribers-layout">
+      <section class="panel subscribers-main-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Assinantes Messenger</h2>
+            <span>${filtered.length} de ${contacts.length} contato${contacts.length === 1 ? "" : "s"} em ${escapeHtml(pageName || currentPageId)}</span>
+          </div>
+          <div class="button-row">
+            <span class="sync-pill ${contactStore.serverAvailable ? "synced" : "local"}">${escapeHtml(contactStore.loading ? "Carregando D1" : contactStore.status)}</span>
+            <button class="secondary-button" type="button" data-action="refresh-contacts">${icons.users}<span>Atualizar</span></button>
+            <button class="secondary-button" type="button" data-action="export-csv">${icons.copy}<span>CSV</span></button>
+            <button class="primary-button" type="button" data-action="new-contact">${icons.plus}<span>Novo</span></button>
+          </div>
+        </div>
+        <div class="subscriber-summary-strip">
+          ${metricInline("Total", contacts.length)}
+          ${metricInline("Abertos", openCount)}
+          ${metricInline("Com tags", taggedCount)}
+          ${metricInline("Campos", fieldCount)}
+        </div>
+        <div class="subscriber-toolbar">
+          <div class="compact-filter readonly-filter">
+            <span>Pagina selecionada</span>
+            <strong>
+              ${escapeHtml(pageName || currentPageId)}
+              <small>${escapeHtml(currentPageId)}</small>
+            </strong>
+          </div>
+          <label class="compact-filter">
+            <span>Tag</span>
+            <select id="subscriberTagFilter">
+              <option value="" ${subscriberTagFilter ? "" : "selected"}>Todas as tags</option>
+              ${tags.map((value) => `<option value="${attr(value)}" ${subscriberTagFilter === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}
+            </select>
+          </label>
+          <div class="tag-filter-list">${tags.map((value) => `<span class="tag">${escapeHtml(value)}</span>`).join("") || `<span class="muted">Nenhuma tag nesta pagina.</span>`}</div>
+        </div>
+        <div class="subscriber-list" aria-label="Assinantes filtrados">
+          ${filtered.length ? filtered.map((contact) => renderSubscriberListItem(contact, selectedContact?.id === contact.id)).join("") : emptyInline("Nenhum contato neste filtro.")}
+        </div>
+      </section>
+      ${renderSubscriberDetailPanel(selectedContact, currentPageId)}
+    </div>
+  `;
+}
+
+function renderSubscriberListItem(contact, active = false) {
+  const message = lastMessage(contact);
+  const fieldTotal = Object.entries(contact?.customFields || {}).filter(([, value]) => value !== "" && value !== null && value !== undefined).length;
+  return `
+    <button class="subscriber-list-item ${active ? "active" : ""}" type="button" data-action="select-contact" data-id="${attr(contact.id)}">
+      <span class="subscriber-avatar">${escapeHtml(initials(contact.name))}</span>
+      <span class="subscriber-list-main">
+        <span class="subscriber-list-title">
+          <strong>${escapeHtml(contact.name)}</strong>
+          <span class="badge ${contact.status === "open" ? "active" : "paused"}">${contact.status === "open" ? "Aberta" : "Fechada"}</span>
+        </span>
+        <span class="subscriber-list-meta">${escapeHtml(contact.source || "Messenger")} - ${escapeHtml(contact.psid)}</span>
+        <span class="subscriber-list-message">${escapeHtml(message?.text || "Sem mensagem recente")}</span>
+      </span>
+      <span class="subscriber-list-side">
+        ${tagsMarkup(contact)}
+        <small>${fieldTotal} campo${fieldTotal === 1 ? "" : "s"}</small>
+      </span>
+    </button>
+  `;
+}
+
+function renderSubscriberDetailPanel(contact, pageId) {
+  if (!contact) {
+    return `
+      <aside class="panel subscriber-detail-panel">
+        ${emptyState("Nenhum assinante", "Selecione ou crie um contato para editar os dados.", "users", "Novo contato", "new-contact")}
+      </aside>
+    `;
+  }
+
+  const message = lastMessage(contact);
+  return `
+    <aside class="panel subscriber-detail-panel">
+      <div class="subscriber-detail-header">
+        <span class="subscriber-detail-avatar">${escapeHtml(initials(contact.name))}</span>
+        <div>
+          <h2>${escapeHtml(contact.name)}</h2>
+          <span>${escapeHtml(contact.psid)}</span>
+        </div>
+      </div>
+      <div class="subscriber-detail-body">
+        <div class="subscriber-edit-grid">
+          <label class="settings-field">
+            <span>Nome</span>
+            <input type="text" value="${attr(contact.name)}" data-contact-profile-field="name" data-id="${attr(contact.id)}">
+          </label>
+          <label class="settings-field">
+            <span>Status</span>
+            <select data-contact-profile-field="status" data-id="${attr(contact.id)}">
+              <option value="open" ${contact.status === "open" ? "selected" : ""}>Aberta</option>
+              <option value="closed" ${contact.status === "closed" ? "selected" : ""}>Fechada</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>Origem</span>
+            <input type="text" value="${attr(contact.source || "Messenger")}" data-contact-profile-field="source" data-id="${attr(contact.id)}">
+          </label>
+          <label class="settings-field">
+            <span>Ultima atividade</span>
+            <input type="text" value="${attr(formatDate(contact.lastSeen || message?.at) || "-")}" readonly>
+          </label>
+        </div>
+        <section class="subscriber-detail-section">
+          <div class="subscriber-section-title">
+            <strong>Tags</strong>
+            <span>${contactTags(contact).length || 0}</span>
+          </div>
+          ${renderContactTagEditor(contact)}
+        </section>
+        <section class="subscriber-detail-section">
+          <div class="subscriber-section-title">
+            <strong>Campos do usuario</strong>
+            <button class="secondary-button" type="button" data-action="create-custom-field">${icons.plus}<span>Novo campo</span></button>
+          </div>
+          ${renderSubscriberCustomFieldEditor(contact, pageId)}
+        </section>
+      </div>
+    </aside>
+  `;
+}
+
+function renderSubscriberCustomFieldEditor(contact, pageId) {
+  const rows = subscriberCustomFieldRows(contact, pageId);
+  if (!rows.length) {
+    return `<div class="subscriber-fields-empty">Nenhum campo criado nesta Pagina. Crie um campo para salvar dados do usuario.</div>`;
+  }
+
+  return `
+    <div class="subscriber-field-list">
+      ${rows.map((row) => renderSubscriberCustomFieldRow(contact, row)).join("")}
+    </div>
+  `;
+}
+
+function subscriberCustomFieldRows(contact, pageId) {
+  const rows = [];
+  const seen = new Set();
+  const fields = customFieldRecordsForPage(pageId);
+  const customFields = contact?.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
+  const customFieldsById = contact?.customFieldsById && typeof contact.customFieldsById === "object" ? contact.customFieldsById : {};
+
+  fields.forEach((field) => {
+    const name = field.name || "";
+    const key = normalizeCustomFieldKey(name || field.id);
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    rows.push({
+      id: field.id || "",
+      name,
+      type: normalizeCustomFieldType(field.type),
+      library: true,
+      value: customFieldsById[field.id] ?? customFields[name] ?? ""
+    });
+  });
+
+  Object.entries(customFields).forEach(([name, value]) => {
+    const key = normalizeCustomFieldKey(name);
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    rows.push({
+      id: "",
+      name,
+      type: inferCustomFieldType(value),
+      library: false,
+      value
+    });
+  });
+
+  return rows;
+}
+
+function renderSubscriberCustomFieldRow(contact, field) {
+  return `
+    <div class="subscriber-field-row">
+      <span>
+        <strong>${escapeHtml(field.name)}</strong>
+        <small>${escapeHtml(customFieldTypeLabel(field.type))}${field.library ? "" : " - avulso"}</small>
+      </span>
+      ${subscriberCustomFieldControl(contact, field)}
+      <button class="icon-button" type="button" data-action="clear-contact-custom-field" data-id="${attr(contact.id)}" data-field-id="${attr(field.id)}" data-field-name="${attr(field.name)}" title="Limpar campo">${icons.trash}</button>
+    </div>
+  `;
+}
+
+function subscriberCustomFieldControl(contact, field) {
+  const commonAttrs = `data-contact-custom-field="true" data-id="${attr(contact.id)}" data-field-id="${attr(field.id)}" data-field-name="${attr(field.name)}" data-field-type="${attr(field.type)}"`;
+  const value = customFieldInputValue(field.value, field.type);
+  if (field.type === "boolean") {
+    const boolValue = Boolean(field.value);
+    return `
+      <select ${commonAttrs}>
+        <option value="true" ${boolValue ? "selected" : ""}>Sim</option>
+        <option value="false" ${!boolValue ? "selected" : ""}>Nao</option>
+      </select>
+    `;
+  }
+
+  const type = field.type === "number" ? "number" : field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local" : "text";
+  return `<input type="${type}" value="${attr(value)}" ${commonAttrs}>`;
+}
+
+function customFieldInputValue(value, type = "text") {
+  const fieldType = normalizeCustomFieldType(type);
+  if (value === null || value === undefined) return "";
+  if (fieldType === "datetime") {
+    const text = String(value || "");
+    const timestamp = Date.parse(text);
+    if (!Number.isFinite(timestamp)) return text.slice(0, 16);
+    return new Date(timestamp).toISOString().slice(0, 16);
+  }
+  if (fieldType === "date") return String(value || "").slice(0, 10);
+  if (fieldType === "boolean") return value ? "true" : "false";
+  return String(value ?? "");
+}
+
+function inferCustomFieldType(value) {
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "number") return "number";
+  return "text";
 }
 
 function renderContactCustomFields(contact) {
@@ -5443,7 +5696,7 @@ async function loadCustomFieldsForPage(pageId) {
   } finally {
     if (currentFlowPageId() === normalizedPageId) {
       customFieldStore.loading = false;
-      if (activeView === "settings" || (activeView === "flows" && showInspector)) render();
+      if (activeView === "settings" || activeView === "subscribers" || (activeView === "flows" && showInspector)) render();
     }
   }
 }
@@ -8310,6 +8563,7 @@ function handleWorkspaceClick(event) {
   if (action === "select-contact-tag") return selectContactTag(id, button.dataset.tag);
   if (action === "add-contact-tag") return addTagFromContactEditor(id, button.dataset.inputId);
   if (action === "remove-contact-tag") return removeContactTag(id, button.dataset.tag);
+  if (action === "clear-contact-custom-field") return clearContactCustomField(id, button.dataset.fieldName, button.dataset.fieldId);
   if (action === "select-contact") {
     selectedContactId = id;
     return render();
@@ -8566,6 +8820,14 @@ function handleWorkspaceChange(event) {
   if (target.id === "subscriberTagFilter") {
     subscriberTagFilter = target.value;
     render();
+    return;
+  }
+  if (target.dataset.contactProfileField) {
+    updateContactProfileField(target.dataset.id, target.dataset.contactProfileField, target.value);
+    return;
+  }
+  if (target.dataset.contactCustomField) {
+    updateContactCustomFieldFromInput(target);
     return;
   }
   if (target.dataset.missingTagFlow) {
@@ -10478,7 +10740,8 @@ function createContactFromValues({ name, psid, tag }) {
   selectedContactId = contact.id;
   saveState();
   syncContactToServer(contact);
-  navigate("inbox");
+  if (activeView === "subscribers") render();
+  else navigate("inbox");
 }
 
 function sendContactMessage() {
@@ -10523,6 +10786,116 @@ function toggleContactStatus() {
   saveState();
   syncContactToServer(contact);
   render();
+}
+
+function updateContactProfileField(contactId, fieldName, value) {
+  const contact = state.contacts.find((item) => item.id === contactId);
+  if (!contact) return;
+
+  if (fieldName === "name") contact.name = contactDisplayName(value, contact.psid);
+  if (fieldName === "status") contact.status = value === "closed" ? "closed" : "open";
+  if (fieldName === "source") contact.source = String(value || "").trim() || "Messenger";
+
+  contact.updatedAt = new Date().toISOString();
+  saveState();
+  syncContactToServer(contact);
+  render();
+}
+
+function updateContactCustomFieldFromInput(input) {
+  const contact = state.contacts.find((item) => item.id === input.dataset.id);
+  if (!contact) return;
+
+  const field = subscriberCustomFieldForInput(contact, input);
+  if (!field.name) return;
+
+  const value = coerceCustomFieldValue(input.value, field.type);
+  writeContactCustomField(contact, field, value);
+  saveState();
+  render();
+  syncContactCustomFieldAction(contact, {
+    type: "set_user_field",
+    fieldId: field.id,
+    fieldName: field.name,
+    fieldType: field.type,
+    fieldValue: value
+  });
+}
+
+function clearContactCustomField(contactId, fieldName = "", fieldId = "") {
+  const contact = state.contacts.find((item) => item.id === contactId);
+  if (!contact) return;
+
+  const field = subscriberCustomFieldDefinition(contact, fieldName, fieldId);
+  if (!field.name && !field.id) return;
+
+  if (field.name && contact.customFields) delete contact.customFields[field.name];
+  if (field.id && contact.customFieldsById) delete contact.customFieldsById[field.id];
+  contact.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+  syncContactCustomFieldAction(contact, {
+    type: "clear_custom_field",
+    fieldId: field.id,
+    fieldName: field.name,
+    fieldType: field.type
+  });
+}
+
+function subscriberCustomFieldForInput(contact, input) {
+  return subscriberCustomFieldDefinition(contact, input.dataset.fieldName, input.dataset.fieldId, input.dataset.fieldType);
+}
+
+function subscriberCustomFieldDefinition(contact, fieldName = "", fieldId = "", fieldType = "text") {
+  const pageId = normalizeFlowPageId(contact?.pageId || currentFlowPageId());
+  const fields = customFieldRecordsForPage(pageId);
+  const id = String(fieldId || "").trim();
+  const name = String(fieldName || "").trim();
+  const field =
+    (id && fields.find((item) => item.id === id)) ||
+    (name && fields.find((item) => normalizeCustomFieldKey(item.name) === normalizeCustomFieldKey(name))) ||
+    null;
+
+  return {
+    id: field?.id || id,
+    name: field?.name || name,
+    type: normalizeCustomFieldType(field?.type || fieldType)
+  };
+}
+
+function writeContactCustomField(contact, field, value) {
+  contact.customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
+  contact.customFieldsById = contact.customFieldsById && typeof contact.customFieldsById === "object" ? contact.customFieldsById : {};
+  contact.customFields[field.name] = value;
+  if (field.id) contact.customFieldsById[field.id] = value;
+  contact.updatedAt = new Date().toISOString();
+}
+
+async function syncContactCustomFieldAction(contact, action) {
+  if (!contact?.pageId || contact.pageId === DEFAULT_FLOW_PAGE_ID || !contact.psid) return;
+
+  try {
+    const result = await apiPost("/api/contacts", {
+      pageId: contact.pageId,
+      psid: contact.psid,
+      contact: serializeContact(contact),
+      action: "apply_actions",
+      actions: [action]
+    });
+    if (result.contact) Object.assign(contact, normalizeContactRecord(result.contact, contact.pageId), { messages: contact.messages || [] });
+    contactStore.serverAvailable = true;
+    contactStore.pageId = contact.pageId;
+    contactStore.status = "Contatos no D1";
+    saveState();
+  } catch (error) {
+    contactStore.serverAvailable = false;
+    contactStore.status = contactStoreStatusFromError(error);
+    toastMessage(`Campo ficou local: ${contactStore.status}`);
+  } finally {
+    renderPageSwitcher();
+    renderNav();
+    if (activeView === "subscribers") render();
+  }
 }
 
 function addTagFromContactEditor(contactId, inputId) {
@@ -13975,7 +14348,10 @@ function allContactTags(contacts = state.contacts) {
 }
 
 function contactSearchText(contact) {
-  return `${contact.name} ${contact.psid} ${contactTags(contact).join(" ")} ${contact.source} ${lastMessage(contact)?.text || ""}`;
+  const fields = Object.entries(contact?.customFields || {})
+    .map(([name, value]) => `${name} ${formatCustomFieldValue(value)}`)
+    .join(" ");
+  return `${contact.name} ${contact.psid} ${contactTags(contact).join(" ")} ${fields} ${contact.source} ${lastMessage(contact)?.text || ""}`;
 }
 
 function contactsForPage(pageId) {
@@ -14384,6 +14760,7 @@ function serializeContact(contact) {
     tags: contactTags(contact),
     tag: contactTags(contact)[0] || "",
     customFields: contact.customFields || {},
+    customFieldsById: contact.customFieldsById || {},
     lastSeen: contact.lastSeen || lastMessage(contact)?.at || new Date().toISOString()
   };
 }
