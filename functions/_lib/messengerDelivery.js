@@ -1088,6 +1088,10 @@ function graphErrorMessage(status, body) {
   return parsed?.error?.message || parsed?.error || body || `Messenger API HTTP ${status}`;
 }
 
+function normalizeCardImageAspectRatio(value) {
+  return String(value || "horizontal").trim() === "square" ? "square" : "horizontal";
+}
+
 async function messengerMessagePayload(reply, env, pageId, psid, pageAccessToken = "") {
   const message = {};
 
@@ -1119,6 +1123,7 @@ async function messengerMessagePayload(reply, env, pageId, psid, pageAccessToken
       type: "template",
       payload: {
         template_type: "generic",
+        image_aspect_ratio: normalizeCardImageAspectRatio(reply.imageAspectRatio),
         elements: await Promise.all(
           (reply.elements || []).slice(0, 10).map(async (element) => ({
             title: String(element.title || "Card").slice(0, 80),

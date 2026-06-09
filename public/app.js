@@ -194,7 +194,7 @@ const messageContentBlockTypes = [
   { type: "audio", label: "Audio", icon: "send" },
   { type: "video", label: "Video", icon: "play" },
   { type: "file", label: "Arquivo", icon: "pages" },
-  { type: "card", label: "Card", icon: "image" },
+  { type: "card", label: "Cartao", icon: "image" },
   { type: "gallery", label: "Galeria", icon: "workflow" },
   { type: "data_collection", label: "Coleta de dados", icon: "users" },
   { type: "dynamic", label: "Dinamico", icon: "plug" }
@@ -1577,6 +1577,7 @@ function normalizeNodeStructure(node) {
       url: block.url || "",
       title: block.title || "",
       subtitle: block.subtitle || "",
+      imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio || block.image_aspect_ratio),
       fileName: block.fileName || "",
       fieldName: block.fieldName || "",
       endpoint: block.endpoint || "",
@@ -7088,7 +7089,7 @@ function renderManychatMorePanel() {
   ];
   return `
     <div class="manychat-more-panel"${renderMessageFloatingStyle(messageMorePanelPosition)}>
-      ${items.map(([type, title, description, icon, action]) => renderManychatContentOption(type, title, description, icon, action)).join("")}
+      ${items.map(([type, title, description, icon, action]) => renderManychatContentOption(type, title, description, icon, action || (type === "card" ? "add-message-block" : ""))).join("")}
     </div>
   `;
 }
@@ -7127,6 +7128,10 @@ function messageBlockUrlPlaceholder(type) {
 
 function messageBlockUrlLabel(type) {
   return type === "image" || !type ? "URL da imagem" : `URL do ${messageBlockMediaLabel(type)}`;
+}
+
+function normalizeCardImageAspectRatio(value) {
+  return String(value || "horizontal").trim() === "square" ? "square" : "horizontal";
 }
 
 function renderManychatImageUrlPopover(block = {}) {
@@ -7225,6 +7230,8 @@ function renderMessageContentBlock(flow, node, block) {
     `;
   }
 
+  if (block.type === "card") return renderManychatCardWidget(flow, node, block);
+
   if (block.type === "card" || block.type === "gallery") {
     return `
       <article class="message-content-block">
@@ -7252,6 +7259,50 @@ function renderMessageContentBlock(flow, node, block) {
       <input data-message-block-field="endpoint" data-block-id="${attr(block.id)}" value="${attr(block.endpoint || "")}" placeholder="Endpoint que retornará a mensagem" />
       <textarea data-message-block-field="text" data-block-id="${attr(block.id)}" placeholder="Fallback se o endpoint falhar">${escapeHtml(block.text || "")}</textarea>
     </article>
+  `;
+}
+
+function renderManychatCardWidget(flow, node, block) {
+  const inputId = `message_block_file_${block.id}`;
+  const hasImage = Boolean(String(block.url || "").trim());
+  const aspect = normalizeCardImageAspectRatio(block.imageAspectRatio);
+  return `
+    <div class="manychat-widget" data-message-block-widget="${attr(block.id)}">
+      <article class="manychat-card-widget ${hasImage ? "has-image" : "is-empty"} aspect-${attr(aspect)}">
+        <div class="manychat-card-aspect-toggle" aria-label="Formato da imagem do cartao">
+          ${renderManychatCardAspectButton(block, "square", aspect)}
+          ${renderManychatCardAspectButton(block, "horizontal", aspect)}
+        </div>
+        <div class="manychat-card-media">
+          ${
+            hasImage
+              ? `<button class="manychat-card-image-button" type="button" data-action="open-message-image-url" data-block-id="${attr(block.id)}" title="Editar URL da imagem"><img src="${attr(block.url)}" alt="${attr(block.title || "Imagem do cartao")}" loading="lazy" /></button>`
+              : `<span class="manychat-image-placeholder">${icons.image}</span>
+                <div class="manychat-image-actions">
+                  <button type="button" data-action="choose-message-block-file" data-input-id="${attr(inputId)}">Enviar Imagem</button>
+                  <span>ou</span>
+                  <button type="button" data-action="open-message-image-url" data-block-id="${attr(block.id)}">colar a URL</button>
+                </div>`
+          }
+        </div>
+        <div class="manychat-card-copy">
+          <input data-message-block-field="title" data-block-id="${attr(block.id)}" value="${attr(block.title || "")}" placeholder="Inserir titulo..." aria-label="Titulo do cartao" />
+          <input data-message-block-field="subtitle" data-block-id="${attr(block.id)}" value="${attr(block.subtitle || "")}" placeholder="Inserir Legenda..." aria-label="Legenda do cartao" />
+        </div>
+        ${renderManychatImageBlockButtons(flow, node, block)}
+        <input id="${attr(inputId)}" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" data-message-block-file="true" data-block-id="${attr(block.id)}" data-kind="image" hidden />
+      </article>
+      ${messageImageUrlEditorBlockId === block.id ? renderManychatImageUrlPopover(block) : ""}
+      ${renderManychatBlockControls(block)}
+    </div>
+  `;
+}
+
+function renderManychatCardAspectButton(block, value, current) {
+  return `
+    <button class="${value === current ? "active" : ""}" type="button" data-action="set-card-image-aspect" data-block-id="${attr(block.id)}" data-aspect="${attr(value)}" title="${value === "square" ? "Quadrado" : "Horizontal"}" aria-label="${value === "square" ? "Imagem quadrada" : "Imagem horizontal"}">
+      <span class="card-aspect-icon ${attr(value)}"></span>
+    </button>
   `;
 }
 
@@ -8638,6 +8689,7 @@ function handleWorkspaceClick(event) {
   if (action === "choose-message-block-file") return document.getElementById(button.dataset.inputId)?.click();
   if (action === "open-message-image-url") return openMessageImageUrlEditor(button.dataset.blockId, button);
   if (action === "close-message-image-url") return closeMessageImageUrlEditor();
+  if (action === "set-card-image-aspect") return setCardImageAspect(button.dataset.blockId, button.dataset.aspect);
   if (action === "toggle-message-more-panel") return toggleMessageMorePanel(button);
   if (action === "add-message-block-button") return addMessageBlockButton(button.dataset.blockId);
   if (action === "remove-message-block-button") return removeMessageBlockButton(button.dataset.blockId, button.dataset.buttonId);
@@ -10414,6 +10466,19 @@ function closeMessageImageUrlEditor() {
   render();
 }
 
+function setCardImageAspect(blockId, aspect) {
+  const flow = selectedFlow();
+  const node = flow ? selectedNode(flow) : null;
+  if (!flow || node?.type !== "message") return;
+  normalizeNodeStructure(node);
+  const block = node.contentBlocks.find((item) => item.id === blockId && item.type === "card");
+  if (!block) return;
+  block.imageAspectRatio = normalizeCardImageAspectRatio(aspect);
+  flow.updatedAt = new Date().toISOString();
+  saveState();
+  render();
+}
+
 function toggleMessageMorePanel(anchorElement = null) {
   messageMorePanelOpen = !messageMorePanelOpen;
   messageMorePanelPosition = messageMorePanelOpen
@@ -10435,8 +10500,9 @@ function defaultMessageBlock(type) {
     type,
     text: type === "text" ? "Nova mensagem" : "",
     url: "",
-    title: type === "card" || type === "gallery" ? "Titulo" : "",
+    title: "",
     subtitle: "",
+    imageAspectRatio: type === "card" || type === "gallery" ? "horizontal" : "",
     fileName: "",
     fieldName: "",
     endpoint: "",
@@ -10455,10 +10521,10 @@ function addMessageBlockButton(blockId) {
   const node = flow ? selectedNode(flow) : null;
   if (!flow || !node || node.type !== "message") return;
   normalizeNodeStructure(node);
-  const block = node.contentBlocks.find((item) => item.id === blockId && item.type === "image");
+  const block = node.contentBlocks.find((item) => item.id === blockId && ["image", "card"].includes(item.type));
   if (!block) return;
   if (block.buttons.length >= 3) {
-    toastMessage("O Messenger permite ate 3 botoes por imagem.");
+    toastMessage("O Messenger permite ate 3 botoes por bloco.");
     return;
   }
   block.buttons.push({ id: makeId("btn"), title: "Novo botão", type: "url", url: "", phone: "", next: null });
@@ -11281,9 +11347,11 @@ async function uploadMessageBlockFile(blockId, file, kind = "image") {
   try {
     toastMessage(`Enviando ${label.toLowerCase()}...`);
     const result = await apiPostForm("/api/media", form);
-    block.type = normalizedKind;
+    if (!(block.type === "card" && normalizedKind === "image")) {
+      block.type = normalizedKind;
+    }
     block.url = result.asset?.url || "";
-    block.title = "";
+    if (block.type !== "card") block.title = "";
     block.fileName = result.asset?.fileName || file.name || "";
     mediaState.assets = result.asset
       ? [result.asset, ...mediaState.assets.filter((asset) => asset.id !== result.asset.id)]
@@ -12780,9 +12848,10 @@ function messageOutputItems(node) {
 
   node.contentBlocks.forEach((block) => {
     block.buttons?.forEach((option) => {
+      const prefix = block.type === "card" ? "Cartao" : "Imagem";
       items.push({
         targetId: option.next || null,
-        label: `Imagem: ${option.title || "sem titulo"}`,
+        label: `${prefix}: ${option.title || "sem titulo"}`,
         kind: "image_button",
         optionId: option.id,
         blockId: block.id
@@ -13005,6 +13074,7 @@ function renderMessengerPreviewContentBlock(node, block = {}, context = {}) {
   }
 
   if (block.type === "image") return renderMessengerPreviewImageBlock(node, block);
+  if (block.type === "card") return renderMessengerPreviewCardBlock(node, block);
   if (block.type === "audio") return renderMessengerPreviewAudioBlock(block);
 
   const label = messageNodeContentChips({ ...node, contentBlocks: [block] }).join(" · ");
@@ -13032,6 +13102,28 @@ function renderMessengerPreviewImageBlock(node, block = {}) {
     <div class="messenger-preview-image-card ${buttons.length ? "has-buttons" : ""}">
       <div class="messenger-preview-image ${imageUrl ? "has-image" : "empty"}">
         ${imageUrl ? `<img src="${attr(imageUrl)}" alt="${attr(block.title || "Imagem da mensagem")}" loading="lazy" draggable="false" />` : icons.image}
+      </div>
+      ${
+        buttons.length
+          ? `<div class="messenger-preview-image-buttons">${buttons.map((option) => renderMessengerPreviewImageButton(node, block, option)).join("")}</div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderMessengerPreviewCardBlock(node, block = {}) {
+  const imageUrl = String(block.url || "").trim();
+  const buttons = Array.isArray(block.buttons) ? block.buttons : [];
+  const aspect = normalizeCardImageAspectRatio(block.imageAspectRatio);
+  return `
+    <div class="messenger-preview-card-block aspect-${attr(aspect)} ${buttons.length ? "has-buttons" : ""}">
+      <div class="messenger-preview-card-image ${imageUrl ? "has-image" : "empty"}">
+        ${imageUrl ? `<img src="${attr(imageUrl)}" alt="${attr(block.title || "Imagem do cartao")}" loading="lazy" draggable="false" />` : icons.image}
+      </div>
+      <div class="messenger-preview-card-copy">
+        <strong>${escapeHtml(block.title || "Inserir titulo...")}</strong>
+        <span>${escapeHtml(block.subtitle || "Inserir Legenda...")}</span>
       </div>
       ${
         buttons.length

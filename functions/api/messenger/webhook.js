@@ -2179,6 +2179,7 @@ function normalizeNodeShape(node) {
       url: block.url || "",
       title: block.title || "",
       subtitle: block.subtitle || "",
+      imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio || block.image_aspect_ratio),
       fileName: block.fileName || "",
       fieldName: block.fieldName || "",
       endpoint: block.endpoint || "",
@@ -2260,6 +2261,10 @@ function normalizeMessageOptions(options, prefix) {
       };
     })
     .filter((option) => option.title);
+}
+
+function normalizeCardImageAspectRatio(value) {
+  return String(value || "horizontal").trim() === "square" ? "square" : "horizontal";
 }
 
 function conditionMatchesNode(node, context = {}) {
@@ -2641,16 +2646,25 @@ function repliesForMessageNode(node, context = {}) {
           tracking
         };
       }
-      if ((block.type === "card" || block.type === "gallery") && (block.title || block.url)) {
+      if ((block.type === "card" || block.type === "gallery") && (block.title || block.subtitle || block.url || block.buttons?.length)) {
         return {
           type: "generic",
           tracking,
+          imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio),
           elements: [
             {
               title: resolveTemplate(block.title || "Card", context.contact, context.entry),
               subtitle: resolveTemplate(block.subtitle || "", context.contact, context.entry),
               image_url: resolveTemplate(block.url || "", context.contact, context.entry),
-              buttons
+              buttons: (block.buttons || []).map((option) => ({
+                id: option.id || "",
+                title: resolveTemplate(option.title, context.contact, context.entry),
+                type: option.type || "url",
+                url: resolveTemplate(option.url, context.contact, context.entry),
+                phone: option.phone || "",
+                payload: option.payload || option.id || option.title,
+                tracking
+              }))
             }
           ]
         };
@@ -2823,6 +2837,7 @@ async function messengerMessagePayload(reply, env, pageId, psid, pageAccessToken
       type: "template",
       payload: {
         template_type: "generic",
+        image_aspect_ratio: normalizeCardImageAspectRatio(reply.imageAspectRatio),
         elements: await Promise.all(
           reply.elements.slice(0, 10).map(async (element) => ({
             title: String(element.title || "Card").slice(0, 80),

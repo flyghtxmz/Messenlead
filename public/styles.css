@@ -2436,6 +2436,71 @@ svg {
   -webkit-user-drag: none;
 }
 
+.messenger-preview-card-block {
+  display: grid;
+  overflow: visible;
+  border-radius: 9px;
+  background: #f8f9fb;
+}
+
+.messenger-preview-card-image {
+  display: grid;
+  aspect-ratio: 1.91 / 1;
+  min-height: 82px;
+  max-height: 148px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 9px 9px 0 0;
+  background: #f2f0ff;
+  color: #8b92a0;
+}
+
+.messenger-preview-card-block.aspect-square .messenger-preview-card-image {
+  aspect-ratio: 1 / 1;
+  max-height: 190px;
+}
+
+.messenger-preview-card-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.messenger-preview-card-image.empty svg {
+  width: 20px;
+  height: 20px;
+}
+
+.messenger-preview-card-copy {
+  display: grid;
+  gap: 3px;
+  min-height: 52px;
+  padding: 8px 9px;
+  background: #fff;
+}
+
+.messenger-preview-card-copy strong,
+.messenger-preview-card-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messenger-preview-card-copy strong {
+  color: #202832;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.messenger-preview-card-copy span {
+  color: #667085;
+  font-size: 11px;
+}
+
 .messenger-preview-audio-card {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
@@ -7768,6 +7833,125 @@ svg {
 
 .manychat-audio-player audio {
   width: 100%;
+}
+
+.manychat-card-widget {
+  position: relative;
+  display: grid;
+  overflow: visible;
+  border: 1px dashed #d1d7de;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.manychat-card-aspect-toggle {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px 7px;
+  border: 1px solid #d4dbe4;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  transform: translateX(-50%);
+}
+
+.manychat-card-aspect-toggle button {
+  display: grid;
+  width: 22px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #8a94a3;
+}
+
+.manychat-card-aspect-toggle button.active {
+  color: #0877ff;
+}
+
+.card-aspect-icon {
+  display: block;
+  border: 1.6px solid currentColor;
+  border-radius: 1px;
+}
+
+.card-aspect-icon.square {
+  width: 11px;
+  height: 11px;
+}
+
+.card-aspect-icon.horizontal {
+  width: 14px;
+  height: 9px;
+}
+
+.manychat-card-media {
+  display: grid;
+  aspect-ratio: 1.91 / 1;
+  min-height: 118px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+  background: #f2f0ff;
+}
+
+.manychat-card-widget.aspect-square .manychat-card-media {
+  aspect-ratio: 1 / 1;
+}
+
+.manychat-card-widget.is-empty .manychat-card-media {
+  gap: 6px;
+  padding: 16px 14px;
+}
+
+.manychat-card-image-button {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.manychat-card-image-button img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.manychat-card-copy {
+  display: grid;
+  gap: 7px;
+  min-height: 86px;
+  padding: 12px 10px;
+  border-top: 1px solid #eef1f4;
+}
+
+.manychat-card-copy input {
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.manychat-card-copy input::placeholder {
+  color: #8b929c;
+}
+
+.manychat-card-copy input + input {
+  font-weight: 500;
 }
 
 .manychat-image-actions {
