@@ -2866,22 +2866,7 @@ async function messengerMessagePayload(reply, env, pageId, psid, pageAccessToken
         template_type: "generic",
         image_aspect_ratio: normalizeCardImageAspectRatio(reply.imageAspectRatio),
         elements: await Promise.all(
-          reply.elements.slice(0, 10).map(async (element) => {
-            const defaultAction = await messengerDefaultAction(
-              element.default_action_url || element.defaultActionUrl,
-              element.defaultActionTracking || element.tracking || reply.tracking,
-              env,
-              pageId,
-              psid
-            );
-            return {
-              title: String(element.title || "Card").slice(0, 80),
-              subtitle: String(element.subtitle || "").slice(0, 80),
-              image_url: element.image_url || undefined,
-              default_action: defaultAction,
-              buttons: await messengerButtons(element.buttons || [], env, pageId, psid)
-            };
-          })
+          reply.elements.slice(0, 10).map((element) => messengerGenericElement(element, reply, env, pageId, psid))
         )
       }
     };
@@ -2998,23 +2983,59 @@ async function messengerButtons(buttons = [], env, pageId, psid) {
   }));
 }
 
+async function messengerGenericElement(element = {}, reply = {}, env, pageId, psid) {
+  const payload = {
+    title: (String(element.title || "").trim() || "Card").slice(0, 80)
+  };
+  const subtitle = String(element.subtitle || "").trim().slice(0, 80);
+  if (subtitle) payload.subtitle = subtitle;
+
+  const imageUrl = cleanHttpUrl(element.image_url || element.imageUrl);
+  if (imageUrl) payload.image_url = imageUrl;
+
+  const defaultAction = await messengerDefaultAction(
+    element.default_action_url || element.defaultActionUrl,
+    element.defaultActionTracking || element.tracking || reply.tracking,
+    env,
+    pageId,
+    psid
+  );
+  if (defaultAction) payload.default_action = defaultAction;
+
+  const buttons = (await messengerButtons(element.buttons || [], env, pageId, psid)).filter(Boolean).slice(0, 3);
+  if (buttons.length) payload.buttons = buttons;
+  return payload;
+}
+
 async function messengerDefaultAction(url, tracking = {}, env, pageId, psid) {
-  const value = String(url || "").trim();
+  const value = cleanHttpUrl(url);
   if (!value) return undefined;
   const contactToken = await createMessengerContactToken(env, pageId, psid);
+  const trackedUrl = cleanHttpUrl(await trackedMessengerUrl(value, {
+    pageId,
+    contactToken,
+    button: tracking?.button || "Cartao",
+    buttonId: tracking?.buttonId || "",
+    flowId: tracking?.flowId || "",
+    nodeId: tracking?.nodeId || "",
+    nodeNumber: tracking?.nodeNumber || "",
+    nodeTitle: tracking?.nodeTitle || ""
+  }, env));
+  if (!trackedUrl) return undefined;
   return {
     type: "web_url",
-    url: await trackedMessengerUrl(value, {
-      pageId,
-      contactToken,
-      button: tracking?.button || "Cartao",
-      buttonId: tracking?.buttonId || "",
-      flowId: tracking?.flowId || "",
-      nodeId: tracking?.nodeId || "",
-      nodeNumber: tracking?.nodeNumber || "",
-      nodeTitle: tracking?.nodeTitle || ""
-    }, env)
+    url: trackedUrl,
+    webview_height_ratio: "tall"
   };
+}
+
+function cleanHttpUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
 }
 
 async function trackedMessengerUrl(value, tracking = {}, env = {}) {
