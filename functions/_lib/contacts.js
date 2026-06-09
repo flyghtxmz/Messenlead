@@ -428,6 +428,7 @@ function isTechnicalContactName(value, psid = "") {
   const text = cleanName(value);
   if (!text) return true;
   if (psid && text === String(psid)) return true;
+  if (/^Contato(?: Messenger|\s+\d{1,12})$/i.test(text)) return true;
   return /^PSID[_:-]?\d+$/i.test(text) || /^\d{12,}$/.test(text);
 }
 

@@ -1419,6 +1419,7 @@ function isTechnicalContactName(value, psid = "") {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return true;
   if (psid && text === String(psid)) return true;
+  if (/^Contato(?: Messenger|\s+\d{1,12})$/i.test(text)) return true;
   return /^PSID[_:-]?\d+$/i.test(text) || /^\d{12,}$/.test(text);
 }
 
@@ -5390,7 +5391,8 @@ async function loadContactsForPage(pageId) {
   try {
     const result = await apiGet(`/api/contacts?pageId=${encodeURIComponent(normalizedPageId)}`);
     if (currentFlowPageId() !== normalizedPageId && activeView !== "subscribers") return;
-    mergeContactsForPage(normalizedPageId, result.contacts || []);
+    const mergedContacts = mergeContactsForPage(normalizedPageId, result.contacts || []);
+    mergeContactTagsIntoLibraryForPage(normalizedPageId, mergedContacts);
     contactStore.serverAvailable = true;
     contactStore.status = "Contatos no D1";
     persistLocalState();
@@ -5408,6 +5410,7 @@ async function loadContactsForPage(pageId) {
 function mergeContactsForPage(pageId, contacts) {
   const normalizedPageId = normalizeFlowPageId(pageId);
   const byKey = new Map(state.contacts.map((contact) => [`${normalizeFlowPageId(contact.pageId)}:${contact.psid}`, contact]));
+  const mergedContacts = [];
 
   contacts.forEach((contact) => {
     const normalized = normalizeContactRecord(contact, normalizedPageId);
@@ -5417,10 +5420,35 @@ function mergeContactsForPage(pageId, contacts) {
       Object.assign(existing, normalized, {
         messages: existing.messages?.length ? existing.messages : normalized.messages
       });
+      mergedContacts.push(existing);
     } else {
       state.contacts.push(normalized);
+      mergedContacts.push(normalized);
     }
   });
+
+  return mergedContacts;
+}
+
+function mergeContactTagsIntoLibraryForPage(pageId, contacts = []) {
+  const normalizedPageId = normalizeFlowPageId(pageId);
+  const store = tagStoreForPage(normalizedPageId);
+  const existing = new Set(store.tags.map((tag) => normalizeTagKey(tag.name)));
+  let changed = false;
+
+  (Array.isArray(contacts) ? contacts : []).forEach((contact) => {
+    if (normalizeFlowPageId(contact?.pageId || normalizedPageId) !== normalizedPageId) return;
+    contactTags(contact).forEach((tagName) => {
+      const key = normalizeTagKey(tagName);
+      if (!key || existing.has(key)) return;
+      existing.add(key);
+      store.tags.push({ id: makeStableTagId(tagName), name: tagName, folderId: DEFAULT_TAG_FOLDER_ID });
+      changed = true;
+    });
+  });
+
+  if (changed) store.tags = uniqueTagRecords(store.tags).sort((left, right) => left.name.localeCompare(right.name));
+  return changed;
 }
 
 function mergeConversationsAsContacts(pageId, pageName, conversations) {
