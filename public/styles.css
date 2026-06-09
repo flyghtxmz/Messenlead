@@ -2457,7 +2457,8 @@ svg {
 
 .messenger-preview-card-block.aspect-square .messenger-preview-card-image {
   aspect-ratio: 1 / 1;
-  max-height: 190px;
+  min-height: 0;
+  max-height: none;
 }
 
 .messenger-preview-card-image img {
