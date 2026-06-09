@@ -7164,7 +7164,6 @@ function renderManychatCardUrlPopover(block = {}) {
         <span>URL do site</span>
         <input data-message-block-field="cardUrl" data-block-id="${attr(block.id)}" value="${attr(block.cardUrl || "")}" placeholder="https://site.com/pagina" autofocus />
       </label>
-      <button type="button" data-action="close-message-card-url" title="Fechar editor de URL" aria-label="Fechar editor de URL">{}</button>
     </div>
   `;
 }

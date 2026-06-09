@@ -8096,6 +8096,10 @@ svg {
   font-size: 12px;
 }
 
+.manychat-card-url-popover {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .manychat-card-url-popover input {
   border-color: #0877ff;
 }
