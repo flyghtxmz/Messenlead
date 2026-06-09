@@ -11,12 +11,12 @@ const DEFAULT_TAG_FOLDER_NAME = "Tags";
 const DEFAULT_CUSTOM_FIELD_FOLDER = "Campos";
 const AD_TEST_CONTACT_TAG = "tester";
 const PIXEL_HEARTBEAT_STALE_MS = 90000;
-const META_THREAD_REFRESH_MS = 15000;
+const META_THREAD_REFRESH_MS = 45000;
 const CACHE_PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
 const CACHE_PAGES_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_FLOWS_TTL_MS = 10 * 60 * 1000;
-const CACHE_CONVERSATIONS_TTL_MS = 2 * 60 * 1000;
-const CACHE_MESSAGES_TTL_MS = 2 * 60 * 1000;
+const CACHE_CONVERSATIONS_TTL_MS = 15 * 60 * 1000;
+const CACHE_MESSAGES_TTL_MS = 10 * 60 * 1000;
 
 const navItems = [
   { id: "dashboard", label: "Painel", icon: "dashboard" },
@@ -511,6 +511,7 @@ window.setInterval(() => {
   const pageId = metaState.selectedPageId || state.settings.pageId;
   const conversationId = metaState.selectedConversationId;
   if (!pageId || !conversationId) return;
+  if (dashboardCacheAgeMs("messagesByConversation", conversationCacheKey(pageId, conversationId)) < META_THREAD_REFRESH_MS) return;
   loadMetaMessages(pageId, conversationId, { silent: true });
 }, META_THREAD_REFRESH_MS);
 
@@ -960,11 +961,21 @@ function cacheMapEntries(map) {
 }
 
 function getDashboardCache(section, key = "", ttl = 0) {
-  const bucket = dashboardCache[section];
-  const entry = key ? bucket?.[key] : bucket;
+  const entry = dashboardCacheEntry(section, key);
   if (!entry || typeof entry !== "object") return null;
   if (ttl && Date.now() - Number(entry.ts || 0) > ttl) return null;
   return entry.data ?? null;
+}
+
+function dashboardCacheEntry(section, key = "") {
+  const bucket = dashboardCache[section];
+  return key ? bucket?.[key] : bucket;
+}
+
+function dashboardCacheAgeMs(section, key = "") {
+  const entry = dashboardCacheEntry(section, key);
+  if (!entry?.ts) return Infinity;
+  return Date.now() - Number(entry.ts || 0);
 }
 
 function setDashboardCache(section, key, data) {
@@ -2086,11 +2097,8 @@ function renderPages() {
     Boolean(selectedPage?.id) && normalizeFlowPageId(metaState.conversationsPageId) === normalizeFlowPageId(selectedPage.id);
   const conversationsLoadingForSelectedPage =
     Boolean(selectedPage?.id) && normalizeFlowPageId(metaState.loadingConversationsPageId) === normalizeFlowPageId(selectedPage.id);
-  const conversationsFromCacheForSelectedPage =
-    conversationsBelongToSelectedPage && normalizeFlowPageId(metaState.conversationsFromCachePageId) === normalizeFlowPageId(selectedPage.id);
-
-  if (selectedPage && ((!metaState.conversations || !conversationsBelongToSelectedPage) || conversationsFromCacheForSelectedPage) && !conversationsLoadingForSelectedPage) {
-    loadMetaConversations(selectedPage.id, { force: conversationsFromCacheForSelectedPage });
+  if (selectedPage && (!metaState.conversations || !conversationsBelongToSelectedPage) && !conversationsLoadingForSelectedPage) {
+    loadMetaConversations(selectedPage.id);
   }
 
   if (selectedPage && flowStore.pageId !== normalizeFlowPageId(selectedPage.id) && !flowStore.loading) {
@@ -5013,7 +5021,11 @@ async function loadMetaPages(options = {}) {
 async function loadMetaConversations(pageId, options = {}) {
   const requestedPageId = normalizeFlowPageId(pageId);
   if (!options.force && normalizeFlowPageId(metaState.conversationsPageId) !== requestedPageId) {
-    hydrateCachedConversationsForPage(requestedPageId);
+    const hydrated = hydrateCachedConversationsForPage(requestedPageId);
+    if (hydrated) {
+      render();
+      return;
+    }
   }
   metaState.loadingConversationsPageId = requestedPageId;
 
@@ -5109,7 +5121,11 @@ function refreshBroadcastEligibility() {
 async function loadMetaMessages(pageId, conversationId, options = {}) {
   if (metaState.loadingMessages && options.silent) return;
   if (!options.force && !options.silent && !metaState.messages) {
-    hydrateCachedMessagesForConversation(pageId, conversationId);
+    const hydrated = hydrateCachedMessagesForConversation(pageId, conversationId);
+    if (hydrated) {
+      render();
+      return;
+    }
   }
   metaState.loadingMessages = true;
   let shouldRenderAfterLoad = true;
@@ -5490,9 +5506,8 @@ function selectMetaConversation(conversationId) {
   metaState.pixelEvents = null;
   metaState.attributionEvents = null;
   metaState.unreadAnchorId = "";
-  const hadCachedMessages = hydrateCachedMessagesForConversation(pageId, conversationId);
+  hydrateCachedMessagesForConversation(pageId, conversationId);
   render();
-  if (hadCachedMessages) loadMetaMessages(pageId, conversationId, { silent: true, force: true });
 }
 
 async function sendMetaMessage() {
