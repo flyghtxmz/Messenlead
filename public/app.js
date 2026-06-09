@@ -354,6 +354,8 @@ let messageButtonEditorOptionId = "";
 let messageBlockFocusId = "";
 let messageImageUrlEditorBlockId = "";
 let messageImageUrlPopoverPosition = null;
+let messageCardUrlEditorBlockId = "";
+let messageCardUrlPopoverPosition = null;
 let messageMorePanelOpen = false;
 let messageMorePanelPosition = null;
 let messageBlockDragId = "";
@@ -1542,6 +1544,8 @@ function editPublishedFlow() {
   messageButtonEditorOptionId = "";
   messageImageUrlEditorBlockId = "";
   messageImageUrlPopoverPosition = null;
+  messageCardUrlEditorBlockId = "";
+  messageCardUrlPopoverPosition = null;
   messageMorePanelOpen = false;
   messageMorePanelPosition = null;
   showInspector = false;
@@ -1575,6 +1579,7 @@ function normalizeNodeStructure(node) {
       type: block.type || "text",
       text: block.text ?? (block.type === "text" ? node.message || "" : ""),
       url: block.url || "",
+      cardUrl: block.cardUrl || block.defaultActionUrl || block.default_action_url || block.itemUrl || "",
       title: block.title || "",
       subtitle: block.subtitle || "",
       imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio || block.image_aspect_ratio),
@@ -7146,6 +7151,18 @@ function renderManychatImageUrlPopover(block = {}) {
   `;
 }
 
+function renderManychatCardUrlPopover(block = {}) {
+  return `
+    <div class="manychat-image-url-popover manychat-card-url-popover"${renderMessageFloatingStyle(messageCardUrlPopoverPosition)}>
+      <label>
+        <span>URL do cartao</span>
+        <input data-message-block-field="cardUrl" data-block-id="${attr(block.id)}" value="${attr(block.cardUrl || "")}" placeholder="Digite a URL aqui..." autofocus />
+      </label>
+      <button type="button" data-action="close-message-card-url" title="Fechar editor de URL" aria-label="Fechar editor de URL">{}</button>
+    </div>
+  `;
+}
+
 function renderMessageContentBlock(flow, node, block) {
   const type = messageContentBlockTypes.find((item) => item.type === block.type) || messageContentBlockTypes[0];
   const removeButton = `<button class="mini-menu-button" type="button" data-action="remove-message-block" data-block-id="${attr(block.id)}" title="Remover bloco">&times;</button>`;
@@ -7276,7 +7293,7 @@ function renderManychatCardWidget(flow, node, block) {
         <div class="manychat-card-media">
           ${
             hasImage
-              ? `<button class="manychat-card-image-button" type="button" data-action="open-message-image-url" data-block-id="${attr(block.id)}" title="Editar URL da imagem"><img src="${attr(block.url)}" alt="${attr(block.title || "Imagem do cartao")}" loading="lazy" /></button>`
+              ? `<button class="manychat-card-image-button ${block.cardUrl ? "has-card-url" : ""}" type="button" data-action="open-message-card-url" data-block-id="${attr(block.id)}" title="Editar URL do cartao"><img src="${attr(block.url)}" alt="${attr(block.title || "Imagem do cartao")}" loading="lazy" /></button>`
               : `<span class="manychat-image-placeholder">${icons.image}</span>
                 <div class="manychat-image-actions">
                   <button type="button" data-action="choose-message-block-file" data-input-id="${attr(inputId)}">Enviar Imagem</button>
@@ -7293,6 +7310,7 @@ function renderManychatCardWidget(flow, node, block) {
         <input id="${attr(inputId)}" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/*" data-message-block-file="true" data-block-id="${attr(block.id)}" data-kind="image" hidden />
       </article>
       ${messageImageUrlEditorBlockId === block.id ? renderManychatImageUrlPopover(block) : ""}
+      ${messageCardUrlEditorBlockId === block.id ? renderManychatCardUrlPopover(block) : ""}
       ${renderManychatBlockControls(block)}
     </div>
   `;
@@ -8567,6 +8585,8 @@ function handleWorkspaceClick(event) {
     messageButtonEditorOptionId = "";
     messageImageUrlEditorBlockId = "";
     messageImageUrlPopoverPosition = null;
+    messageCardUrlEditorBlockId = "";
+    messageCardUrlPopoverPosition = null;
     messageMorePanelOpen = false;
     messageMorePanelPosition = null;
     triggerPickerNodeId = "";
@@ -8665,6 +8685,8 @@ function handleWorkspaceClick(event) {
     messageButtonEditorOptionId = "";
     messageImageUrlEditorBlockId = "";
     messageImageUrlPopoverPosition = null;
+    messageCardUrlEditorBlockId = "";
+    messageCardUrlPopoverPosition = null;
     messageMorePanelOpen = false;
     messageMorePanelPosition = null;
     showInspector = true;
@@ -8689,6 +8711,8 @@ function handleWorkspaceClick(event) {
   if (action === "choose-message-block-file") return document.getElementById(button.dataset.inputId)?.click();
   if (action === "open-message-image-url") return openMessageImageUrlEditor(button.dataset.blockId, button);
   if (action === "close-message-image-url") return closeMessageImageUrlEditor();
+  if (action === "open-message-card-url") return openMessageCardUrlEditor(button.dataset.blockId, button);
+  if (action === "close-message-card-url") return closeMessageCardUrlEditor();
   if (action === "set-card-image-aspect") return setCardImageAspect(button.dataset.blockId, button.dataset.aspect);
   if (action === "toggle-message-more-panel") return toggleMessageMorePanel(button);
   if (action === "add-message-block-button") return addMessageBlockButton(button.dataset.blockId);
@@ -10146,6 +10170,8 @@ function closeInspectorPanel() {
   messageButtonEditorOptionId = "";
   messageImageUrlEditorBlockId = "";
   messageImageUrlPopoverPosition = null;
+  messageCardUrlEditorBlockId = "";
+  messageCardUrlPopoverPosition = null;
   messageMorePanelOpen = false;
   messageMorePanelPosition = null;
   triggerPickerNodeId = "";
@@ -10364,6 +10390,8 @@ function addMessageBlock(type) {
   messageMorePanelPosition = null;
   messageImageUrlEditorBlockId = "";
   messageImageUrlPopoverPosition = null;
+  messageCardUrlEditorBlockId = "";
+  messageCardUrlPopoverPosition = null;
   syncLegacyMessageFromBlocks(node);
   flow.updatedAt = new Date().toISOString();
   saveState();
@@ -10384,6 +10412,10 @@ function removeMessageBlock(blockId) {
   if (messageImageUrlEditorBlockId === blockId) {
     messageImageUrlEditorBlockId = "";
     messageImageUrlPopoverPosition = null;
+  }
+  if (messageCardUrlEditorBlockId === blockId) {
+    messageCardUrlEditorBlockId = "";
+    messageCardUrlPopoverPosition = null;
   }
   syncLegacyMessageFromBlocks(node);
   flow.updatedAt = new Date().toISOString();
@@ -10455,6 +10487,8 @@ function openMessageImageUrlEditor(blockId, anchorElement = null) {
     height: 116,
     fallbackTop: 160
   });
+  messageCardUrlEditorBlockId = "";
+  messageCardUrlPopoverPosition = null;
   messageMorePanelOpen = false;
   messageMorePanelPosition = null;
   render();
@@ -10463,6 +10497,27 @@ function openMessageImageUrlEditor(blockId, anchorElement = null) {
 function closeMessageImageUrlEditor() {
   messageImageUrlEditorBlockId = "";
   messageImageUrlPopoverPosition = null;
+  render();
+}
+
+function openMessageCardUrlEditor(blockId, anchorElement = null) {
+  messageCardUrlEditorBlockId = blockId || "";
+  messageCardUrlPopoverPosition = computeMessageFloatingPosition(anchorElement, {
+    anchorSelector: "[data-message-block-widget]",
+    width: 274,
+    height: 116,
+    fallbackTop: 160
+  });
+  messageImageUrlEditorBlockId = "";
+  messageImageUrlPopoverPosition = null;
+  messageMorePanelOpen = false;
+  messageMorePanelPosition = null;
+  render();
+}
+
+function closeMessageCardUrlEditor() {
+  messageCardUrlEditorBlockId = "";
+  messageCardUrlPopoverPosition = null;
   render();
 }
 
@@ -10491,6 +10546,8 @@ function toggleMessageMorePanel(anchorElement = null) {
     : null;
   messageImageUrlEditorBlockId = "";
   messageImageUrlPopoverPosition = null;
+  messageCardUrlEditorBlockId = "";
+  messageCardUrlPopoverPosition = null;
   render();
 }
 
@@ -10500,6 +10557,7 @@ function defaultMessageBlock(type) {
     type,
     text: type === "text" ? "Nova mensagem" : "",
     url: "",
+    cardUrl: "",
     title: "",
     subtitle: "",
     imageAspectRatio: type === "card" || type === "gallery" ? "horizontal" : "",
@@ -12432,6 +12490,8 @@ function clearCanvasSelection() {
   messageButtonEditorOptionId = "";
   messageImageUrlEditorBlockId = "";
   messageImageUrlPopoverPosition = null;
+  messageCardUrlEditorBlockId = "";
+  messageCardUrlPopoverPosition = null;
   messageMorePanelOpen = false;
   messageMorePanelPosition = null;
   triggerPickerNodeId = "";

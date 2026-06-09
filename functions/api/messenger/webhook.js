@@ -2177,6 +2177,7 @@ function normalizeNodeShape(node) {
       type: String(block.type || "text"),
       text: block.text || "",
       url: block.url || "",
+      cardUrl: block.cardUrl || block.defaultActionUrl || block.default_action_url || block.itemUrl || "",
       title: block.title || "",
       subtitle: block.subtitle || "",
       imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio || block.image_aspect_ratio),
@@ -2646,16 +2647,23 @@ function repliesForMessageNode(node, context = {}) {
           tracking
         };
       }
-      if ((block.type === "card" || block.type === "gallery") && (block.title || block.subtitle || block.url || block.buttons?.length)) {
+      if ((block.type === "card" || block.type === "gallery") && (block.title || block.subtitle || block.url || block.cardUrl || block.buttons?.length)) {
+        const cardTitle = resolveTemplate(block.title || "Card", context.contact, context.entry);
         return {
           type: "generic",
           tracking,
           imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio),
           elements: [
             {
-              title: resolveTemplate(block.title || "Card", context.contact, context.entry),
+              title: cardTitle,
               subtitle: resolveTemplate(block.subtitle || "", context.contact, context.entry),
               image_url: resolveTemplate(block.url || "", context.contact, context.entry),
+              default_action_url: resolveTemplate(block.cardUrl || "", context.contact, context.entry),
+              defaultActionTracking: {
+                ...tracking,
+                button: cardTitle || "Cartao",
+                buttonId: `card_${block.id || index}`
+              },
               buttons: (block.buttons || []).map((option) => ({
                 id: option.id || "",
                 title: resolveTemplate(option.title, context.contact, context.entry),
@@ -2839,12 +2847,22 @@ async function messengerMessagePayload(reply, env, pageId, psid, pageAccessToken
         template_type: "generic",
         image_aspect_ratio: normalizeCardImageAspectRatio(reply.imageAspectRatio),
         elements: await Promise.all(
-          reply.elements.slice(0, 10).map(async (element) => ({
-            title: String(element.title || "Card").slice(0, 80),
-            subtitle: String(element.subtitle || "").slice(0, 80),
-            image_url: element.image_url || undefined,
-            buttons: await messengerButtons(element.buttons || [], env, pageId, psid)
-          }))
+          reply.elements.slice(0, 10).map(async (element) => {
+            const defaultAction = await messengerDefaultAction(
+              element.default_action_url || element.defaultActionUrl,
+              element.defaultActionTracking || element.tracking || reply.tracking,
+              env,
+              pageId,
+              psid
+            );
+            return {
+              title: String(element.title || "Card").slice(0, 80),
+              subtitle: String(element.subtitle || "").slice(0, 80),
+              image_url: element.image_url || undefined,
+              default_action: defaultAction,
+              buttons: await messengerButtons(element.buttons || [], env, pageId, psid)
+            };
+          })
         )
       }
     };
@@ -2959,6 +2977,25 @@ async function messengerButtons(buttons = [], env, pageId, psid) {
       payload: String(button.payload || button.id || button.title || "NEXT").slice(0, 1000)
     };
   }));
+}
+
+async function messengerDefaultAction(url, tracking = {}, env, pageId, psid) {
+  const value = String(url || "").trim();
+  if (!value) return undefined;
+  const contactToken = await createMessengerContactToken(env, pageId, psid);
+  return {
+    type: "web_url",
+    url: await trackedMessengerUrl(value, {
+      pageId,
+      contactToken,
+      button: tracking?.button || "Cartao",
+      buttonId: tracking?.buttonId || "",
+      flowId: tracking?.flowId || "",
+      nodeId: tracking?.nodeId || "",
+      nodeNumber: tracking?.nodeNumber || "",
+      nodeTitle: tracking?.nodeTitle || ""
+    }, env)
+  };
 }
 
 async function trackedMessengerUrl(value, tracking = {}, env = {}) {
