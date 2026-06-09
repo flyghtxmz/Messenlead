@@ -1,6 +1,7 @@
 const STORAGE_KEY = "messenlead.messenger.workspace.v2";
 const APP_LOGIN_SESSION_KEY = "messenlead.app.login.v1";
 const ACTIVE_VIEW_KEY = "messenlead.active.view.v1";
+const SELECTED_META_PAGE_KEY = "messenlead.selected.meta.page.v1";
 const APP_LOGIN_EMAIL = "teste@facebook.com";
 const APP_LOGIN_PASSWORD = "facebook";
 const DASHBOARD_CACHE_KEY = "messenlead.dashboard.cache.v1";
@@ -294,6 +295,11 @@ const modalRoot = document.querySelector("#modalRoot");
 let appAuthenticated = localStorage.getItem(APP_LOGIN_SESSION_KEY) === "true";
 let appLoginError = "";
 let state = loadState();
+const persistedSelectedMetaPage = readPersistedSelectedMetaPage();
+if (persistedSelectedMetaPage?.pageId) {
+  state.settings.pageId = persistedSelectedMetaPage.pageId;
+  if (persistedSelectedMetaPage.pageName) state.settings.pageName = persistedSelectedMetaPage.pageName;
+}
 let dashboardCache = loadDashboardCache();
 let activeView = getInitialView();
 let selectedFlowId = state.flows[0]?.id;
@@ -963,6 +969,41 @@ function cacheMapEntries(map) {
   );
 }
 
+function readPersistedSelectedMetaPage() {
+  try {
+    const raw = localStorage.getItem(SELECTED_META_PAGE_KEY);
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith("{")) return { pageId: trimmed, pageName: "" };
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      const pageId = String(parsed.pageId || "").trim();
+      if (!pageId) return null;
+      return {
+        pageId,
+        pageName: String(parsed.pageName || "").trim()
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSelectedMetaPage(pageId, pageName = "") {
+  try {
+    localStorage.setItem(
+      SELECTED_META_PAGE_KEY,
+      JSON.stringify({
+        pageId: String(pageId || "").trim(),
+        pageName: String(pageName || "").trim()
+      })
+    );
+  } catch {
+    // The workspace state still carries the same selection as fallback.
+  }
+}
+
 function getDashboardCache(section, key = "", ttl = 0) {
   const entry = dashboardCacheEntry(section, key);
   if (!entry || typeof entry !== "object") return null;
@@ -1119,12 +1160,17 @@ function selectedMetaPageFrom(pages = metaState.pages || [], options = {}) {
   const list = Array.isArray(pages) ? pages : [];
   if (!list.length) return null;
 
+  const persistedPage = readPersistedSelectedMetaPage();
+  const persistedId = normalizeFlowPageId(persistedPage?.pageId);
   const selectedId = normalizeFlowPageId(metaState.selectedPageId);
   const savedId = normalizeFlowPageId(state.settings.pageId);
+  const persistedMatch = list.find((page) => normalizeFlowPageId(page.id) === persistedId) || null;
   const selectedPage = list.find((page) => normalizeFlowPageId(page.id) === selectedId) || null;
   const savedPage = list.find((page) => normalizeFlowPageId(page.id) === savedId) || null;
 
-  return options.preferSaved ? savedPage || selectedPage || list[0] : selectedPage || savedPage || list[0];
+  return options.preferSelected
+    ? selectedPage || persistedMatch || savedPage || list[0]
+    : persistedMatch || savedPage || selectedPage || list[0];
 }
 
 function applySelectedMetaPage(page) {
@@ -1139,6 +1185,7 @@ function applySelectedMetaPage(page) {
   metaState.selectedPageId = pageId;
   state.settings.pageId = pageId;
   if (pageName) state.settings.pageName = pageName;
+  persistSelectedMetaPage(pageId, pageName);
   return changed;
 }
 
@@ -1927,10 +1974,7 @@ function renderPageSwitcher() {
   if (!pageSwitcher) return;
 
   const pages = metaState.pages || [];
-  const selectedPage =
-    pages.find((page) => page.id === metaState.selectedPageId) ||
-    pages.find((page) => page.id === state.settings.pageId) ||
-    null;
+  const selectedPage = selectedMetaPageFrom(pages);
   const pageName = selectedPage?.name || state.settings.pageName || "Selecionar Página";
   const pageAvatar = renderPageAvatar(selectedPage, pageName);
   const selectedCount = pageContactCount(selectedPage?.id || currentFlowPageId());
@@ -5642,8 +5686,7 @@ function openPageFlow() {
   cacheCurrentPageFlows();
   const page = metaState.pages?.find((item) => item.id === metaState.selectedPageId);
   if (page) {
-    state.settings.pageId = page.id;
-    state.settings.pageName = page.name;
+    applySelectedMetaPage(page);
     setActiveFlowsForPage(page.id);
     persistLocalState();
     flowStore.pageId = "";
