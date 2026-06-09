@@ -13982,11 +13982,20 @@ function renderPixelConversationContent(event) {
       ${icons.pixel}
       <div>
         <strong>${escapeHtml(title)}</strong>
-        ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
+        ${detail ? renderPixelConversationDetail(detail) : ""}
         ${meta.length ? `<span class="pixel-chat-event-meta">${meta.map((item) => `<small>${escapeHtml(item)}</small>`).join("")}</span>` : ""}
       </div>
     </div>
   `;
+}
+
+function renderPixelConversationDetail(detail) {
+  const value = String(detail || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) {
+    return `<a class="pixel-chat-event-url" href="${attr(value)}" target="_blank" rel="noopener noreferrer">${escapeHtml(value)}</a>`;
+  }
+  return `<span class="pixel-chat-event-url">${escapeHtml(value)}</span>`;
 }
 
 function pixelConversationMeta(event) {

@@ -27,7 +27,7 @@ export async function onRequestGet(context) {
     }
   }
 
-  return loadingRedirectResponse(tracking.url);
+  return loadingRedirectResponse(tracking.url, request);
 }
 
 async function processMessengerLinkClick(env, tracking, request) {
@@ -39,9 +39,9 @@ async function processMessengerLinkClick(env, tracking, request) {
   return event;
 }
 
-function loadingRedirectResponse(destinationUrl) {
+function loadingRedirectResponse(destinationUrl, request = null) {
   const destination = String(destinationUrl || "");
-  return new Response(redirectHtml(destination), {
+  return new Response(redirectHtml(destination, redirectLocaleFromRequest(request)), {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
@@ -51,16 +51,19 @@ function loadingRedirectResponse(destinationUrl) {
   });
 }
 
-function redirectHtml(destination) {
+function redirectHtml(destination, locale) {
   const destinationJson = JSON.stringify(destination);
   const destinationAttr = escapeHtml(destination);
+  const htmlLang = escapeHtml(locale.htmlLang);
+  const title = escapeHtml(locale.title);
+  const label = escapeHtml(locale.label);
   return `<!doctype html>
-<html lang="pt-BR">
+<html lang="${htmlLang}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="refresh" content="1;url=${destinationAttr}" />
-    <title>Redirecionando</title>
+    <title>${title}</title>
     <style>
       html, body {
         width: 100%;
@@ -100,7 +103,7 @@ function redirectHtml(destination) {
   <body>
     <main class="loader" aria-live="polite">
       <span class="spinner" aria-hidden="true"></span>
-      <span class="label">Redirecionando...</span>
+      <span class="label">${label}</span>
     </main>
     <script>
       const destination = ${destinationJson};
@@ -110,6 +113,79 @@ function redirectHtml(destination) {
     </script>
   </body>
 </html>`;
+}
+
+const REDIRECT_TEXT_BY_LANGUAGE = {
+  pt: { htmlLang: "pt-BR", title: "Redirecionando", label: "Redirecionando..." },
+  es: { htmlLang: "es", title: "Redirigiendo", label: "Redirigiendo..." },
+  en: { htmlLang: "en", title: "Redirecting", label: "Redirecting..." },
+  fr: { htmlLang: "fr", title: "Redirection", label: "Redirection..." },
+  de: { htmlLang: "de", title: "Weiterleitung", label: "Weiterleitung..." },
+  it: { htmlLang: "it", title: "Reindirizzamento", label: "Reindirizzamento..." },
+  nl: { htmlLang: "nl", title: "Doorsturen", label: "Doorsturen..." },
+  id: { htmlLang: "id", title: "Mengalihkan", label: "Mengalihkan..." },
+  tr: { htmlLang: "tr", title: "Yonlendiriliyor", label: "Yonlendiriliyor..." },
+  pl: { htmlLang: "pl", title: "Przekierowywanie", label: "Przekierowywanie..." }
+};
+
+const REDIRECT_LANGUAGE_BY_COUNTRY = {
+  AO: "pt",
+  BR: "pt",
+  CV: "pt",
+  GW: "pt",
+  MZ: "pt",
+  PT: "pt",
+  ST: "pt",
+  TL: "pt",
+  AR: "es",
+  BO: "es",
+  CL: "es",
+  CO: "es",
+  CR: "es",
+  CU: "es",
+  DO: "es",
+  EC: "es",
+  ES: "es",
+  GT: "es",
+  HN: "es",
+  MX: "es",
+  NI: "es",
+  PA: "es",
+  PE: "es",
+  PR: "es",
+  PY: "es",
+  SV: "es",
+  UY: "es",
+  VE: "es",
+  AU: "en",
+  GB: "en",
+  IE: "en",
+  NZ: "en",
+  US: "en",
+  FR: "fr",
+  MC: "fr",
+  SN: "fr",
+  DE: "de",
+  AT: "de",
+  IT: "it",
+  SM: "it",
+  NL: "nl",
+  ID: "id",
+  TR: "tr",
+  PL: "pl"
+};
+
+function redirectLocaleFromRequest(request = null) {
+  const country = String(request?.cf?.country || "").trim().toUpperCase();
+  const countryLanguage = REDIRECT_LANGUAGE_BY_COUNTRY[country];
+  if (REDIRECT_TEXT_BY_LANGUAGE[countryLanguage]) return REDIRECT_TEXT_BY_LANGUAGE[countryLanguage];
+
+  const acceptedLanguages = String(request?.headers?.get("accept-language") || "")
+    .split(",")
+    .map((item) => item.trim().split(";")[0].slice(0, 2).toLowerCase())
+    .filter(Boolean);
+  const browserLanguage = acceptedLanguages.find((language) => REDIRECT_TEXT_BY_LANGUAGE[language]);
+  return REDIRECT_TEXT_BY_LANGUAGE[browserLanguage] || REDIRECT_TEXT_BY_LANGUAGE.en;
 }
 
 function escapeHtml(value) {
