@@ -1579,7 +1579,7 @@ function normalizeNodeStructure(node) {
       type: block.type || "text",
       text: block.text ?? (block.type === "text" ? node.message || "" : ""),
       url: block.url || "",
-      cardUrl: block.cardUrl || block.defaultActionUrl || block.default_action_url || block.itemUrl || "",
+      cardUrl: normalizeCardClickUrl(block),
       title: block.title || "",
       subtitle: block.subtitle || "",
       imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio || block.image_aspect_ratio),
@@ -7139,6 +7139,12 @@ function normalizeCardImageAspectRatio(value) {
   return String(value || "horizontal").trim() === "square" ? "square" : "horizontal";
 }
 
+function normalizeCardClickUrl(block = {}) {
+  const mediaUrl = String(block.url || "").trim();
+  const explicitUrl = String(block.cardUrl || block.defaultActionUrl || block.default_action_url || block.itemUrl || "").trim();
+  return explicitUrl && explicitUrl !== mediaUrl ? explicitUrl : "";
+}
+
 function renderManychatImageUrlPopover(block = {}) {
   return `
     <div class="manychat-image-url-popover"${renderMessageFloatingStyle(messageImageUrlPopoverPosition)}>
@@ -7155,8 +7161,8 @@ function renderManychatCardUrlPopover(block = {}) {
   return `
     <div class="manychat-image-url-popover manychat-card-url-popover"${renderMessageFloatingStyle(messageCardUrlPopoverPosition)}>
       <label>
-        <span>URL do cartao</span>
-        <input data-message-block-field="cardUrl" data-block-id="${attr(block.id)}" value="${attr(block.cardUrl || "")}" placeholder="Digite a URL aqui..." autofocus />
+        <span>URL do site</span>
+        <input data-message-block-field="cardUrl" data-block-id="${attr(block.id)}" value="${attr(block.cardUrl || "")}" placeholder="https://site.com/pagina" autofocus />
       </label>
       <button type="button" data-action="close-message-card-url" title="Fechar editor de URL" aria-label="Fechar editor de URL">{}</button>
     </div>
@@ -7293,7 +7299,7 @@ function renderManychatCardWidget(flow, node, block) {
         <div class="manychat-card-media">
           ${
             hasImage
-              ? `<button class="manychat-card-image-button ${block.cardUrl ? "has-card-url" : ""}" type="button" data-action="open-message-card-url" data-block-id="${attr(block.id)}" title="Editar URL do cartao"><img src="${attr(block.url)}" alt="${attr(block.title || "Imagem do cartao")}" loading="lazy" /></button>`
+              ? `<button class="manychat-card-image-button ${block.cardUrl ? "has-card-url" : ""}" type="button" data-action="open-message-card-url" data-block-id="${attr(block.id)}" title="Editar URL do site"><img src="${attr(block.url)}" alt="${attr(block.title || "Imagem do cartao")}" loading="lazy" /></button>`
               : `<span class="manychat-image-placeholder">${icons.image}</span>
                 <div class="manychat-image-actions">
                   <button type="button" data-action="choose-message-block-file" data-input-id="${attr(inputId)}">Enviar Imagem</button>

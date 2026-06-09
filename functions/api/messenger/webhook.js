@@ -2177,7 +2177,7 @@ function normalizeNodeShape(node) {
       type: String(block.type || "text"),
       text: block.text || "",
       url: block.url || "",
-      cardUrl: block.cardUrl || block.defaultActionUrl || block.default_action_url || block.itemUrl || "",
+      cardUrl: normalizeCardClickUrl(block),
       title: block.title || "",
       subtitle: block.subtitle || "",
       imageAspectRatio: normalizeCardImageAspectRatio(block.imageAspectRatio || block.image_aspect_ratio),
@@ -2266,6 +2266,12 @@ function normalizeMessageOptions(options, prefix) {
 
 function normalizeCardImageAspectRatio(value) {
   return String(value || "horizontal").trim() === "square" ? "square" : "horizontal";
+}
+
+function normalizeCardClickUrl(block = {}) {
+  const mediaUrl = String(block.url || "").trim();
+  const explicitUrl = String(block.cardUrl || block.defaultActionUrl || block.default_action_url || block.itemUrl || "").trim();
+  return explicitUrl && explicitUrl !== mediaUrl ? explicitUrl : "";
 }
 
 function conditionMatchesNode(node, context = {}) {
