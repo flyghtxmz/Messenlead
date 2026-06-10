@@ -500,6 +500,64 @@ export async function resetFlowRuntimeState(env, options = {}) {
   };
 }
 
+export async function activeFlowRuntimeStatus(env, options = {}) {
+  const hasDb = await ensureFlowContinuationSchema(env);
+  if (!hasDb) return { active: false, continuations: 0, responseWaits: 0, linkClickWaits: 0 };
+
+  const pageId = normalizePageId(options.pageId);
+  const psid = String(options.psid || "").trim();
+  const flowId = String(options.flowId || "").trim();
+  if (!psid || !flowId) return { active: false, continuations: 0, responseWaits: 0, linkClickWaits: 0 };
+
+  await recoverStaleProcessingContinuations(env);
+  await cleanupFlowContinuations(env);
+  await cleanupFlowResponseWaits(env);
+  await cleanupFlowLinkClickWaits(env);
+
+  const [continuation, responseWait, linkClickWait] = await Promise.all([
+    env.DB.prepare(`
+      SELECT COUNT(*) AS count
+      FROM flow_continuations
+      WHERE page_id = ?
+        AND psid = ?
+        AND flow_id = ?
+        AND status IN ('scheduled', 'processing')
+    `)
+      .bind(pageId, psid, flowId)
+      .first(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS count
+      FROM flow_response_waits
+      WHERE page_id = ?
+        AND psid = ?
+        AND flow_id = ?
+        AND status = 'waiting'
+    `)
+      .bind(pageId, psid, flowId)
+      .first(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS count
+      FROM flow_link_click_waits
+      WHERE page_id = ?
+        AND psid = ?
+        AND flow_id = ?
+        AND status IN ('waiting', 'timeout_processing')
+    `)
+      .bind(pageId, psid, flowId)
+      .first()
+  ]);
+
+  const continuations = Number(continuation?.count || 0);
+  const responseWaits = Number(responseWait?.count || 0);
+  const linkClickWaits = Number(linkClickWait?.count || 0);
+  return {
+    active: continuations + responseWaits + linkClickWaits > 0,
+    continuations,
+    responseWaits,
+    linkClickWaits
+  };
+}
+
 export async function processFlowContinuations(env, processor, options = {}) {
   const hasDb = await ensureFlowContinuationSchema(env);
   if (!hasDb) return { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0, details: [] };

@@ -257,9 +257,9 @@ async function enqueueMessengerRepliesLocal(env, options = {}) {
 
   for (let index = 0; index < replies.length; index += 1) {
     const reply = replies[index];
-    const id = `msg_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
-    await env.DB.prepare(`
-      INSERT INTO messenger_send_queue (
+    const id = messengerQueueMessageId({ ...options, pageId, psid, flow }, reply, index);
+    const result = await env.DB.prepare(`
+      INSERT OR IGNORE INTO messenger_send_queue (
         id, page_id, psid, flow_id, flow_name, event_id, reply_json, messaging_type,
         status, attempts, max_attempts, not_before, policy_expires_at, last_error,
         response_json, created_at, updated_at, sent_at
@@ -282,19 +282,21 @@ async function enqueueMessengerRepliesLocal(env, options = {}) {
         now
       )
       .run();
-    await upsertOutboundMessage(env, {
-      id,
-      sourceQueueId: id,
-      pageId,
-      psid,
-      flow,
-      eventId: options.eventId || "",
-      reply,
-      replyIndex: index,
-      status: "queued",
-      createdAt: now,
-      updatedAt: now
-    });
+    if (Number(result.meta?.changes || 0) > 0) {
+      await upsertOutboundMessage(env, {
+        id,
+        sourceQueueId: id,
+        pageId,
+        psid,
+        flow,
+        eventId: options.eventId || "",
+        reply,
+        replyIndex: index,
+        status: "queued",
+        createdAt: now,
+        updatedAt: now
+      });
+    }
     queued.push(id);
   }
 
@@ -1415,6 +1417,25 @@ function externalRelayQueueId(eventId, index) {
   const stable = String(eventId || "").trim();
   if (stable) return `ext_${stableHash(stable)}_${index}`;
   return `ext_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`;
+}
+
+function messengerQueueMessageId(options = {}, reply = {}, index = 0) {
+  const eventId = String(options.eventId || "").trim();
+  if (!eventId) return `msg_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+
+  const flow = options.flow || {};
+  const tracking = reply?.tracking && typeof reply.tracking === "object" ? reply.tracking : {};
+  return `msg_${stableHash([
+    normalizePageId(options.pageId),
+    options.psid || "",
+    flow.id || tracking.flowId || "",
+    eventId,
+    tracking.nodeId || "",
+    tracking.executionStep || "",
+    index,
+    reply.type || "",
+    reply.attachmentType || ""
+  ].join(":"))}_${index}`;
 }
 
 function pickRelayTarget(targets, key, env = {}) {

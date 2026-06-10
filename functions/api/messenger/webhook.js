@@ -8,6 +8,7 @@ import { scheduleDelayWorkflow } from "../../_lib/flowDelayScheduler.js";
 import { attributionSourceKey, messengerEntryFromContext, recordMessengerAttribution } from "../../_lib/messengerAttribution.js";
 import { createMessengerContactToken, createMessengerLinkToken } from "../../_lib/pixel.js";
 import {
+  activeFlowRuntimeStatus,
   consumeFlowLinkClickWait,
   consumeFlowResponseWait,
   processFlowContinuations,
@@ -1128,6 +1129,23 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     hasAdReferral: Boolean(context.hasAdReferral),
     adId: context.adId || ""
   }, flow);
+
+  if (await shouldSkipFlowRestart(env, pageId, contact, flow, context, { manualFlowId, testFlowId, buttonFlowId })) {
+    const runtime = await activeFlowRuntimeStatus(env, {
+      pageId,
+      psid: contact?.psid || "",
+      flowId: flow.id
+    });
+    await log?.("info", "flow_already_running", "Fluxo ja esta em andamento para este contato; novo gatilho foi ignorado para evitar repeticao.", {
+      flowId: flow.id,
+      flowName: flow.name || "",
+      eventType: context.eventType || "",
+      continuations: runtime.continuations,
+      responseWaits: runtime.responseWaits,
+      linkClickWaits: runtime.linkClickWaits
+    }, flow);
+    return { replies: [], actions: [], flow, skipReason: "flow_already_running" };
+  }
 
   if (!context.dryRun) {
     const clickedOptionFlow = flows.find((item) => item.status === "active" && matchingFlowMessageOption(item, context)) || flow;
@@ -2720,6 +2738,19 @@ function requestedButtonFlowId(context = {}) {
   const prefix = "MESSENLEAD_START_FLOW:";
   const payload = String(context.text || "").trim();
   return payload.startsWith(prefix) ? payload.slice(prefix.length).trim() : "";
+}
+
+async function shouldSkipFlowRestart(env, pageId, contact = {}, flow = {}, context = {}, route = {}) {
+  if (context.dryRun || route.manualFlowId || route.testFlowId || route.buttonFlowId) return false;
+  if (!flow?.id || !contact?.psid) return false;
+  if (["postback", "quick_reply"].includes(context.eventType) && matchingFlowMessageOption(flow, context)) return false;
+
+  const runtime = await activeFlowRuntimeStatus(env, {
+    pageId,
+    psid: contact.psid,
+    flowId: flow.id
+  });
+  return runtime.active;
 }
 
 function triggerMatchesEvent(node, flow, context) {
