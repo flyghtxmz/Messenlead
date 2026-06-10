@@ -13,21 +13,13 @@ export async function onRequestPost({ request, env }) {
     body = {};
   }
 
-  const continuations = await processMessengerFlowContinuations(env, {
+  return processQueueRequest(env, {
     pageId: body.pageId || "",
     continuationId: body.continuationId || "",
-    limit: body.continuationLimit || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT || 8
+    continuationLimit: body.continuationLimit || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT || 8,
+    linkClickTimeoutLimit: body.linkClickTimeoutLimit || env.MESSENLEAD_LINK_CLICK_TIMEOUT_LIMIT || 8,
+    sendLimit: body.limit || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 12
   });
-  const linkClickTimeouts = await processMessengerLinkClickTimeouts(env, {
-    pageId: body.pageId || "",
-    limit: body.linkClickTimeoutLimit || env.MESSENLEAD_LINK_CLICK_TIMEOUT_LIMIT || 8
-  });
-  const result = await processMessengerSendQueue(env, {
-    pageId: body.pageId || "",
-    limit: body.limit || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 12
-  });
-
-  return json({ ok: true, continuations, linkClickTimeouts, result });
 }
 
 export async function onRequestGet({ request, env }) {
@@ -35,21 +27,71 @@ export async function onRequestGet({ request, env }) {
   if (auth) return auth;
 
   const url = new URL(request.url);
-  const continuations = await processMessengerFlowContinuations(env, {
+
+  return processQueueRequest(env, {
     pageId: url.searchParams.get("pageId") || "",
     continuationId: url.searchParams.get("continuationId") || "",
-    limit: url.searchParams.get("continuationLimit") || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT || 8
+    continuationLimit: url.searchParams.get("continuationLimit") || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT || 8,
+    linkClickTimeoutLimit: url.searchParams.get("linkClickTimeoutLimit") || env.MESSENLEAD_LINK_CLICK_TIMEOUT_LIMIT || 8,
+    sendLimit: url.searchParams.get("limit") || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 12
   });
-  const linkClickTimeouts = await processMessengerLinkClickTimeouts(env, {
-    pageId: url.searchParams.get("pageId") || "",
-    limit: url.searchParams.get("linkClickTimeoutLimit") || env.MESSENLEAD_LINK_CLICK_TIMEOUT_LIMIT || 8
-  });
-  const result = await processMessengerSendQueue(env, {
-    pageId: url.searchParams.get("pageId") || "",
-    limit: url.searchParams.get("limit") || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 12
-  });
+}
 
-  return json({ ok: true, continuations, linkClickTimeouts, result });
+async function processQueueRequest(env, options = {}) {
+  const pageId = options.pageId || "";
+  const continuationId = String(options.continuationId || "").trim();
+  const stages = {};
+  const errors = [];
+
+  const continuations = await runQueueStage("continuations", errors, () =>
+    processMessengerFlowContinuations(env, {
+      pageId,
+      continuationId,
+      limit: options.continuationLimit || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT || 8
+    })
+  );
+  stages.continuations = continuations;
+
+  if (!continuationId) {
+    stages.linkClickTimeouts = await runQueueStage("linkClickTimeouts", errors, () =>
+      processMessengerLinkClickTimeouts(env, {
+        pageId,
+        limit: options.linkClickTimeoutLimit || env.MESSENLEAD_LINK_CLICK_TIMEOUT_LIMIT || 8
+      })
+    );
+
+    stages.result = await runQueueStage("sendQueue", errors, () =>
+      processMessengerSendQueue(env, {
+        pageId,
+        limit: options.sendLimit || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 12
+      })
+    );
+  } else {
+    stages.linkClickTimeouts = { skipped: true, reason: "continuation_id_request" };
+    stages.result = { skipped: true, reason: "continuation_id_request" };
+  }
+
+  const continuationFailed = errors.some((error) => error.stage === "continuations");
+  return json({
+    ok: !continuationFailed,
+    continuationId,
+    continuations: stages.continuations,
+    linkClickTimeouts: stages.linkClickTimeouts,
+    result: stages.result,
+    errors
+  }, continuationFailed ? 500 : 200);
+}
+
+async function runQueueStage(stage, errors, fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    errors.push({
+      stage,
+      message: String(error?.message || error || "Queue stage failed").slice(0, 1000)
+    });
+    return { error: String(error?.message || error || "Queue stage failed").slice(0, 1000) };
+  }
 }
 
 async function authorizeQueueRequest(request, env) {

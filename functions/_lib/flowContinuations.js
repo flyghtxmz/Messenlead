@@ -496,6 +496,7 @@ export async function processFlowContinuations(env, processor, options = {}) {
   const hasDb = await ensureFlowContinuationSchema(env);
   if (!hasDb) return { processed: 0, resumed: 0, scheduled: 0, skipped: 0, retried: 0, failed: 0, details: [] };
 
+  await recoverStaleProcessingContinuations(env);
   await cleanupFlowContinuations(env);
 
   const limit = clampNumber(options.limit || env.MESSENLEAD_FLOW_CONTINUATION_LIMIT, 1, 25, DEFAULT_LIMIT);
@@ -652,6 +653,35 @@ async function claimContinuation(env, id) {
   return Number(result.meta?.changes || 0) > 0;
 }
 
+async function recoverStaleProcessingContinuations(env) {
+  const timeoutMs = processingTimeoutMs(env);
+  const staleBefore = new Date(Date.now() - timeoutMs).toISOString();
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(`
+    UPDATE flow_continuations
+    SET status = CASE
+          WHEN attempts + 1 >= max_attempts THEN 'failed'
+          ELSE 'scheduled'
+        END,
+        attempts = attempts + 1,
+        due_at = CASE
+          WHEN attempts + 1 >= max_attempts THEN due_at
+          ELSE ?
+        END,
+        last_error = CASE
+          WHEN attempts + 1 >= max_attempts THEN 'Stale processing continuation reached max attempts'
+          ELSE 'Recovered stale processing continuation'
+        END,
+        updated_at = ?
+    WHERE status = 'processing'
+      AND datetime(updated_at) < datetime(?)
+  `)
+    .bind(now, now, staleBefore)
+    .run()
+    .catch(() => null);
+}
+
 async function claimLinkClickTimeout(env, id) {
   const result = await env.DB.prepare(`
     UPDATE flow_link_click_waits
@@ -727,7 +757,6 @@ async function cleanupFlowResponseWaits(env) {
     WHERE status = 'waiting'
       AND expires_at <> ''
       AND datetime(expires_at) < datetime(?)
-      AND (timeout_resume_node_id IS NULL OR timeout_resume_node_id = '')
   `)
     .bind(now, now)
     .run()
@@ -991,6 +1020,12 @@ function normalizeIso(value) {
 
 function retryDelayMs(attempts) {
   return [5000, 30000, 120000, 300000, 900000][Math.max(0, Math.min(4, attempts - 1))];
+}
+
+function processingTimeoutMs(env = {}) {
+  const value = Number(env.MESSENLEAD_FLOW_CONTINUATION_PROCESSING_TIMEOUT_MS || 5 * 60 * 1000);
+  if (!Number.isFinite(value)) return 5 * 60 * 1000;
+  return Math.max(60 * 1000, Math.min(30 * 60 * 1000, Math.floor(value)));
 }
 
 function clampNumber(value, min, max, fallback) {
