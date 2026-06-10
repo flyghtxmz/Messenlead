@@ -344,7 +344,9 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     ? await buildReplies(flowContext, env, pageId, contact, log)
     : (await buildRepliesFromResponseWait(flowContext, env, pageId, contact, log)) ||
       (await buildReplies(flowContext, env, pageId, contact, log));
-  const { replies, actions, flow, continuation, responseWait, linkClickWait, skipReason } = execution;
+  const { replies, actions, flow, responseWait, linkClickWait, skipReason } = execution;
+  let continuation = execution.continuation || null;
+  const pendingContinuation = execution.pendingContinuation || null;
   if (actions.length && isDryRun) {
     await log("info", "test_actions_prepared", "Teste preparou acoes, mas nao alterou o contato real.", { actions }, flow);
   } else if (actions.length) {
@@ -381,6 +383,9 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
   }
 
   if (!replies.length) {
+    if (!continuation && pendingContinuation) {
+      continuation = await schedulePendingFlowContinuation(env, pendingContinuation, log);
+    }
     if (continuation) {
       await log("info", "flow_waiting", "Fluxo pausado até o bloco de espera vencer.", {
         continuationId: continuation.id,
@@ -434,6 +439,18 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     })
     : { processed: 0, sent: 0, retried: 0, skipped: 0, failed: 0, externalRelay: queued.some(isExternalRelayQueueId) };
   await log("info", "queue_drain_finished", "Processamento imediato da fila finalizado.", drain, flow);
+
+  if (!continuation && pendingContinuation) {
+    continuation = await schedulePendingFlowContinuation(env, pendingContinuation, log);
+    if (continuation) {
+      await log("info", "flow_waiting", "Fluxo pausado ate o bloco de espera vencer.", {
+        continuationId: continuation.id,
+        dueAt: continuation.dueAt,
+        resumeNodeId: continuation.resumeNodeId
+      }, flow);
+    }
+  }
+
   return {
     ok: true,
     status: "queued",
@@ -442,7 +459,8 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
     queuedCount: queued.length,
     queueIds: queued,
     drain,
-    flowId: flow?.id || ""
+    flowId: flow?.id || "",
+    continuationId: continuation?.id || ""
   };
 }
 
@@ -502,6 +520,8 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       flow: activeFlow,
       start
     });
+    let nextContinuation = result.continuation || null;
+    const pendingContinuation = result.pendingContinuation || null;
 
     if (result.actions.length) {
       await applyContactActions(env, pageId, psid, result.actions, {
@@ -541,6 +561,17 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       }
     }
 
+    if (!nextContinuation && pendingContinuation) {
+      nextContinuation = await schedulePendingFlowContinuation(env, pendingContinuation, log);
+      if (nextContinuation) {
+        await log("info", "flow_waiting", "Fluxo pausado ate o bloco de espera vencer apos retomada.", {
+          continuationId: nextContinuation.id,
+          dueAt: nextContinuation.dueAt,
+          resumeNodeId: nextContinuation.resumeNodeId
+        }, activeFlow);
+      }
+    }
+
     if (result.responseWait) {
       await log("info", "flow_waiting_for_response", "Fluxo pausado ate o contato responder apos a retomada.", {
         responseWaitId: result.responseWait.id,
@@ -560,7 +591,7 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       }, activeFlow);
     }
 
-    if (!result.replies.length && !result.continuation && !result.responseWait && !result.linkClickWait) {
+    if (!result.replies.length && !nextContinuation && !pendingContinuation && !result.responseWait && !result.linkClickWait) {
       await log("warn", "no_replies", "Retomada do fluxo terminou sem resposta para enviar.", {
         continuationId: continuation.id,
         actions: result.actions
@@ -569,7 +600,7 @@ export async function processMessengerFlowContinuations(env, options = {}) {
 
     return {
       status: "processed",
-      continuation: result.continuation,
+      continuation: nextContinuation,
       responseWait: result.responseWait,
       linkClickWait: result.linkClickWait,
       replyCount: result.replies.length,
@@ -638,6 +669,8 @@ export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
     flow: activeFlow,
     start
   });
+  let continuation = result.continuation || null;
+  const pendingContinuation = result.pendingContinuation || null;
 
   if (result.actions.length) {
     await applyContactActions(env, pageId, psid, result.actions, {
@@ -676,11 +709,15 @@ export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
     }
   }
 
-  if (result.continuation) {
+  if (!continuation && pendingContinuation) {
+    continuation = await schedulePendingFlowContinuation(env, pendingContinuation, log);
+  }
+
+  if (continuation) {
     await log("info", "flow_waiting", "Fluxo pausado ate o bloco de espera vencer apos clique.", {
-      continuationId: result.continuation.id,
-      dueAt: result.continuation.dueAt,
-      resumeNodeId: result.continuation.resumeNodeId
+      continuationId: continuation.id,
+      dueAt: continuation.dueAt,
+      resumeNodeId: continuation.resumeNodeId
     }, activeFlow);
   }
 
@@ -703,7 +740,7 @@ export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
     }, activeFlow);
   }
 
-  if (!result.replies.length && !result.continuation && !result.responseWait && !result.linkClickWait) {
+  if (!result.replies.length && !continuation && !pendingContinuation && !result.responseWait && !result.linkClickWait) {
     await log("warn", "no_replies", "Retomada por clique terminou sem resposta para enviar.", {
       linkClickWaitId: wait.id,
       actions: result.actions
@@ -714,7 +751,7 @@ export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
     processed: true,
     replies: result.replies.length,
     actions: result.actions.length,
-    continuation: result.continuation || null,
+    continuation,
     responseWait: result.responseWait || null,
     linkClickWait: result.linkClickWait || null
   };
@@ -797,6 +834,8 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
     flow: activeFlow,
     start
   });
+  let continuation = result.continuation || null;
+  const pendingContinuation = result.pendingContinuation || null;
 
   if (result.actions.length) {
     await applyContactActions(env, pageId, psid, result.actions, {
@@ -850,11 +889,22 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
     }
   }
 
+  if (!continuation && pendingContinuation) {
+    continuation = await schedulePendingFlowContinuation(env, pendingContinuation, log);
+    if (continuation) {
+      await log("info", "flow_waiting", "Fluxo pausado ate o bloco de espera vencer apos clique no botao de URL.", {
+        continuationId: continuation.id,
+        dueAt: continuation.dueAt,
+        resumeNodeId: continuation.resumeNodeId
+      }, activeFlow);
+    }
+  }
+
   return {
     processed: true,
     replies: result.replies.length,
     actions: result.actions.length,
-    continuation: result.continuation || null,
+    continuation,
     responseWait: result.responseWait || null,
     linkClickWait: result.linkClickWait || null
   };
@@ -914,6 +964,8 @@ export async function processMessengerLinkClickTimeouts(env, options = {}) {
       flow: activeFlow,
       start
     });
+    let continuation = result.continuation || null;
+    const pendingContinuation = result.pendingContinuation || null;
 
     if (result.actions.length) {
       await applyContactActions(env, pageId, psid, result.actions, {
@@ -952,7 +1004,18 @@ export async function processMessengerLinkClickTimeouts(env, options = {}) {
       }
     }
 
-    if (!result.replies.length && !result.continuation && !result.responseWait && !result.linkClickWait) {
+    if (!continuation && pendingContinuation) {
+      continuation = await schedulePendingFlowContinuation(env, pendingContinuation, log);
+      if (continuation) {
+        await log("info", "flow_waiting", "Fluxo pausado ate o bloco de espera vencer apos saida Nao clicou.", {
+          continuationId: continuation.id,
+          dueAt: continuation.dueAt,
+          resumeNodeId: continuation.resumeNodeId
+        }, activeFlow);
+      }
+    }
+
+    if (!result.replies.length && !continuation && !pendingContinuation && !result.responseWait && !result.linkClickWait) {
       await log("warn", "no_replies", "Saida Nao clicou terminou sem resposta para enviar.", {
         linkClickWaitId: wait.id,
         actions: result.actions
@@ -961,7 +1024,7 @@ export async function processMessengerLinkClickTimeouts(env, options = {}) {
 
     return {
       status: "processed",
-      continuation: result.continuation || null,
+      continuation,
       responseWait: result.responseWait || null,
       linkClickWait: result.linkClickWait || null
     };
@@ -1269,6 +1332,65 @@ async function buildRepliesFromResponseWait(context, env, pageId, contact = null
   };
 }
 
+async function schedulePendingFlowContinuation(env, pending = null, log = null) {
+  if (!pending) return null;
+
+  const dueAt = delayDueAt(pending.delayNode, pending.contact, env);
+  const continuation = await scheduleFlowContinuation(env, {
+    pageId: pending.pageId,
+    psid: pending.psid,
+    flow: pending.flow,
+    delayNode: pending.delayNode,
+    resumeNodeId: pending.resumeNodeId,
+    context: pending.context,
+    contact: pending.contact,
+    eventId: pending.eventId || "",
+    dueAt,
+    policyExpiresAt: pending.policyExpiresAt || "",
+    replaceProcessing: Boolean(pending.replaceProcessing)
+  });
+
+  await log?.("info", "delay_scheduled", "Fluxo pausado pelo bloco de espera.", {
+    continuationId: continuation?.id || "",
+    delayNodeId: pending.delayNode?.id || "",
+    resumeNodeId: pending.resumeNodeId || "",
+    dueAt,
+    policyExpiresAt: pending.policyExpiresAt || ""
+  }, pending.flow);
+
+  if (continuation?.id) {
+    const workflowSchedule = await scheduleDelayWorkflow(env, {
+      continuationId: continuation.id,
+      pageId: pending.pageId,
+      psid: pending.psid,
+      flowId: pending.flow?.id || "",
+      delayNodeId: pending.delayNode?.id || "",
+      resumeNodeId: pending.resumeNodeId || "",
+      dueAt,
+      policyExpiresAt: pending.policyExpiresAt || ""
+    });
+
+    if (workflowSchedule.configured) {
+      await log?.(
+        workflowSchedule.ok ? "info" : "warn",
+        workflowSchedule.ok ? "delay_workflow_scheduled" : "delay_workflow_schedule_failed",
+        workflowSchedule.ok ? "Espera enviada para Cloudflare Workflows." : "Nao foi possivel enviar a espera para Cloudflare Workflows; fallback permanece ativo.",
+        {
+          continuationId: continuation.id,
+          workflowInstanceId: workflowSchedule.workflowInstanceId || "",
+          status: workflowSchedule.status || 0,
+          reason: workflowSchedule.reason || "",
+          error: workflowSchedule.error || "",
+          body: workflowSchedule.body || {}
+        },
+        pending.flow
+      );
+    }
+  }
+
+  return continuation;
+}
+
 async function executeFlowFromNode({ context, env, pageId, contact, log, flow: initialFlow, start, startedAt = Date.now(), deadline = Date.now() + flowTimeoutMs(env), timeoutMs = flowTimeoutMs(env) }) {
   const replies = [];
   const actions = [];
@@ -1361,7 +1483,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow: i
         return { replies, actions, flow, continuation: null, responseWait: null, linkClickWait: null };
       }
 
-      const continuation = await scheduleFlowContinuation(env, {
+      const pendingContinuation = {
         pageId,
         psid: runtimeContact.psid || contact?.psid || "",
         flow,
@@ -1370,50 +1492,22 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow: i
         context: serializableFlowContext(context),
         contact: runtimeContact,
         eventId: context.eventId || "",
-        dueAt,
         policyExpiresAt: context.policyExpiresAt || "",
         replaceProcessing: Boolean(context.resumedFromDelay)
-      });
+      };
 
-      await log?.("info", "delay_scheduled", "Fluxo pausado pelo bloco de espera.", {
-        continuationId: continuation?.id || "",
-        delayNodeId: current.id,
-        resumeNodeId: next.id,
-        dueAt,
-        policyExpiresAt: context.policyExpiresAt || ""
-      }, flow);
-
-      if (continuation?.id) {
-        const workflowSchedule = await scheduleDelayWorkflow(env, {
-          continuationId: continuation.id,
-          pageId,
-          psid: runtimeContact.psid || contact?.psid || "",
-          flowId: flow.id || "",
+      if (replies.length) {
+        await log?.("info", "delay_pending_after_replies", "Espera sera agendada depois que as mensagens anteriores forem enfileiradas.", {
           delayNodeId: current.id,
           resumeNodeId: next.id,
-          dueAt,
-          policyExpiresAt: context.policyExpiresAt || ""
-        });
-
-        if (workflowSchedule.configured) {
-          await log?.(
-            workflowSchedule.ok ? "info" : "warn",
-            workflowSchedule.ok ? "delay_workflow_scheduled" : "delay_workflow_schedule_failed",
-            workflowSchedule.ok ? "Espera enviada para Cloudflare Workflows." : "Nao foi possivel enviar a espera para Cloudflare Workflows; fallback permanece ativo.",
-            {
-              continuationId: continuation.id,
-              workflowInstanceId: workflowSchedule.workflowInstanceId || "",
-              status: workflowSchedule.status || 0,
-              reason: workflowSchedule.reason || "",
-              error: workflowSchedule.error || "",
-              body: workflowSchedule.body || {}
-            },
-            flow
-          );
-        }
+          replyCount: replies.length
+        }, flow);
+        return { replies, actions, flow, continuation: null, pendingContinuation, responseWait: null, linkClickWait: null };
       }
 
-      return { replies, actions, flow, continuation, responseWait: null, linkClickWait: null };
+      const continuation = await schedulePendingFlowContinuation(env, pendingContinuation, log);
+
+      return { replies, actions, flow, continuation, pendingContinuation: null, responseWait: null, linkClickWait: null };
     }
 
     if (current.type === "user_input") {

@@ -162,6 +162,7 @@ const COMPACT_INFO_EVENTS = new Set([
   "flow_waiting",
   "flow_waiting_for_response",
   "flow_waiting_for_link_click",
+  "delay_pending_after_replies",
   "delay_scheduled",
   "delay_workflow_scheduled",
   "delay_resuming",
