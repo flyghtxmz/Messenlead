@@ -199,6 +199,7 @@ function escapeHtml(value) {
 function messengerLinkEvent(tracking = {}, request = null) {
   const destination = safeUrl(tracking.url);
   return {
+    id: tracking.linkId ? `mlink_${tracking.linkId}` : "",
     pageId: tracking.pageId,
     siteId: destination?.hostname || "messenger",
     visitorId: tracking.linkId || "messenger_redirect",

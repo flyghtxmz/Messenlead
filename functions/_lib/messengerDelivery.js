@@ -352,7 +352,7 @@ async function enqueueMessengerRepliesViaRelay(env, options = {}) {
   for (let index = 0; index < replies.length; index += 1) {
     const reply = replies[index];
     const queueId = externalRelayQueueId(options.eventId, index);
-    const relayOrder = orderedRelayTargets(relays, `${pageId}:${psid}:${queueId}`);
+    const relayOrder = orderedRelayTargets(relays, `${pageId}:${psid}:${queueId}`, env);
 
     try {
       const message = await messengerMessagePayload(reply, env, pageId, psid, pageAccessToken);
@@ -1417,18 +1417,28 @@ function externalRelayQueueId(eventId, index) {
   return `ext_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`;
 }
 
-function pickRelayTarget(targets, key) {
-  return orderedRelayTargets(targets, key)[0] || null;
+function pickRelayTarget(targets, key, env = {}) {
+  return orderedRelayTargets(targets, key, env)[0] || null;
 }
 
-function orderedRelayTargets(targets, key) {
+function orderedRelayTargets(targets, key, env = {}) {
+  const mode = String(env.MESSENLEAD_SEND_RELAY_STRATEGY || env.MESSENLEAD_RELAY_STRATEGY || "primary").trim().toLowerCase();
+  if (["balanced", "hash", "spread"].includes(mode)) {
+    return [...targets]
+      .map((target, index) => ({
+        ...target,
+        index,
+        score: stableHash(`${key}:${target.url}:${index}`)
+      }))
+      .sort((left, right) => right.score - left.score);
+  }
   return [...targets]
     .map((target, index) => ({
       ...target,
       index,
-      score: stableHash(`${key}:${target.url}:${index}`)
+      score: targets.length - index
     }))
-    .sort((left, right) => right.score - left.score);
+    .sort((left, right) => left.index - right.index);
 }
 
 function stableHash(value) {

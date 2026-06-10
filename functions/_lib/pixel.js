@@ -261,8 +261,8 @@ export async function addPixelEvent(env, event = {}, request = null) {
     });
   }
 
-  await env.DB.prepare(`
-    INSERT INTO pixel_events (
+  const insertResult = await env.DB.prepare(`
+    INSERT OR IGNORE INTO pixel_events (
       id, page_id, site_id, visitor_id, session_id, contact_psid, contact_token, event_type, event_name,
       url, path, title, referrer, target_url, target_text, target_id, target_classes,
       utm_source, utm_medium, utm_campaign, utm_term, utm_content,
@@ -301,6 +301,8 @@ export async function addPixelEvent(env, event = {}, request = null) {
       row.createdAt
     )
     .run();
+
+  if (Number(insertResult.meta?.changes || 0) <= 0) return null;
 
   return rowToPixelEvent({
     id: row.id,
