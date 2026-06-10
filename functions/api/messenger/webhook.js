@@ -1371,7 +1371,8 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow: i
         contact: runtimeContact,
         eventId: context.eventId || "",
         dueAt,
-        policyExpiresAt: context.policyExpiresAt || ""
+        policyExpiresAt: context.policyExpiresAt || "",
+        replaceProcessing: Boolean(context.resumedFromDelay)
       });
 
       await log?.("info", "delay_scheduled", "Fluxo pausado pelo bloco de espera.", {

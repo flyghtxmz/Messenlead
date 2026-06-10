@@ -129,6 +129,7 @@ export async function scheduleFlowContinuation(env, options = {}) {
     resumeNodeId
   });
   const maxAttempts = clampNumber(options.maxAttempts || env.MESSENLEAD_FLOW_CONTINUATION_MAX_ATTEMPTS, 1, 8, DEFAULT_MAX_ATTEMPTS);
+  const replaceProcessing = options.replaceProcessing === true ? 1 : 0;
 
   await env.DB.prepare(`
     INSERT INTO flow_continuations (
@@ -145,23 +146,23 @@ export async function scheduleFlowContinuation(env, options = {}) {
       context_json = excluded.context_json,
       contact_json = excluded.contact_json,
       status = CASE
-        WHEN flow_continuations.status = 'processing' THEN flow_continuations.status
+        WHEN flow_continuations.status = 'processing' AND ? = 0 THEN flow_continuations.status
         ELSE 'scheduled'
       END,
       attempts = CASE
-        WHEN flow_continuations.status = 'processing' THEN flow_continuations.attempts
+        WHEN flow_continuations.status = 'processing' AND ? = 0 THEN flow_continuations.attempts
         ELSE 0
       END,
       max_attempts = excluded.max_attempts,
       due_at = CASE
-        WHEN flow_continuations.status = 'processing' THEN flow_continuations.due_at
+        WHEN flow_continuations.status = 'processing' AND ? = 0 THEN flow_continuations.due_at
         ELSE excluded.due_at
       END,
       policy_expires_at = excluded.policy_expires_at,
       last_error = '',
       updated_at = excluded.updated_at,
       processed_at = CASE
-        WHEN flow_continuations.status = 'processing' THEN flow_continuations.processed_at
+        WHEN flow_continuations.status = 'processing' AND ? = 0 THEN flow_continuations.processed_at
         ELSE ''
       END
   `)
@@ -181,7 +182,11 @@ export async function scheduleFlowContinuation(env, options = {}) {
       dueAt,
       normalizeIso(options.policyExpiresAt) || "",
       now,
-      now
+      now,
+      replaceProcessing,
+      replaceProcessing,
+      replaceProcessing,
+      replaceProcessing
     )
     .run();
 
