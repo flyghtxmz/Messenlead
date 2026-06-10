@@ -837,16 +837,26 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
   let continuation = result.continuation || null;
   const pendingContinuation = result.pendingContinuation || null;
 
+  let updatedContact = contact;
   if (result.actions.length) {
-    await applyContactActions(env, pageId, psid, result.actions, {
+    updatedContact = (await applyContactActions(env, pageId, psid, result.actions, {
       psid,
       status: contact.status || "open",
       source: "Messenger URL button",
       lastSeen: contact.lastSeen || new Date().toISOString()
-    });
+    })) || contact;
     await log("info", "actions_applied", "Acoes do clique no botao de URL foram aplicadas no contato.", {
       actions: result.actions
     }, activeFlow);
+
+    await wakeMatchingConditionContinuations(env, {
+      pageId,
+      psid,
+      flow: activeFlow,
+      contact: updatedContact,
+      log,
+      reason: "url_button_click"
+    });
   }
 
   const continuationDrain = await processMessengerFlowContinuations(env, {
@@ -898,6 +908,23 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
         resumeNodeId: continuation.resumeNodeId
       }, activeFlow);
     }
+  }
+
+  if (
+    start.type === "action" &&
+    !start.next &&
+    result.actions.length &&
+    !result.replies.length &&
+    !continuation &&
+    !result.responseWait &&
+    !result.linkClickWait
+  ) {
+    await log("warn", "url_button_click_action_without_next", "Clique executou a acao, mas o bloco de acao nao tem proximo passo configurado.", {
+      sourceNodeId: sourceNode.id || "",
+      actionNodeId: start.id || "",
+      buttonId,
+      actionCount: result.actions.length
+    }, activeFlow);
   }
 
   return {
@@ -1389,6 +1416,68 @@ async function schedulePendingFlowContinuation(env, pending = null, log = null) 
   }
 
   return continuation;
+}
+
+async function wakeMatchingConditionContinuations(env, options = {}) {
+  if (!env?.DB) return { checked: 0, woken: 0 };
+  const pageId = String(options.pageId || "").trim();
+  const psid = String(options.psid || "").trim();
+  const flow = options.flow || {};
+  if (!pageId || !psid || !flow?.id || !Array.isArray(flow.nodes)) return { checked: 0, woken: 0 };
+
+  const rows = await env.DB.prepare(`
+    SELECT id, delay_node_id, resume_node_id, due_at
+    FROM flow_continuations
+    WHERE page_id = ?
+      AND psid = ?
+      AND flow_id = ?
+      AND status = 'scheduled'
+    ORDER BY datetime(due_at) ASC
+    LIMIT 10
+  `)
+    .bind(pageId, psid, flow.id)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  const runtimeContact = runtimeContactFrom(options.contact || { psid, pageId });
+  const now = new Date().toISOString();
+  let checked = 0;
+  let woken = 0;
+
+  for (const row of rows.results || []) {
+    const resumeNode = flow.nodes.find((node) => node.id === row.resume_node_id);
+    if (!resumeNode || resumeNode.type !== "condition") continue;
+    checked += 1;
+    await resolveConditionNodeFields(env, pageId, resumeNode);
+    const matched = conditionMatchesNode(resumeNode, {
+      eventType: options.reason || "url_button_click",
+      contact: runtimeContact,
+      flow
+    });
+    if (!matched) continue;
+
+    const result = await env.DB.prepare(`
+      UPDATE flow_continuations
+      SET due_at = ?, updated_at = ?, last_error = ''
+      WHERE id = ? AND status = 'scheduled'
+    `)
+      .bind(now, now, row.id)
+      .run()
+      .catch(() => null);
+
+    if (Number(result?.meta?.changes || 0) > 0) {
+      woken += 1;
+      await options.log?.("info", "condition_continuation_woken_by_click", "Clique atualizou o contato e antecipou uma condicao pendente.", {
+        continuationId: row.id,
+        delayNodeId: row.delay_node_id || "",
+        resumeNodeId: row.resume_node_id || "",
+        previousDueAt: row.due_at || "",
+        reason: options.reason || ""
+      }, flow);
+    }
+  }
+
+  return { checked, woken };
 }
 
 async function executeFlowFromNode({ context, env, pageId, contact, log, flow: initialFlow, start, startedAt = Date.now(), deadline = Date.now() + flowTimeoutMs(env), timeoutMs = flowTimeoutMs(env) }) {
