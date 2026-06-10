@@ -7,6 +7,7 @@ const RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_QUEUE_LIMIT = 8;
 const DEFAULT_MAX_ATTEMPTS = 4;
 const DEFAULT_SENDS_PER_MINUTE = 50;
+const DEFAULT_REPLY_QUEUE_LIMIT = 25;
 
 export async function ensureMessengerDeliverySchema(env) {
   if (!env.DB) return false;
@@ -137,8 +138,11 @@ export async function resetMessengerSendQueue(env, options = {}) {
   if (!hasDb) return { queued: 0 };
 
   const pageIds = normalizePageIds(options.pageIds || options.pageId);
+  const psids = normalizePsids(options.psids || options.psid);
+  const restrictToPsids = Boolean(options.restrictToPsids || psids.length);
   const now = new Date().toISOString();
   const pageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
+  const psidFilter = psids.length ? `AND psid IN (${psids.map(() => "?").join(", ")})` : restrictToPsids ? "AND 1 = 0" : "";
   const result = await env.DB.prepare(`
     UPDATE messenger_send_queue
     SET status = 'reset',
@@ -146,8 +150,9 @@ export async function resetMessengerSendQueue(env, options = {}) {
         updated_at = ?
     WHERE status IN ('queued', 'processing')
       ${pageFilter}
+      ${psidFilter}
   `)
-    .bind(now, ...pageIds)
+    .bind(now, ...pageIds, ...psids)
     .run();
 
   return { queued: Number(result.meta?.changes || 0) };
@@ -158,6 +163,8 @@ export async function resetExternalRelayQueues(env, options = {}) {
   if (!targets.length) return [];
 
   const pageIds = normalizePageIds(options.pageIds || options.pageId);
+  const psids = normalizePsids(options.psids || options.psid);
+  const restrictToPsids = Boolean(options.restrictToPsids || psids.length);
   const results = [];
 
   for (const target of targets) {
@@ -169,7 +176,7 @@ export async function resetExternalRelayQueues(env, options = {}) {
           "Content-Type": "application/json",
           "x-messenlead-relay-secret": target.secret
         },
-        body: JSON.stringify({ pageIds })
+        body: JSON.stringify({ pageIds, psids, restrictToPsids })
       });
       const body = await response.json().catch(() => ({}));
       results.push({
@@ -196,7 +203,7 @@ export async function resetExternalRelayQueues(env, options = {}) {
 export async function enqueueMessengerReplies(env, options = {}) {
   const pageId = normalizePageId(options.pageId);
   const psid = String(options.psid || "").trim();
-  const replies = Array.isArray(options.replies) ? options.replies.slice(0, 10).filter((reply) => !isBlockedDefaultGreetingReply(reply)) : [];
+  const replies = Array.isArray(options.replies) ? options.replies.slice(0, messengerReplyLimit(env)).filter((reply) => !isBlockedDefaultGreetingReply(reply)) : [];
   const policyExpiresAt = options.policyExpiresAt || new Date(Date.now() + RESPONSE_WINDOW_MS).toISOString();
 
   if (!psid || !replies.length) return [];
@@ -248,7 +255,7 @@ async function enqueueMessengerRepliesLocal(env, options = {}) {
   const hasDb = await ensureMessengerDeliverySchema(env);
   if (!hasDb) return [];
 
-  for (let index = 0; index < replies.slice(0, 10).length; index += 1) {
+  for (let index = 0; index < replies.length; index += 1) {
     const reply = replies[index];
     const id = `msg_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
     await env.DB.prepare(`
@@ -329,7 +336,7 @@ async function enqueueMessengerRepliesViaRelay(env, options = {}) {
 
   const pageId = normalizePageId(options.pageId);
   const psid = String(options.psid || "").trim();
-  const replies = Array.isArray(options.replies) ? options.replies.slice(0, 10) : [];
+  const replies = Array.isArray(options.replies) ? options.replies.slice(0, messengerReplyLimit(env)) : [];
   const pageAccessToken = (pageId ? await getStoredPageAccessToken(env, pageId) : "") || env.MESSENGER_PAGE_ACCESS_TOKEN || "";
   if (!pageAccessToken) {
     await logRelayQueueIssue(env, options, "error", "relay_enqueue_failed", "Relay nao recebeu o envio: token da Pagina nao encontrado.", {
@@ -1449,6 +1456,23 @@ function normalizePageIds(value) {
   return raw
     .map((item) => normalizePageId(item))
     .filter((item) => item && !["__all__", "*", "all"].includes(item));
+}
+
+function normalizePsids(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  const seen = new Set();
+  const psids = [];
+  raw.forEach((item) => {
+    const psid = String(item || "").trim();
+    if (!psid || seen.has(psid)) return;
+    seen.add(psid);
+    psids.push(psid);
+  });
+  return psids;
+}
+
+function messengerReplyLimit(env = {}) {
+  return clampNumber(env.MESSENLEAD_REPLY_QUEUE_LIMIT || env.MESSENLEAD_MAX_REPLIES_PER_NODE, 1, 50, DEFAULT_REPLY_QUEUE_LIMIT);
 }
 
 function clampNumber(value, min, max, fallback) {

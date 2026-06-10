@@ -4926,7 +4926,7 @@ async function confirmResetRunningFlows() {
 
   openConfirmModal({
     title: "Reiniciar fluxos em andamento",
-    message: `Cancelar esperas, respostas aguardadas e envios pendentes de fluxos em ${pages.length} pagina${pages.length === 1 ? "" : "s"} conectada${pages.length === 1 ? "" : "s"}? Os fluxos salvos, tags e contatos nao serao apagados. Quem enviar nova mensagem depois disso iniciara o fluxo novamente pelo gatilho.`,
+    message: `Cancelar esperas, respostas aguardadas e envios pendentes somente dos contatos com a tag "${AD_TEST_CONTACT_TAG}" em ${pages.length} pagina${pages.length === 1 ? "" : "s"} conectada${pages.length === 1 ? "" : "s"}? Os fluxos salvos, tags e contatos nao serao apagados.`,
     submitLabel: "Reiniciar",
     danger: true,
     onConfirm: () => resetRunningFlowsForPages(pages)
@@ -4961,7 +4961,8 @@ async function resetRunningFlowsForPages(pages = []) {
     }
 
     const result = await apiPost("/api/flow-runtime/reset", {
-      pageIds: normalizedPages.map((page) => page.id)
+      pageIds: normalizedPages.map((page) => page.id),
+      tag: AD_TEST_CONTACT_TAG
     });
     const reset = result.reset || {};
     const total =
@@ -4970,7 +4971,7 @@ async function resetRunningFlowsForPages(pages = []) {
       Number(reset.linkClickWaits || 0) +
       Number(reset.queuedMessages || 0) +
       Number(reset.relayQueuedMessages || 0);
-    toastMessage(`Fluxos em andamento reiniciados: ${total} item${total === 1 ? "" : "s"} cancelado${total === 1 ? "" : "s"}.`);
+    toastMessage(`Fluxos em andamento reiniciados para "${AD_TEST_CONTACT_TAG}": ${total} item${total === 1 ? "" : "s"} cancelado${total === 1 ? "" : "s"}.`);
     await loadFlowLogsForPage(flowLogState.scope === "all" ? "__all__" : currentFlowPageId(), { silent: true });
     render();
   } catch (error) {
@@ -12026,8 +12027,9 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
     flow.nodes.find((node) => node.type === "trigger") ||
     flow.nodes[0];
   let guard = 0;
+  let stepLimit = simulationStepLimit(activeFlow);
 
-  while (current && guard < 12) {
+  while (current && guard < stepLimit) {
     guard += 1;
     if (current.type === "message") {
       buildSimulationMessagesForNode(current, displayName).forEach((message) => messages.push(message));
@@ -12060,6 +12062,7 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
       });
       if (!targetFlow || !targetNode || !canAcceptIncomingConnection(targetNode)) break;
       activeFlow = targetFlow;
+      stepLimit = Math.max(stepLimit, simulationStepLimit(activeFlow));
       current = targetNode;
       continue;
     }
@@ -12078,6 +12081,11 @@ function simulateFlow(flow, inputText, displayName, options = {}) {
   }
 
   return messages;
+}
+
+function simulationStepLimit(flow = {}) {
+  const nodeCount = Array.isArray(flow?.nodes) ? flow.nodes.length : 0;
+  return Math.max(24, Math.min(250, Math.max(nodeCount * 3, nodeCount + 12)));
 }
 
 function interactiveStartNode(flow, context) {

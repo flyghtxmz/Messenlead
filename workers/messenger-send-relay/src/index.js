@@ -87,7 +87,9 @@ export default {
     if (request.method === "POST" && ["/queue/reset", "/reset"].includes(url.pathname)) {
       const body = (await readJson(request)) || {};
       const result = await resetQueue(env, {
-        pageIds: body.pageIds || body.pageId || url.searchParams.get("pageId")
+        pageIds: body.pageIds || body.pageId || url.searchParams.get("pageId"),
+        psids: body.psids || body.psid || url.searchParams.get("psid"),
+        restrictToPsids: body.restrictToPsids === true
       });
       return json({ ok: true, reset: result });
     }
@@ -878,8 +880,11 @@ async function resetQueue(env, options = {}) {
   if (!hasDb) return { queued: 0 };
 
   const pageIds = normalizePageIds(options.pageIds || options.pageId);
+  const psids = normalizePsids(options.psids || options.psid);
+  const restrictToPsids = Boolean(options.restrictToPsids || psids.length);
   const now = new Date().toISOString();
   const pageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
+  const psidFilter = psids.length ? `AND psid IN (${psids.map(() => "?").join(", ")})` : restrictToPsids ? "AND 1 = 0" : "";
   const result = await env.RELAY_DB.prepare(`
     UPDATE relay_send_queue
     SET status = 'reset',
@@ -887,8 +892,9 @@ async function resetQueue(env, options = {}) {
         updated_at = ?
     WHERE status IN ('queued', 'processing')
       ${pageFilter}
+      ${psidFilter}
   `)
-    .bind(now, ...pageIds)
+    .bind(now, ...pageIds, ...psids)
     .run();
 
   return { queued: Number(result.meta?.changes || 0) };
@@ -1006,6 +1012,19 @@ function normalizePageIds(value) {
   return raw
     .map((item) => clean(item, 120))
     .filter((item) => item && !["__all__", "*", "all"].includes(item));
+}
+
+function normalizePsids(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  const seen = new Set();
+  const psids = [];
+  raw.forEach((item) => {
+    const psid = clean(item, 120);
+    if (!psid || seen.has(psid)) return;
+    seen.add(psid);
+    psids.push(psid);
+  });
+  return psids;
 }
 
 function clampNumber(value, min, max, fallback) {

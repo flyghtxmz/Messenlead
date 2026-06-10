@@ -107,6 +107,40 @@ export async function clearContactTags(env, pageId) {
   };
 }
 
+export async function listContactPsidsByTag(env, pageIds = [], tagName = "") {
+  const hasDb = await ensureContactSchema(env);
+  const target = normalizeTag(tagName);
+  if (!hasDb || !target) return [];
+
+  const normalizedPageIds = normalizePageIds(pageIds);
+  const pageFilter = normalizedPageIds.length ? `AND page_id IN (${normalizedPageIds.map(() => "?").join(", ")})` : "";
+  const statement = env.DB.prepare(`
+    SELECT page_id, psid, tags_json
+    FROM contacts
+    WHERE tags_json <> '[]'
+      ${pageFilter}
+  `);
+  const result = normalizedPageIds.length
+    ? await statement.bind(...normalizedPageIds).all()
+    : await statement.all();
+
+  const seen = new Set();
+  const contacts = [];
+  for (const row of result.results || []) {
+    const tags = parseJsonArray(row.tags_json);
+    if (!tags.some((tag) => normalizeTag(tag) === target)) continue;
+
+    const pageId = normalizePageId(row.page_id);
+    const psid = String(row.psid || "").trim();
+    const key = `${pageId}:${psid}`;
+    if (!psid || seen.has(key)) continue;
+    seen.add(key);
+    contacts.push({ pageId, psid });
+  }
+
+  return contacts;
+}
+
 export async function upsertContact(env, pageId, contact = {}) {
   const hasDb = await ensureContactSchema(env);
   if (!hasDb) return null;
@@ -409,6 +443,13 @@ function normalizeTag(value) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+function normalizePageIds(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  return raw
+    .map((item) => normalizePageId(item))
+    .filter((item) => item && !["__all__", "*", "all"].includes(item));
 }
 
 function contactDisplayName(incomingName, existingName, psid) {

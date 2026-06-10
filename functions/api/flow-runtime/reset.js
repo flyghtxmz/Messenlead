@@ -1,6 +1,7 @@
 import { safeAddFlowLog } from "../../_lib/flowLogs.js";
 import { resetFlowRuntimeState } from "../../_lib/flowContinuations.js";
 import { resetExternalRelayQueues, resetMessengerSendQueue } from "../../_lib/messengerDelivery.js";
+import { listContactPsidsByTag } from "../../_lib/contacts.js";
 import { getSession, json } from "../../_lib/meta.js";
 
 export async function onRequestPost({ request, env }) {
@@ -19,16 +20,24 @@ export async function onRequestPost({ request, env }) {
   }
 
   const pageIds = normalizePageIds(body.pageIds || body.pageId);
-  const scope = pageIds.length ? "selected_pages" : "all_pages";
+  const tagName = String(body.tag || body.tagName || body.onlyTag || "").replace(/\s+/g, " ").trim();
+  const scope = tagName ? "tagged_contacts" : pageIds.length ? "selected_pages" : "all_pages";
 
   try {
-    const runtime = await resetFlowRuntimeState(env, { pageIds });
-    const queue = await resetMessengerSendQueue(env, { pageIds });
-    const relays = await resetExternalRelayQueues(env, { pageIds });
+    const taggedContacts = tagName ? await listContactPsidsByTag(env, pageIds, tagName) : [];
+    const psids = tagName ? [...new Set(taggedContacts.map((contact) => contact.psid).filter(Boolean))] : [];
+    const restrictToPsids = Boolean(tagName);
+    const resetOptions = { pageIds, psids, restrictToPsids };
+    const runtime = await resetFlowRuntimeState(env, resetOptions);
+    const queue = await resetMessengerSendQueue(env, resetOptions);
+    const relays = await resetExternalRelayQueues(env, resetOptions);
     const result = {
       ok: true,
       scope,
       pageIds,
+      tag: tagName,
+      taggedContactCount: taggedContacts.length,
+      psidCount: psids.length,
       reset: {
         continuations: runtime.continuations || 0,
         responseWaits: runtime.responseWaits || 0,

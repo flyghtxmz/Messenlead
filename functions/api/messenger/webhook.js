@@ -420,7 +420,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
   const queued = await enqueueMessengerReplies(env, {
     pageId,
     psid,
-    replies: replies.slice(0, 5),
+    replies,
     flow,
     eventId,
     policyExpiresAt
@@ -435,7 +435,7 @@ export async function handleMessengerEvent(event, env, pageId, options = {}) {
   const drain = hasLocalQueued
     ? await processMessengerSendQueue(env, {
       pageId,
-      limit: Number(env.MESSENLEAD_WEBHOOK_SEND_DRAIN_LIMIT || 5)
+      limit: sendDrainLimit(env.MESSENLEAD_WEBHOOK_SEND_DRAIN_LIMIT || 5, queued.length)
     })
     : { processed: 0, sent: 0, retried: 0, skipped: 0, failed: 0, externalRelay: queued.some(isExternalRelayQueueId) };
   await log("info", "queue_drain_finished", "Processamento imediato da fila finalizado.", drain, flow);
@@ -470,6 +470,12 @@ function isProcessableMessengerEvent(event = {}) {
 
 function isExternalRelayQueueId(value) {
   return String(value || "").startsWith("relay_") || String(value || "").startsWith("ext_");
+}
+
+function sendDrainLimit(configured, queuedCount = 0) {
+  const value = Number(configured);
+  const fallback = Number.isFinite(value) && value > 0 ? value : 5;
+  return Math.min(25, Math.max(fallback, Number(queuedCount) || 0));
 }
 
 export async function processMessengerFlowContinuations(env, options = {}) {
@@ -540,7 +546,7 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       queued = await enqueueMessengerReplies(env, {
         pageId,
         psid,
-        replies: result.replies.slice(0, 5),
+        replies: result.replies,
         flow: activeFlow,
         eventId: continuationRuntimeEventId(continuation),
         policyExpiresAt: continuation.policyExpiresAt || ""
@@ -555,7 +561,7 @@ export async function processMessengerFlowContinuations(env, options = {}) {
       if (hasLocalQueued) {
         const drain = await processMessengerSendQueue(env, {
           pageId,
-          limit: Number(env.MESSENLEAD_CONTINUATION_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5)
+          limit: sendDrainLimit(env.MESSENLEAD_CONTINUATION_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5, queued.length)
         });
         await log("info", "queue_drain_finished", "Fila processada apos retomada da espera.", drain, activeFlow);
       }
@@ -688,7 +694,7 @@ export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
     const queued = await enqueueMessengerReplies(env, {
       pageId,
       psid,
-      replies: result.replies.slice(0, 5),
+      replies: result.replies,
       flow: activeFlow,
       eventId,
       policyExpiresAt: wait.policyExpiresAt || wait.context?.policyExpiresAt || ""
@@ -703,7 +709,7 @@ export async function processMessengerLinkClickWait(env, pixelEvent = {}) {
     if (hasLocalQueued) {
       const drain = await processMessengerSendQueue(env, {
         pageId,
-        limit: Number(env.MESSENLEAD_LINK_CLICK_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5)
+        limit: sendDrainLimit(env.MESSENLEAD_LINK_CLICK_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5, queued.length)
       });
       await log("info", "queue_drain_finished", "Fila processada apos retomada por clique.", drain, activeFlow);
     }
@@ -879,7 +885,7 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
     const queued = await enqueueMessengerReplies(env, {
       pageId,
       psid,
-      replies: result.replies.slice(0, 5),
+      replies: result.replies,
       flow: activeFlow,
       eventId,
       policyExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
@@ -893,7 +899,7 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
     if (hasLocalQueued) {
       const drain = await processMessengerSendQueue(env, {
         pageId,
-        limit: Number(env.MESSENLEAD_URL_BUTTON_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5)
+        limit: sendDrainLimit(env.MESSENLEAD_URL_BUTTON_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5, queued.length)
       });
       await log("info", "queue_drain_finished", "Fila processada apos clique no botao de URL.", drain, activeFlow);
     }
@@ -919,7 +925,7 @@ export async function processMessengerUrlButtonClick(env, tracking = {}, pixelEv
     !result.responseWait &&
     !result.linkClickWait
   ) {
-    await log("warn", "url_button_click_action_without_next", "Clique executou a acao, mas o bloco de acao nao tem proximo passo configurado.", {
+    await log("info", "url_button_click_action_without_next", "Clique executou a acao conectada ao botao e manteve o caminho principal do fluxo.", {
       sourceNodeId: sourceNode.id || "",
       actionNodeId: start.id || "",
       buttonId,
@@ -1010,7 +1016,7 @@ export async function processMessengerLinkClickTimeouts(env, options = {}) {
       const queued = await enqueueMessengerReplies(env, {
         pageId,
         psid,
-        replies: result.replies.slice(0, 5),
+        replies: result.replies,
         flow: activeFlow,
         eventId,
         policyExpiresAt: wait.policyExpiresAt || wait.context?.policyExpiresAt || ""
@@ -1025,7 +1031,7 @@ export async function processMessengerLinkClickTimeouts(env, options = {}) {
       if (hasLocalQueued) {
         const drain = await processMessengerSendQueue(env, {
           pageId,
-          limit: Number(env.MESSENLEAD_LINK_CLICK_TIMEOUT_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5)
+          limit: sendDrainLimit(env.MESSENLEAD_LINK_CLICK_TIMEOUT_SEND_DRAIN_LIMIT || env.MESSENLEAD_QUEUE_DRAIN_LIMIT || 5, queued.length)
         });
         await log("info", "queue_drain_finished", "Fila processada apos saida Nao clicou.", drain, activeFlow);
       }
@@ -1201,10 +1207,11 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
   const runtimeContact = runtimeContactFrom(contact);
   let current = start;
   let guard = 0;
+  const stepLimit = flowStepLimit(env, flow);
   let previousNode = null;
   let lastMessageLinkNode = null;
 
-  while (current && guard < 12) {
+  while (current && guard < stepLimit) {
     if (Date.now() > deadline) {
       await log?.("error", "flow_timeout", "Execucao do fluxo interrompida por timeout.", {
         timeoutMs,
@@ -1269,7 +1276,7 @@ async function buildReplies(context, env, pageId, contact = null, log = null) {
     current = next && next.type !== "trigger" && next.type !== "comment" ? next : null;
   }
 
-  if (guard >= 12 && current) {
+  if (guard >= stepLimit && current) {
     await log?.("warn", "guard_limit", "Execução interrompida para evitar loop no fluxo.", {
       lastNodeId: current.id
     }, flow);
@@ -1487,11 +1494,12 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow: i
   let flow = initialFlow;
   let current = start;
   let guard = 0;
+  let stepLimit = flowStepLimit(env, flow);
   const executionMetricKey = flowExecutionMetricKey(context, flow, start);
   let previousNode = null;
   let lastMessageLinkNode = null;
 
-  while (current && guard < 12) {
+  while (current && guard < stepLimit) {
     if (Date.now() > deadline) {
       await log?.("error", "flow_timeout", "Execucao do fluxo interrompida por timeout.", {
         timeoutMs,
@@ -1534,6 +1542,7 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow: i
       }, flow);
       previousNode = current;
       flow = jump.flow;
+      stepLimit = Math.max(stepLimit, flowStepLimit(env, flow));
       current = jump.node;
       continue;
     }
@@ -1763,9 +1772,10 @@ async function executeFlowFromNode({ context, env, pageId, contact, log, flow: i
     current = next && next.type !== "trigger" && next.type !== "comment" ? next : null;
   }
 
-  if (guard >= 12 && current) {
+  if (guard >= stepLimit && current) {
     await log?.("warn", "guard_limit", "Execucao interrompida para evitar loop no fluxo.", {
-      lastNodeId: current.id
+      lastNodeId: current.id,
+      stepLimit
     }, flow);
   }
 
@@ -1813,6 +1823,13 @@ function flowTimeoutMs(env) {
   const value = Number(env.MESSENLEAD_FLOW_TIMEOUT_MS || 12000);
   if (!Number.isFinite(value)) return 12000;
   return Math.max(3000, Math.min(30000, Math.floor(value)));
+}
+
+function flowStepLimit(env = {}, flow = {}) {
+  const configured = Number(env.MESSENLEAD_FLOW_STEP_LIMIT || env.MESSENLEAD_FLOW_MAX_STEPS || 0);
+  if (Number.isFinite(configured) && configured > 0) return Math.max(12, Math.min(250, Math.floor(configured)));
+  const nodeCount = Array.isArray(flow?.nodes) ? flow.nodes.length : 0;
+  return Math.max(24, Math.min(250, Math.max(nodeCount * 3, nodeCount + 12)));
 }
 
 function dryRunFlowTimeoutMs(env) {
@@ -2926,6 +2943,9 @@ function messageNodeTrackedLinks(node = {}) {
 
   (node.buttons || []).forEach(pushUrl);
   (node.contentBlocks || []).forEach((block) => {
+    if ((block.type === "card" || block.type === "gallery") && block.cardUrl) {
+      urls.push(String(block.cardUrl || "").trim());
+    }
     (block.buttons || []).forEach(pushUrl);
   });
 

@@ -441,6 +441,8 @@ export async function resetFlowRuntimeState(env, options = {}) {
   if (!hasDb) return { continuations: 0, responseWaits: 0, linkClickWaits: 0 };
 
   const pageIds = normalizePageIds(options.pageIds || options.pageId);
+  const psids = normalizePsids(options.psids || options.psid);
+  const restrictToPsids = Boolean(options.restrictToPsids || psids.length);
   const now = new Date().toISOString();
   const continuationParams = ["reset", "Flow runtime reset", now];
   const responseParams = ["reset", "Flow runtime reset", now];
@@ -448,6 +450,9 @@ export async function resetFlowRuntimeState(env, options = {}) {
   const continuationPageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
   const responsePageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
   const linkClickPageFilter = pageIds.length ? `AND page_id IN (${pageIds.map(() => "?").join(", ")})` : "";
+  const continuationPsidFilter = psids.length ? `AND psid IN (${psids.map(() => "?").join(", ")})` : restrictToPsids ? "AND 1 = 0" : "";
+  const responsePsidFilter = psids.length ? `AND psid IN (${psids.map(() => "?").join(", ")})` : restrictToPsids ? "AND 1 = 0" : "";
+  const linkClickPsidFilter = psids.length ? `AND psid IN (${psids.map(() => "?").join(", ")})` : restrictToPsids ? "AND 1 = 0" : "";
 
   const continuationResult = await env.DB.prepare(`
     UPDATE flow_continuations
@@ -457,8 +462,9 @@ export async function resetFlowRuntimeState(env, options = {}) {
         processed_at = COALESCE(NULLIF(processed_at, ''), ?)
     WHERE status IN ('scheduled', 'processing')
       ${continuationPageFilter}
+      ${continuationPsidFilter}
   `)
-    .bind(...continuationParams, now, ...pageIds)
+    .bind(...continuationParams, now, ...pageIds, ...psids)
     .run();
 
   const responseWaitResult = await env.DB.prepare(`
@@ -469,8 +475,9 @@ export async function resetFlowRuntimeState(env, options = {}) {
         consumed_at = COALESCE(NULLIF(consumed_at, ''), ?)
     WHERE status = 'waiting'
       ${responsePageFilter}
+      ${responsePsidFilter}
   `)
-    .bind(...responseParams, now, ...pageIds)
+    .bind(...responseParams, now, ...pageIds, ...psids)
     .run();
 
   const linkClickWaitResult = await env.DB.prepare(`
@@ -481,8 +488,9 @@ export async function resetFlowRuntimeState(env, options = {}) {
         consumed_at = COALESCE(NULLIF(consumed_at, ''), ?)
     WHERE status IN ('waiting', 'timeout_processing')
       ${linkClickPageFilter}
+      ${linkClickPsidFilter}
   `)
-    .bind(...linkClickParams, now, ...pageIds)
+    .bind(...linkClickParams, now, ...pageIds, ...psids)
     .run();
 
   return {
@@ -990,6 +998,19 @@ function normalizePageIds(value) {
   return raw
     .map((item) => normalizePageId(item))
     .filter((item) => item && !["__all__", "*", "all"].includes(item));
+}
+
+function normalizePsids(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  const seen = new Set();
+  const psids = [];
+  raw.forEach((item) => {
+    const psid = String(item || "").trim();
+    if (!psid || seen.has(psid)) return;
+    seen.add(psid);
+    psids.push(psid);
+  });
+  return psids;
 }
 
 function safeJsonObject(value) {
