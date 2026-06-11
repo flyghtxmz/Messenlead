@@ -1,5 +1,5 @@
 import { getMetaConfig, getPageAccessToken, graphFetch, graphUrl, json } from "../_lib/meta.js";
-import { applyContactActions, clearContactTags, listContacts, normalizeTags, setContactTags, upsertContact } from "../_lib/contacts.js";
+import { applyContactActions, clearContactTags, listContacts, normalizeTags, repairContactCustomFieldCache, setContactTags, upsertContact } from "../_lib/contacts.js";
 
 const PROFILE_LOOKUP_LIMIT = 20;
 const CONVERSATION_NAME_LOOKUP_LIMIT = 100;
@@ -64,6 +64,11 @@ export async function onRequestPost({ request, env }) {
     if (body.action === "apply_actions") {
       if (!psid) return json({ error: "psid is required" }, 400);
       return json({ contact: await applyContactActions(env, pageId, psid, body.actions || [], body.contact || {}) });
+    }
+
+    if (body.action === "repair_contact") {
+      if (!psid) return json({ error: "psid is required" }, 400);
+      return json({ contact: await repairContactCustomFieldCache(env, pageId, psid) });
     }
 
     if (body.contact) {

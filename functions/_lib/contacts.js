@@ -1,4 +1,4 @@
-import { coerceCustomFieldValue, ensureCustomFieldSchema, getCustomFieldById, getCustomFieldByName, normalizeCustomFieldType } from "./customFields.js";
+import { coerceCustomFieldValue, ensureCustomFieldSchema, getCustomFieldById, getCustomFieldByName, listCustomFields, normalizeCustomFieldKey, normalizeCustomFieldType, upsertCustomField } from "./customFields.js";
 
 const DEFAULT_PAGE_ID = "__global__";
 
@@ -141,7 +141,7 @@ export async function listContactPsidsByTag(env, pageIds = [], tagName = "") {
   return contacts;
 }
 
-export async function upsertContact(env, pageId, contact = {}) {
+export async function upsertContact(env, pageId, contact = {}, options = {}) {
   const hasDb = await ensureContactSchema(env);
   if (!hasDb) return null;
 
@@ -159,10 +159,18 @@ export async function upsertContact(env, pageId, contact = {}) {
 
   const now = new Date().toISOString();
   const hasIncomingTags = Array.isArray(contact.tags) || typeof contact.tag === "string";
-  const tags = hasIncomingTags ? normalizeTags(contact.tags ?? contact.tag) : parseJsonArray(existing?.tags_json);
-  const fields = contact.customFields && typeof contact.customFields === "object"
-    ? contact.customFields
-    : parseJsonObject(existing?.custom_fields_json);
+  const replaceTags = options.replaceTags === true;
+  const replaceCustomFields = options.replaceCustomFields === true;
+  const existingTags = parseJsonArray(existing?.tags_json);
+  const tags = hasIncomingTags
+    ? (replaceTags || !existing ? normalizeTags(contact.tags ?? contact.tag) : existingTags)
+    : existingTags;
+  const existingFields = parseJsonObject(existing?.custom_fields_json);
+  const hasIncomingCustomFields = contact.customFields && typeof contact.customFields === "object" && !Array.isArray(contact.customFields);
+  const incomingFields = hasIncomingCustomFields ? sanitizeCustomFields(contact.customFields) : {};
+  const fields = hasIncomingCustomFields
+    ? (replaceCustomFields || !existing ? incomingFields : existingFields)
+    : existingFields;
 
   const next = {
     pageId: normalizedPageId,
@@ -223,7 +231,7 @@ export async function upsertContact(env, pageId, contact = {}) {
 }
 
 export async function setContactTags(env, pageId, psid, tags) {
-  const contact = await upsertContact(env, pageId, { psid, tags });
+  const contact = await upsertContact(env, pageId, { psid, tags }, { replaceTags: true });
   return contact;
 }
 
@@ -250,7 +258,7 @@ export async function applyContactActions(env, pageId, psid, actions = [], conta
       tags = tags.filter((tag) => normalizeTag(tag) !== normalizedTag);
     }
     if (action.type === "set_user_field" && (action.fieldName || action.fieldId)) {
-      const field = await resolveActionCustomField(env, normalizedPageId, action);
+      const field = await resolveActionCustomField(env, normalizedPageId, action, { create: true });
       const fieldName = field?.name || action.fieldName;
       const fieldType = field?.type || action.fieldType;
       if (!fieldName) continue;
@@ -281,7 +289,7 @@ export async function applyContactActions(env, pageId, psid, actions = [], conta
     tags,
     customFields,
     lastSeen: contact.lastSeen || current.lastSeen || new Date().toISOString()
-  });
+  }, { replaceTags: true, replaceCustomFields: true });
 
   for (const operation of fieldOps) {
     if (operation.type === "write") {
@@ -292,7 +300,7 @@ export async function applyContactActions(env, pageId, psid, actions = [], conta
     }
   }
 
-  return saved;
+  return (await getContact(env, normalizedPageId, psid)) || saved;
 }
 
 export function normalizeActionSteps(actions = []) {
@@ -325,7 +333,30 @@ export function normalizeTags(value) {
   return tags;
 }
 
-async function resolveActionCustomField(env, pageId, action = {}) {
+export async function repairContactCustomFieldCache(env, pageId, psid) {
+  const contact = await getContact(env, pageId, psid);
+  if (!contact) return null;
+
+  const normalizedPageId = normalizePageId(pageId);
+  const fields = await listCustomFields(env, normalizedPageId).catch(() => []);
+  const fieldsByName = new Map(fields.map((field) => [normalizeCustomFieldKey(field.name), field]));
+  const customFields = sanitizeCustomFields(contact.customFields);
+
+  for (const [name, value] of Object.entries(customFields)) {
+    const field = fieldsByName.get(normalizeCustomFieldKey(name));
+    if (!field?.id) continue;
+    await upsertContactCustomFieldValue(env, normalizedPageId, psid, field, value);
+  }
+
+  await upsertContact(env, normalizedPageId, {
+    ...contact,
+    customFields
+  }, { replaceCustomFields: true });
+
+  return getContact(env, normalizedPageId, psid);
+}
+
+async function resolveActionCustomField(env, pageId, action = {}, options = {}) {
   if (action.fieldId) {
     const byId = await getCustomFieldById(env, pageId, action.fieldId).catch(() => null);
     if (byId) return byId;
@@ -334,6 +365,24 @@ async function resolveActionCustomField(env, pageId, action = {}) {
   if (action.fieldName) {
     const byName = await getCustomFieldByName(env, pageId, action.fieldName).catch(() => null);
     if (byName) return byName;
+  }
+
+  if (options.create && action.fieldName) {
+    const created = await upsertCustomField(env, pageId, {
+      id: action.fieldId || undefined,
+      name: action.fieldName,
+      type: action.fieldType
+    }).catch(() => null);
+    if (created) return created;
+  }
+
+  if (action.fieldId || action.fieldName) {
+    return {
+      pageId: normalizePageId(pageId),
+      id: String(action.fieldId || "").trim(),
+      name: String(action.fieldName || action.fieldId || "").trim(),
+      type: normalizeCustomFieldType(action.fieldType)
+    };
   }
 
   return null;
@@ -513,10 +562,21 @@ function parseJsonArray(value) {
 function parseJsonObject(value) {
   try {
     const parsed = JSON.parse(value || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    return sanitizeCustomFields(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {});
   } catch {
     return {};
   }
+}
+
+function sanitizeCustomFields(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  return Object.entries(value).reduce((fields, [key, fieldValue]) => {
+    const name = String(key || "").trim();
+    if (!name) return fields;
+    fields[name] = fieldValue;
+    return fields;
+  }, {});
 }
 
 function parseJsonValue(value) {
