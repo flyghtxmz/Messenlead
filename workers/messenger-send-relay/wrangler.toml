@@ -10,6 +10,11 @@ binding = "RELAY_DB"
 database_name = "messenlead-relay-db"
 database_id = "27ca9d95-b93a-405f-a66f-27c5d9a014d8"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "messenlead-db"
+database_id = "ab405875-90ab-4484-aa12-663940ba6524"
+
 [[workflows]]
 name = "messenlead-relay-delay-workflow"
 binding = "MESSENLEAD_DELAY_WORKFLOW"
@@ -30,7 +35,8 @@ MESSENLEAD_RELAY_SCHEDULED_PUMP_MS = "52000"
 MESSENLEAD_RELAY_SCHEDULED_POLL_MS = "5000"
 # Optional: lets this Worker cron drain the main Pages queue, including delayed flow continuations.
 # Configure MESSENLEAD_PRIMARY_QUEUE_TOKEN as a secret with the same value as MESSENLEAD_OPERATOR_TOKEN.
-MESSENLEAD_PRIMARY_QUEUE_URL = "https://messenlead.pages.dev/api/messenger/queue"
+MESSENLEAD_PRIMARY_QUEUE_URL = "https://a997bcb4.messenlead.pages.dev/api/messenger/queue"
+MESSENLEAD_DELAY_WORKFLOW_URL = "https://messenlead-messenger-send-relay.aprovadoblog01.workers.dev"
 MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT = "25"
 MESSENLEAD_PRIMARY_CONTINUATION_LIMIT = "25"
 MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT = "25"

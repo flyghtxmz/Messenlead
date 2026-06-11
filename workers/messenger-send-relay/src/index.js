@@ -1,4 +1,6 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
+import { processMessengerFlowContinuations, processMessengerLinkClickTimeouts } from "../../../functions/api/messenger/webhook.js";
+import { processMessengerSendQueue } from "../../../functions/_lib/messengerDelivery.js";
 
 const DEFAULT_GRAPH_URL = "https://graph.facebook.com/v23.0/me/messages";
 const DEFAULT_MAX_ATTEMPTS = 4;
@@ -172,32 +174,149 @@ async function drainPrimaryQueue(env, options = {}) {
   const token = clean(env.MESSENLEAD_PRIMARY_QUEUE_TOKEN || env.MESSENLEAD_OPERATOR_TOKEN, 500);
   if (!queueUrl || !token) return { ok: false, skipped: true };
 
-  try {
-    const response = await fetch(queueUrl, {
+  const payload = {
+    pageId: options.pageId || "",
+    continuationId: options.continuationId || "",
+    limit: options.limit || env.MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT || 12,
+    continuationLimit: options.continuationLimit || env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8,
+    linkClickTimeoutLimit: env.MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT || env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8
+  };
+  const post = await requestPrimaryQueue(queueUrl, token, payload, "POST");
+  if (post.ok || (post.status && post.status < 500)) return post;
+
+  const retry = await requestPrimaryQueue(queueUrl, token, payload, "GET");
+  if (retry.ok || (retry.status && retry.status < 500)) {
+    return {
+      ...retry,
+      fallbackFrom: {
+        method: "POST",
+        status: post.status || 0,
+        error: post.error || ""
+      }
+    };
+  }
+
+  const direct = await drainPrimaryQueueDirect(env, payload);
+  if (direct.ok || direct.status !== 501) {
+    return {
+      ...direct,
+      fallbackFrom: {
+        method: "GET",
+        status: retry.status || 0,
+        error: retry.error || ""
+      }
+    };
+  }
+
+  return {
+    ...retry,
+    fallbackFrom: {
       method: "POST",
+      status: post.status || 0,
+      error: post.error || ""
+    }
+  };
+}
+
+async function requestPrimaryQueue(queueUrl, token, payload, method) {
+  try {
+    const url = new URL(queueUrl);
+    const init = {
+      method,
       headers: {
         "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        pageId: options.pageId || "",
-        continuationId: options.continuationId || "",
-        limit: options.limit || env.MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT || 12,
-        continuationLimit: options.continuationLimit || env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8,
-        linkClickTimeoutLimit: env.MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT || env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8
-      })
-    });
+        "Accept": "application/json",
+        "User-Agent": "Messenlead-Relay/1.0"
+      }
+    };
+    if (method === "GET") {
+      Object.entries(payload).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+      });
+    } else {
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(payload);
+    }
+
+    const response = await fetch(url.toString(), init);
     const body = await response.json().catch(() => ({}));
     return {
       ok: response.ok,
       status: response.status,
+      method,
       body
     };
   } catch (error) {
     return {
       ok: false,
+      method,
+      status: 0,
       error: error.message || "primary_queue_failed"
     };
+  }
+}
+
+async function drainPrimaryQueueDirect(env, payload = {}) {
+  if (!env.DB) return { ok: false, status: 501, error: "primary_db_binding_missing" };
+
+  const pageId = clean(payload.pageId, 120);
+  const continuationId = clean(payload.continuationId, 120);
+  const stages = {};
+  const errors = [];
+
+  stages.continuations = await runPrimaryQueueStage("continuations", errors, () =>
+    processMessengerFlowContinuations(env, {
+      pageId,
+      continuationId,
+      limit: payload.continuationLimit || env.MESSENLEAD_PRIMARY_CONTINUATION_LIMIT || 8
+    })
+  );
+
+  if (!continuationId) {
+    stages.linkClickTimeouts = await runPrimaryQueueStage("linkClickTimeouts", errors, () =>
+      processMessengerLinkClickTimeouts(env, {
+        pageId,
+        limit: payload.linkClickTimeoutLimit || env.MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT || 8
+      })
+    );
+
+    stages.result = await runPrimaryQueueStage("sendQueue", errors, () =>
+      processMessengerSendQueue(env, {
+        pageId,
+        limit: payload.limit || env.MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT || 12
+      })
+    );
+  } else {
+    stages.linkClickTimeouts = { skipped: true, reason: "continuation_id_request" };
+    stages.result = { skipped: true, reason: "continuation_id_request" };
+  }
+
+  const continuationFailed = errors.some((error) => error.stage === "continuations");
+  return {
+    ok: !continuationFailed,
+    status: continuationFailed ? 500 : 200,
+    method: "direct_d1",
+    body: {
+      ok: !continuationFailed,
+      direct: true,
+      continuationId,
+      continuations: stages.continuations,
+      linkClickTimeouts: stages.linkClickTimeouts,
+      result: stages.result,
+      errors
+    }
+  };
+}
+
+async function runPrimaryQueueStage(stage, errors, fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    errors.push({
+      stage,
+      message: String(error?.message || error || "Queue stage failed").slice(0, 1000)
+    });
+    return { error: String(error?.message || error || "Queue stage failed").slice(0, 1000) };
   }
 }
 
@@ -206,6 +325,8 @@ function primaryQueueDiagnostic(result = {}) {
     ok: Boolean(result.ok),
     skipped: Boolean(result.skipped),
     status: Number(result.status || 0),
+    method: clean(result.method, 80),
+    fallbackFrom: result.fallbackFrom && typeof result.fallbackFrom === "object" ? result.fallbackFrom : null,
     error: clean(result.error, 500),
     body: result.body && typeof result.body === "object" ? result.body : {}
   };
