@@ -3,8 +3,8 @@ compatibility_date = "2026-04-24"
 pages_build_output_dir = "public"
 
 [vars]
-MESSENLEAD_SEND_RELAY_URLS = "https://messenlead-messenger-send-relay-v2.vinteedois-13.workers.dev"
-MESSENLEAD_DELAY_WORKFLOW_URL = "https://messenlead-messenger-send-relay-v2.vinteedois-13.workers.dev"
+MESSENLEAD_SEND_RELAY_URLS = "https://messenlead-messenger-send-relay.aprovadoblog01.workers.dev"
+MESSENLEAD_DELAY_WORKFLOW_URL = "https://messenlead-messenger-send-relay.aprovadoblog01.workers.dev"
 
 [[d1_databases]]
 binding = "DB"

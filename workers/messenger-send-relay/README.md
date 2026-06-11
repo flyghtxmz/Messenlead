@@ -1,6 +1,6 @@
 # Messenlead Messenger Send Relay
 
-Worker auxiliar para subir em outra conta Cloudflare. Ele recebe itens de envio do Messenlead principal, salva em um D1 secundario, tenta enviar para a Graph API, faz retry quando falhar, expoe diagnostico da fila e tambem pode hospedar o Workflow de atraso dos fluxos.
+Worker auxiliar para subir na mesma conta Cloudflare do Messenlead principal. Ele recebe itens de envio, salva em um D1 proprio do relay, tenta enviar para a Graph API, faz retry quando falhar, expoe diagnostico da fila e tambem pode hospedar o Workflow de atraso dos fluxos.
 
 O Messenlead principal continua sendo o cerebro: paginas, fluxos, contatos e tags continuam no D1 principal. Este relay cuida apenas de envio/fila/retry.
 
@@ -9,14 +9,13 @@ O Messenlead principal continua sendo o cerebro: paginas, fluxos, contatos e tag
 Use esta secao para lembrar onde cada parte esta hospedada.
 
 ```txt
-Conta principal do dashboard: aprovadoblog
-Conta secundaria relay 1: Vinteedois.13@gmail.com
-Worker relay 1: https://messenlead-messenger-send-relay.vinteedois-13.workers.dev
-D1 relay 1: messenlead-relay-db
-D1 relay 1 ID: ef0f4f6a-e932-46fe-b1a9-954ad009d80f
+Conta principal do dashboard: aprovadoblog01@gmail.com
+Worker relay principal: https://messenlead-messenger-send-relay.aprovadoblog01.workers.dev
+D1 relay principal: messenlead-relay-db
+D1 relay principal ID: 27ca9d95-b93a-405f-a66f-27c5d9a014d8
 ```
 
-## Criar D1 na conta secundaria
+## Criar D1 na conta principal
 
 Crie um D1 com o nome:
 
@@ -51,8 +50,8 @@ Use uma chave longa no `MESSENLEAD_SEND_RELAY_SECRET`. A mesma chave precisa ser
 No Cloudflare Pages principal, adicione:
 
 ```txt
-MESSENLEAD_SEND_RELAY_URLS=https://seu-worker-secundario.workers.dev
-MESSENLEAD_SEND_RELAY_SECRET=a-mesma-chave-do-worker-secundario
+MESSENLEAD_SEND_RELAY_URLS=https://messenlead-messenger-send-relay.aprovadoblog01.workers.dev
+MESSENLEAD_SEND_RELAY_SECRET=a-mesma-chave-do-worker-relay
 ```
 
 Para mais de um relay:
@@ -89,7 +88,7 @@ GET /health
 O health informa se a fila principal foi configurada e, depois do primeiro ciclo do cron, mostra `diagnostics.scheduled` e `diagnostics.primary_queue`. Abra no navegador:
 
 ```txt
-https://messenlead-messenger-send-relay.vinteedois-13.workers.dev/health
+https://messenlead-messenger-send-relay.aprovadoblog01.workers.dev/health
 ```
 
 Se `hasPrimaryQueue` estiver como `false`, revise `MESSENLEAD_PRIMARY_QUEUE_URL` e `MESSENLEAD_PRIMARY_QUEUE_TOKEN`. Se `diagnostics.primary_queue.status` estiver como `401`, o token nao corresponde ao `MESSENLEAD_OPERATOR_TOKEN` do Pages principal.
@@ -104,7 +103,7 @@ delayWorkflowSecretConfigured: true
 Para o Pages principal usar o proprio relay como motor de atraso preciso, configure no Pages:
 
 ```txt
-MESSENLEAD_DELAY_WORKFLOW_URL=https://messenlead-messenger-send-relay.vinteedois-13.workers.dev
+MESSENLEAD_DELAY_WORKFLOW_URL=https://messenlead-messenger-send-relay.aprovadoblog01.workers.dev
 MESSENLEAD_DELAY_WORKFLOW_SECRET=mesmo-valor-do-MESSENLEAD_SEND_RELAY_SECRET
 ```
 
@@ -159,4 +158,4 @@ Quando o relay chega em `MESSENLEAD_RELAY_SENDS_PER_MINUTE`, `MESSENLEAD_RELAY_D
 
 ## Observacao de seguranca
 
-Para o relay fazer retry sozinho, ele precisa salvar temporariamente o Page Access Token no D1 secundario. Mantenha essa conta Cloudflare protegida e use um segredo forte.
+Para o relay fazer retry sozinho, ele precisa salvar temporariamente o Page Access Token no D1 do relay. Mantenha a conta Cloudflare protegida e use um segredo forte.

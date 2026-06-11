@@ -147,7 +147,7 @@ O node `Espera` aceita duracao em segundos, minutos, horas e dias. Para maior pr
 Variaveis no Pages principal:
 
 ```txt
-MESSENLEAD_DELAY_WORKFLOW_URL=https://messenlead-messenger-send-relay.vinteedois-13.workers.dev
+MESSENLEAD_DELAY_WORKFLOW_URL=https://messenlead-messenger-send-relay.aprovadoblog01.workers.dev
 MESSENLEAD_DELAY_WORKFLOW_SECRET=a-mesma-chave-do-worker-relay
 ```
 

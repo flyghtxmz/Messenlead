@@ -8,7 +8,7 @@ crons = ["* * * * *"]
 [[d1_databases]]
 binding = "RELAY_DB"
 database_name = "messenlead-relay-db"
-database_id = "ef0f4f6a-e932-46fe-b1a9-954ad009d80f"
+database_id = "27ca9d95-b93a-405f-a66f-27c5d9a014d8"
 
 [[workflows]]
 name = "messenlead-relay-delay-workflow"
