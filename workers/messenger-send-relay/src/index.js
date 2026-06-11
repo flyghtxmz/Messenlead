@@ -17,8 +17,36 @@ export class MessenleadDelayWorkflow extends WorkflowEntrypoint {
     const payload = schedulePayload(event.payload || {});
     const dueTime = Date.parse(payload.dueAt);
 
+    if (messengerPolicyExpired(payload)) {
+      return step.do("Ignorar continuacao com politica expirada", async () => {
+        await recordDelayMetricExecuted(this.env, payload, "skipped:policy_expired", { method: "workflow" });
+        await recordQueueAudit(this.env, "flow_continuation_policy_expired", {
+          queue: "workflow",
+          continuationId: payload.continuationId,
+          pageId: payload.pageId,
+          dueAt: payload.dueAt,
+          policyExpiresAt: payload.policyExpiresAt
+        });
+        return { ok: false, skipped: true, reason: "policy_expired" };
+      });
+    }
+
     if (Number.isFinite(dueTime) && dueTime > Date.now() + 1000) {
       await step.sleepUntil(`Delay ${payload.continuationId}`, new Date(dueTime));
+    }
+
+    if (messengerPolicyExpired(payload)) {
+      return step.do("Ignorar continuacao expirada durante espera", async () => {
+        await recordDelayMetricExecuted(this.env, payload, "skipped:policy_expired_during_sleep", { method: "workflow" });
+        await recordQueueAudit(this.env, "flow_continuation_policy_expired_during_sleep", {
+          queue: "workflow",
+          continuationId: payload.continuationId,
+          pageId: payload.pageId,
+          dueAt: payload.dueAt,
+          policyExpiresAt: payload.policyExpiresAt
+        });
+        return { ok: false, skipped: true, reason: "policy_expired_during_sleep" };
+      });
     }
 
     return step.do(
@@ -796,6 +824,23 @@ async function processFlowContinuationQueueMessage(env, body = {}) {
   const validation = validateSchedulePayload(payload);
   if (validation) return { skipped: true, reason: validation };
 
+  if (messengerPolicyExpired(payload)) {
+    await recordDelayMetricExecuted(env, payload, "skipped:policy_expired", { method: "queue" });
+    await recordQueueAudit(env, "flow_continuation_policy_expired", {
+      queue: "messenlead-flow",
+      continuationId: payload.continuationId,
+      pageId: payload.pageId,
+      dueAt: payload.dueAt,
+      policyExpiresAt: payload.policyExpiresAt
+    });
+    return {
+      ok: false,
+      skipped: true,
+      reason: "policy_expired",
+      continuationId: payload.continuationId
+    };
+  }
+
   const result = await drainPrimaryQueue(env, {
     continuationId: payload.continuationId,
     pageId: payload.pageId,
@@ -859,6 +904,11 @@ function delaySecondsUntil(value) {
   const time = Date.parse(value || "");
   if (!Number.isFinite(time)) return 0;
   return Math.max(0, Math.ceil((time - Date.now()) / 1000));
+}
+
+function messengerPolicyExpired(payload = {}) {
+  const policyExpiresAt = Date.parse(payload.policyExpiresAt || "");
+  return Number.isFinite(policyExpiresAt) && policyExpiresAt <= Date.now();
 }
 
 function queueRetryDelaySeconds(attempts) {
