@@ -323,7 +323,8 @@ async function readContinuationStats(env, tableSet, pageId) {
     dueScheduled: await scalarCount(env, "flow_continuations", ["status = 'scheduled'", "datetime(due_at) <= datetime(?)"], pageId, [now]),
     staleProcessing: await scalarCount(env, "flow_continuations", ["status = 'processing'", "datetime(updated_at) <= datetime(?)"], pageId, [staleBefore]),
     failed: await scalarCount(env, "flow_continuations", ["status = 'failed'"], pageId),
-    oldestDueScheduled: summarizeContinuationRow(oldestDue)
+    oldestDueScheduled: summarizeContinuationRow(oldestDue),
+    latestFailed: summarizeContinuationRow(await firstRow(env, "flow_continuations", ["status = 'failed'"], [], pageId, "datetime(updated_at) DESC, datetime(created_at) DESC"))
   };
 }
 
@@ -379,6 +380,7 @@ function addContinuationChecks(checks, continuations, waits) {
   if (continuations.available) {
     const dueScheduled = Number(continuations.dueScheduled || 0);
     const staleProcessing = Number(continuations.staleProcessing || 0);
+    const failed = Number(continuations.failed || 0);
     const oldestAgeMs = ageMs(continuations.oldestDueScheduled?.dueAt);
     addCheck(checks, "flow_continuations_due", dueScheduled === 0 || oldestAgeMs < 120000, "warning", "Ha continuations de espera vencidas ha mais de 2 minutos.", {
       dueScheduled,
@@ -386,6 +388,10 @@ function addContinuationChecks(checks, continuations, waits) {
       oldest: continuations.oldestDueScheduled
     });
     addCheck(checks, "flow_continuations_stale", staleProcessing === 0, "warning", "Ha continuations presas em processing.", { staleProcessing });
+    addCheck(checks, "flow_continuations_failed", failed === 0, "warning", "Ha continuations marcadas como failed no historico.", {
+      failed,
+      latestFailed: continuations.latestFailed
+    });
   }
 
   const responseExpired = Number(waits.response?.expiredWaiting || 0);
@@ -397,8 +403,13 @@ function addContinuationChecks(checks, continuations, waits) {
 function addLogChecks(checks, logs) {
   if (!logs.available) return;
   const errorsLastHour = Number(logs.errorsLastHour || 0);
+  const errorsLast24h = Number(logs.errorsLast24h || 0);
   addCheck(checks, "flow_logs_errors_1h", errorsLastHour === 0, "warning", "Logs recentes indicam erros ou avisos no runtime.", {
     errorsLastHour,
+    recentErrors: logs.recentErrors
+  });
+  addCheck(checks, "flow_logs_errors_24h", errorsLast24h === 0, "warning", "Ha erros ou avisos registrados nas ultimas 24h.", {
+    errorsLast24h,
     recentErrors: logs.recentErrors
   });
 }
@@ -645,14 +656,22 @@ function buildNextActions(checks, d1, relay) {
   if (relay?.targets?.some((target) => target.primaryQueue.status && target.primaryQueue.status !== 200)) {
     actions.push("Confira MESSENLEAD_PRIMARY_QUEUE_URL e MESSENLEAD_PRIMARY_QUEUE_TOKEN no relay.");
   }
+  if (relay?.targets?.some((target) => target.possibleSecondaryAccount)) {
+    actions.push("O relay ainda esta no subdominio vinteedois-13; para concentrar tudo em uma conta, publique o relay na conta principal e troque MESSENLEAD_SEND_RELAY_URLS e MESSENLEAD_DELAY_WORKFLOW_URL.");
+  }
   if (Number(d1?.queue?.dueQueued || 0) > 0) {
     actions.push("Ha mensagens vencidas na fila local; verifique o relay e o endpoint /api/messenger/queue.");
   }
   if (Number(d1?.continuations?.dueScheduled || 0) > 0) {
     actions.push("Ha waits vencidos; teste um node Espera curto e acompanhe o relay /health.");
   }
+  if (Number(d1?.continuations?.failed || 0) > 0) {
+    actions.push("Ha continuations failed no historico; use o pageId do diagnostico ou consulte flow_logs para identificar qual wait/fluxo falhou.");
+  }
   if (Number(d1?.logs?.errorsLastHour || 0) > 0) {
     actions.push("Abra os logs recentes no dashboard ou em /api/flow-logs para ver o erro operacional.");
+  } else if (Number(d1?.logs?.errorsLast24h || 0) > 0) {
+    actions.push("Existem avisos nas ultimas 24h, mas nada na ultima hora; trate como historico, nao como falha ativa.");
   }
   if (!actions.length) actions.push("Nenhuma falha critica encontrada neste diagnostico.");
   return actions;
