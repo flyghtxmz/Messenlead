@@ -39,6 +39,9 @@ As tabelas e indices sao criados automaticamente na primeira chamada.
 ```bash
 cd workers/messenger-send-relay
 npm install
+npx wrangler queues create messenlead-messages
+npx wrangler queues create messenlead-flow
+npx wrangler queues create messenlead-dlq
 npx wrangler secret put MESSENLEAD_SEND_RELAY_SECRET
 npx wrangler deploy
 ```
@@ -109,6 +112,25 @@ MESSENLEAD_DELAY_WORKFLOW_SECRET=mesmo-valor-do-MESSENLEAD_SEND_RELAY_SECRET
 
 O relay aceita o mesmo segredo do envio para agendar atrasos. Se voce preferir separar, crie tambem `MESSENLEAD_DELAY_WORKFLOW_SECRET` no relay e use o mesmo valor no Pages.
 
+### Cloudflare Queues
+
+Este Worker usa Cloudflare Queues quando `MESSENLEAD_QUEUE_ENABLED=true`:
+
+```txt
+messenlead-messages -> envio de mensagens do Messenger
+messenlead-flow -> retomada dos blocos Espera via delaySeconds
+messenlead-dlq -> mensagens que falharam depois dos retries do consumer
+```
+
+O D1 do relay continua sendo o registro anti-duplicidade e fallback. O caminho normal fica:
+
+```txt
+Pages -> /send no relay -> relay_send_queue no D1 -> MESSAGES_QUEUE -> consumer do relay -> Meta
+Pages -> /schedule no relay -> FLOW_QUEUE com delaySeconds -> consumer do relay -> D1 principal
+```
+
+Se a Queue nao estiver disponivel, o relay volta para o comportamento antigo: processa pela fila D1 e cron.
+
 Agendar uma continuacao de atraso, com header `X-Messenlead-Workflow-Secret`:
 
 ```txt
@@ -147,12 +169,19 @@ MESSENLEAD_RELAY_DAILY_SEND_SOFT_LIMIT=15000
 MESSENLEAD_RELAY_MAX_QUEUED=5000
 MESSENLEAD_RELAY_SCHEDULED_PUMP_MS=52000
 MESSENLEAD_RELAY_SCHEDULED_POLL_MS=5000
+MESSENLEAD_QUEUE_ENABLED=true
+MESSENLEAD_USE_QUEUES_FOR_SENDS=true
+MESSENLEAD_USE_QUEUES_FOR_DELAYS=true
+MESSENLEAD_QUEUES_DELAY_THRESHOLD_SECONDS=86400
+MESSENLEAD_LEGACY_FALLBACK_ENABLED=true
 MESSENLEAD_PRIMARY_QUEUE_DRAIN_LIMIT=25
 MESSENLEAD_PRIMARY_CONTINUATION_LIMIT=25
 MESSENLEAD_PRIMARY_LINK_CLICK_TIMEOUT_LIMIT=25
 ```
 
 O cron roda a cada 1 minuto. Com `MESSENLEAD_RELAY_SCHEDULED_PUMP_MS=52000`, cada execucao continua drenando a fila principal e a fila do relay durante quase todo o minuto, com pausa de `MESSENLEAD_RELAY_SCHEDULED_POLL_MS` entre as passagens. Isso reduz a latencia percebida dos blocos `Espera` sem criar outro servico.
+
+Com Queues ativas, o cron vira fallback e drenagem de seguranca. Delays de ate 24h passam por `FLOW_QUEUE.send(..., { delaySeconds })`, evitando polling para waits curtos.
 
 Quando o relay chega em `MESSENLEAD_RELAY_SENDS_PER_MINUTE`, `MESSENLEAD_RELAY_DAILY_SEND_SOFT_LIMIT` ou `MESSENLEAD_RELAY_MAX_QUEUED`, ele responde `429 capacity_full`. O projeto principal entende isso e tenta outro relay configurado.
 

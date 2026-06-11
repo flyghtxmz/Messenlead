@@ -9,6 +9,8 @@ const DEFAULT_SENDS_PER_MINUTE = 50;
 const DEFAULT_SCHEDULED_PUMP_MS = 0;
 const DEFAULT_SCHEDULED_POLL_MS = 5000;
 const RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const QUEUE_MAX_DELAY_SECONDS = 24 * 60 * 60;
+const DEFAULT_QUEUE_RETRY_DELAY_SECONDS = 15;
 
 export class MessenleadDelayWorkflow extends WorkflowEntrypoint {
   async run(event, step) {
@@ -47,6 +49,12 @@ export default {
         ok: true,
         service: "messenlead-messenger-send-relay",
         hasD1: Boolean(env.RELAY_DB),
+        hasPrimaryD1: Boolean(env.DB),
+        hasMessagesQueue: Boolean(env.MESSAGES_QUEUE),
+        hasFlowQueue: Boolean(env.FLOW_QUEUE),
+        queuesEnabled: queuesEnabled(env),
+        messagesQueueEnabled: messagesQueueEnabled(env),
+        flowQueueEnabled: flowQueueEnabled(env),
         hasPrimaryQueue: primaryQueueConfigured(env),
         hasDelayWorkflow: Boolean(env.MESSENLEAD_DELAY_WORKFLOW),
         primaryQueueUrlConfigured: Boolean(clean(env.MESSENLEAD_PRIMARY_QUEUE_URL || env.MESSENLEAD_MAIN_QUEUE_URL, 500)),
@@ -54,6 +62,7 @@ export default {
         delayWorkflowSecretConfigured: Boolean(delayWorkflowSecret(env)),
         scheduledPumpMs: clampNumber(env.MESSENLEAD_RELAY_SCHEDULED_PUMP_MS, 0, 55000, DEFAULT_SCHEDULED_PUMP_MS),
         scheduledPollMs: clampNumber(env.MESSENLEAD_RELAY_SCHEDULED_POLL_MS, 1000, 15000, DEFAULT_SCHEDULED_POLL_MS),
+        queueMetrics: await queueMetricsDiagnostics(env),
         diagnostics: await relayRuntimeDiagnostics(env)
       });
     }
@@ -110,6 +119,10 @@ export default {
 
   async scheduled(_controller, env) {
     await runScheduledPump(env);
+  },
+
+  async queue(batch, env, ctx) {
+    await handleQueueBatch(batch, env, ctx);
   }
 };
 
@@ -340,6 +353,7 @@ async function relayRuntimeDiagnostics(env) {
       SELECT key, value_json, updated_at
       FROM relay_runtime_status
       WHERE key IN ('scheduled', 'primary_queue')
+        OR key LIKE 'queue:%'
     `).all();
     return Object.fromEntries((rows.results || []).map((row) => [
       row.key,
@@ -398,11 +412,32 @@ function sleep(ms) {
 async function handleDelayWorkflowSchedule(request, env) {
   const body = await readJson(request);
   if (!body) return json({ error: "Invalid JSON" }, 400);
-  if (!env.MESSENLEAD_DELAY_WORKFLOW) return json({ error: "Delay workflow binding is not configured" }, 500);
 
   const payload = schedulePayload(body);
   const validation = validateSchedulePayload(payload);
   if (validation) return json({ error: validation }, 400);
+
+  const queued = await scheduleContinuationViaQueue(env, payload);
+  if (queued.ok || queued.fatal) {
+    return json({
+      ok: queued.ok,
+      created: queued.ok,
+      queueScheduled: queued.ok,
+      workflowInstanceId: queued.ok ? queueScheduleId(payload.continuationId) : "",
+      continuationId: payload.continuationId,
+      dueAt: payload.dueAt,
+      delaySeconds: queued.delaySeconds || 0,
+      metrics: queued.metrics || null,
+      error: queued.error || ""
+    }, queued.ok ? 200 : 500);
+  }
+
+  if (!env.MESSENLEAD_DELAY_WORKFLOW) {
+    return json({
+      error: "Delay workflow binding is not configured",
+      queueReason: queued.reason || "queue_not_used"
+    }, 500);
+  }
 
   const id = workflowInstanceId(payload.continuationId);
   try {
@@ -415,7 +450,9 @@ async function handleDelayWorkflowSchedule(request, env) {
       created: true,
       workflowInstanceId: instance.id,
       continuationId: payload.continuationId,
-      dueAt: payload.dueAt
+      dueAt: payload.dueAt,
+      queueScheduled: false,
+      queueReason: queued.reason || "queue_not_used"
     });
   } catch (error) {
     const existing = await delayWorkflowStatus(env, id);
@@ -427,6 +464,8 @@ async function handleDelayWorkflowSchedule(request, env) {
         workflowInstanceId: id,
         continuationId: payload.continuationId,
         dueAt: payload.dueAt,
+        queueScheduled: false,
+        queueReason: queued.reason || "queue_not_used",
         status: existing.status
       });
     }
@@ -510,6 +549,64 @@ async function handleSend(request, env) {
   }
 
   const row = await enqueueRelayMessage(env, body);
+  const existing = await getQueueRow(env, row.id);
+  if (existing?.status === "sent" || existing?.status === "processing") {
+    return json({
+      ok: true,
+      accepted: true,
+      relayQueued: true,
+      cloudflareQueued: false,
+      relayQueueId: row.id,
+      pageId: row.pageId,
+      queueId: clean(body.queueId, 160),
+      status: existing.status,
+      attempts: Number(existing.attempts || 0),
+      lastError: existing.last_error || "",
+      responseJson: parseJson(existing.response_json || ""),
+      responseBody: existing.response_json || "",
+      sentAt: existing.sent_at || "",
+      capacity,
+      idempotent: true
+    });
+  }
+
+  const queuedMessage = await enqueueRelaySendViaQueue(env, row, body);
+  if (queuedMessage.ok) {
+    return json({
+      ok: true,
+      accepted: true,
+      relayQueued: true,
+      cloudflareQueued: true,
+      relayQueueId: row.id,
+      pageId: row.pageId,
+      queueId: clean(body.queueId, 160),
+      status: "queued",
+      attempts: 0,
+      lastError: "",
+      responseJson: {},
+      responseBody: "",
+      sentAt: "",
+      capacity,
+      queueMetrics: queuedMessage.metrics || null
+    });
+  }
+
+  if (queuedMessage.fatal) {
+    return json({
+      ok: false,
+      accepted: false,
+      relayQueued: true,
+      cloudflareQueued: false,
+      relayQueueId: row.id,
+      pageId: row.pageId,
+      queueId: clean(body.queueId, 160),
+      status: "queue_failed",
+      retryable: true,
+      error: queuedMessage.error || "queue_send_failed",
+      capacity
+    }, 503);
+  }
+
   const drain = await processQueue(env, {
     pageId: row.pageId,
     limit: env.MESSENLEAD_RELAY_DRAIN_LIMIT || DEFAULT_DRAIN_LIMIT
@@ -533,6 +630,249 @@ async function handleSend(request, env) {
     capacity,
     drain
   }, failed ? 502 : 200);
+}
+
+async function enqueueRelaySendViaQueue(env, row = {}, body = {}) {
+  if (!messagesQueueEnabled(env)) return { ok: false, skipped: true, reason: "messages_queue_disabled" };
+  if (!env.MESSAGES_QUEUE) return queuePublishFailure(env, "messages_queue_missing");
+
+  try {
+    const result = await env.MESSAGES_QUEUE.send({
+      type: "relay_send",
+      relayQueueId: clean(row.id, 180),
+      pageId: clean(row.pageId, 120),
+      queueId: clean(body.queueId, 160),
+      scheduledAt: new Date().toISOString()
+    }, { delaySeconds: 0 });
+
+    await recordQueueAudit(env, "message_queued", {
+      queue: "messenlead-messages",
+      relayQueueId: row.id,
+      pageId: row.pageId,
+      metrics: result?.metadata?.metrics || null
+    });
+
+    return { ok: true, metrics: result?.metadata?.metrics || null };
+  } catch (error) {
+    await recordQueueAudit(env, "message_queue_failed", {
+      queue: "messenlead-messages",
+      relayQueueId: row.id,
+      pageId: row.pageId,
+      error: error.message || "queue_send_failed"
+    });
+    return queuePublishFailure(env, error.message || "queue_send_failed");
+  }
+}
+
+async function scheduleContinuationViaQueue(env, payload = {}) {
+  if (!flowQueueEnabled(env)) return { ok: false, skipped: true, reason: "flow_queue_disabled" };
+  if (!env.FLOW_QUEUE) return queuePublishFailure(env, "flow_queue_missing");
+
+  const dueAtMs = Date.parse(payload.dueAt);
+  const delaySeconds = Math.max(0, Math.ceil((dueAtMs - Date.now()) / 1000));
+  const threshold = queueDelayThresholdSeconds(env);
+  if (delaySeconds > threshold) {
+    return { ok: false, skipped: true, reason: "delay_above_queue_threshold", delaySeconds, threshold };
+  }
+  if (delaySeconds > QUEUE_MAX_DELAY_SECONDS) {
+    return { ok: false, skipped: true, reason: "delay_above_cloudflare_queue_limit", delaySeconds };
+  }
+
+  try {
+    const result = await env.FLOW_QUEUE.send({
+      type: "flow_continuation",
+      ...payload,
+      scheduledAt: new Date().toISOString(),
+      expectedDelaySeconds: delaySeconds
+    }, { delaySeconds });
+
+    await recordDelayMetricScheduled(env, payload, delaySeconds, "queue");
+    await recordQueueAudit(env, "flow_continuation_queued", {
+      queue: "messenlead-flow",
+      continuationId: payload.continuationId,
+      pageId: payload.pageId,
+      dueAt: payload.dueAt,
+      delaySeconds,
+      metrics: result?.metadata?.metrics || null
+    });
+
+    return { ok: true, delaySeconds, metrics: result?.metadata?.metrics || null };
+  } catch (error) {
+    await recordQueueAudit(env, "flow_continuation_queue_failed", {
+      queue: "messenlead-flow",
+      continuationId: payload.continuationId,
+      pageId: payload.pageId,
+      dueAt: payload.dueAt,
+      delaySeconds,
+      error: error.message || "queue_send_failed"
+    });
+    return queuePublishFailure(env, error.message || "queue_send_failed", { delaySeconds });
+  }
+}
+
+async function handleQueueBatch(batch, env) {
+  const stats = {
+    queue: batch.queue || "",
+    processed: 0,
+    sent: 0,
+    resumed: 0,
+    retried: 0,
+    skipped: 0,
+    failed: 0
+  };
+
+  for (const message of batch.messages || []) {
+    const body = normalizeQueueMessageBody(message.body);
+    try {
+      let result = null;
+      if (body.type === "relay_send") {
+        result = await processRelaySendQueueMessage(env, body);
+        if (result.result === "sent") stats.sent += 1;
+        else if (result.result === "retried" || result.requeued) stats.retried += 1;
+        else if (result.result === "skipped" || result.skipped) stats.skipped += 1;
+        else if (result.result === "failed") stats.failed += 1;
+      } else if (body.type === "flow_continuation") {
+        result = await processFlowContinuationQueueMessage(env, body);
+        if (result.resumed) stats.resumed += 1;
+        else if (result.skipped) stats.skipped += 1;
+      } else {
+        stats.skipped += 1;
+        result = { skipped: true, reason: "unknown_queue_message_type" };
+      }
+
+      stats.processed += 1;
+      await recordQueueAudit(env, "queue_message_processed", {
+        queue: batch.queue || "",
+        type: body.type || "",
+        messageId: message.id || "",
+        result
+      });
+      message.ack();
+    } catch (error) {
+      stats.failed += 1;
+      const delaySeconds = queueRetryDelaySeconds(message.attempts);
+      await recordQueueAudit(env, "queue_message_retry", {
+        queue: batch.queue || "",
+        type: body.type || "",
+        messageId: message.id || "",
+        attempts: Number(message.attempts || 0),
+        delaySeconds,
+        error: error.message || "queue_message_failed"
+      });
+      message.retry({ delaySeconds });
+    }
+  }
+
+  await recordRelayRuntimeStatus(env, `queue:${stats.queue || "unknown"}`, stats);
+}
+
+async function processRelaySendQueueMessage(env, body = {}) {
+  const relayQueueId = clean(body.relayQueueId, 180);
+  if (!relayQueueId) return { skipped: true, reason: "missing_relay_queue_id" };
+
+  const row = await getQueueRow(env, relayQueueId);
+  if (!row) return { skipped: true, reason: "relay_queue_row_not_found", relayQueueId };
+  if (row.status !== "queued") return { skipped: true, reason: `relay_queue_row_${row.status}`, relayQueueId };
+
+  const delaySeconds = delaySecondsUntil(row.not_before);
+  if (delaySeconds > 0) {
+    await requeueRelaySendMessage(env, row, delaySeconds);
+    return { result: "retried", requeued: true, delaySeconds, relayQueueId };
+  }
+
+  const result = await processRow(env, row);
+  const updated = await getQueueRow(env, relayQueueId);
+  if (result === "retried" && updated?.status === "queued") {
+    const retryDelay = Math.max(1, delaySecondsUntil(updated.not_before) || DEFAULT_QUEUE_RETRY_DELAY_SECONDS);
+    await requeueRelaySendMessage(env, updated, retryDelay);
+    return { result, requeued: true, delaySeconds: retryDelay, relayQueueId };
+  }
+
+  return { result, relayQueueId };
+}
+
+async function processFlowContinuationQueueMessage(env, body = {}) {
+  const payload = schedulePayload(body);
+  const validation = validateSchedulePayload(payload);
+  if (validation) return { skipped: true, reason: validation };
+
+  const result = await drainPrimaryQueue(env, {
+    continuationId: payload.continuationId,
+    pageId: payload.pageId,
+    continuationLimit: 1
+  });
+
+  const bodyResult = result.body && typeof result.body === "object" ? result.body : {};
+  const continuations = bodyResult.continuations || {};
+  const resumed = Number(continuations.resumed || 0);
+  const processed = Number(continuations.processed || 0);
+  await recordDelayMetricExecuted(env, payload, result.ok ? "processed" : "failed", {
+    method: result.method || "",
+    status: result.status || 0,
+    processed,
+    resumed,
+    error: result.error || ""
+  });
+
+  if (!result.ok) {
+    throw new Error(result.error || bodyResult.errors?.[0]?.message || "flow_continuation_processing_failed");
+  }
+
+  return {
+    ok: true,
+    processed,
+    resumed,
+    skipped: processed === 0,
+    method: result.method || "",
+    status: result.status || 0
+  };
+}
+
+async function requeueRelaySendMessage(env, row = {}, delaySeconds = DEFAULT_QUEUE_RETRY_DELAY_SECONDS) {
+  if (!messagesQueueEnabled(env) || !env.MESSAGES_QUEUE) return { ok: false, skipped: true };
+  const result = await env.MESSAGES_QUEUE.send({
+    type: "relay_send",
+    relayQueueId: row.id,
+    pageId: row.page_id || row.pageId || "",
+    queueId: row.source_queue_id || row.sourceQueueId || "",
+    scheduledAt: new Date().toISOString(),
+    retry: true
+  }, { delaySeconds: Math.max(1, Math.min(QUEUE_MAX_DELAY_SECONDS, Number(delaySeconds) || DEFAULT_QUEUE_RETRY_DELAY_SECONDS)) });
+
+  await recordQueueAudit(env, "message_requeued", {
+    queue: "messenlead-messages",
+    relayQueueId: row.id,
+    pageId: row.page_id || row.pageId || "",
+    delaySeconds,
+    metrics: result?.metadata?.metrics || null
+  });
+  return { ok: true, metrics: result?.metadata?.metrics || null };
+}
+
+function normalizeQueueMessageBody(body) {
+  if (body && typeof body === "object" && !Array.isArray(body)) return body;
+  if (typeof body === "string") return parseJson(body);
+  return {};
+}
+
+function delaySecondsUntil(value) {
+  const time = Date.parse(value || "");
+  if (!Number.isFinite(time)) return 0;
+  return Math.max(0, Math.ceil((time - Date.now()) / 1000));
+}
+
+function queueRetryDelaySeconds(attempts) {
+  const attempt = Math.max(1, Number(attempts || 0) + 1);
+  return Math.min(900, DEFAULT_QUEUE_RETRY_DELAY_SECONDS * attempt * attempt);
+}
+
+function queuePublishFailure(env, error, extra = {}) {
+  return {
+    ok: false,
+    fatal: !legacyFallbackEnabled(env),
+    error: clean(error, 500),
+    ...extra
+  };
 }
 
 async function ensureSchema(env) {
@@ -1042,6 +1382,186 @@ async function cleanupQueue(env) {
     .catch(() => null);
 }
 
+async function queueMetricsDiagnostics(env) {
+  const result = {};
+  if (env.MESSAGES_QUEUE?.metrics) {
+    result.messages = await env.MESSAGES_QUEUE.metrics().catch((error) => ({ error: clean(error.message, 300) }));
+  }
+  if (env.FLOW_QUEUE?.metrics) {
+    result.flow = await env.FLOW_QUEUE.metrics().catch((error) => ({ error: clean(error.message, 300) }));
+  }
+  if (env.DLQ_QUEUE?.metrics) {
+    result.dlq = await env.DLQ_QUEUE.metrics().catch((error) => ({ error: clean(error.message, 300) }));
+  }
+  return result;
+}
+
+async function recordQueueAudit(env, action, metadata = {}) {
+  if (!env.RELAY_DB) return false;
+  try {
+    await ensureQueueAuditSchema(env);
+    await env.RELAY_DB.prepare(`
+      INSERT INTO queue_audit_log (id, queue_name, action, message_id, metadata_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+      .bind(
+        makeId("qaudit"),
+        clean(metadata.queue || "", 120),
+        clean(action, 80),
+        clean(metadata.messageId || metadata.relayQueueId || metadata.continuationId || "", 180),
+        JSON.stringify(metadata || {}).slice(0, 4000),
+        new Date().toISOString()
+      )
+      .run();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureQueueAuditSchema(env) {
+  await env.RELAY_DB.prepare(`
+    CREATE TABLE IF NOT EXISTS queue_audit_log (
+      id TEXT PRIMARY KEY,
+      queue_name TEXT NOT NULL,
+      action TEXT NOT NULL,
+      message_id TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+  await env.RELAY_DB.prepare("CREATE INDEX IF NOT EXISTS idx_queue_audit_created ON queue_audit_log(created_at DESC)").run();
+  await env.RELAY_DB.prepare("CREATE INDEX IF NOT EXISTS idx_queue_audit_queue_created ON queue_audit_log(queue_name, created_at DESC)").run();
+  return true;
+}
+
+async function recordDelayMetricScheduled(env, payload = {}, delaySeconds = 0, scheduler = "queue") {
+  if (!env.DB) return false;
+  try {
+    await ensureDelayMetricsSchema(env);
+    const now = new Date().toISOString();
+    const expectedDelayMs = Math.max(0, Number(delaySeconds || 0) * 1000);
+    await env.DB.prepare(`
+      INSERT INTO delay_metrics (
+        id, continuation_id, scheduled_at, executed_at, expected_delay_ms,
+        actual_delay_ms, precision_error_ms, status, created_at
+      )
+      VALUES (?, ?, ?, '', ?, 0, 0, ?, ?)
+      ON CONFLICT(continuation_id) DO UPDATE SET
+        scheduled_at = excluded.scheduled_at,
+        expected_delay_ms = excluded.expected_delay_ms,
+        status = excluded.status
+    `)
+      .bind(
+        makeId("delay_metric"),
+        clean(payload.continuationId, 120),
+        now,
+        expectedDelayMs,
+        `scheduled:${scheduler}`,
+        now
+      )
+      .run();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function recordDelayMetricExecuted(env, payload = {}, status = "processed", details = {}) {
+  if (!env.DB) return false;
+  try {
+    await ensureDelayMetricsSchema(env);
+    const now = new Date();
+    const continuationId = clean(payload.continuationId, 120);
+    const metric = await env.DB.prepare(`
+      SELECT scheduled_at, expected_delay_ms
+      FROM delay_metrics
+      WHERE continuation_id = ?
+      LIMIT 1
+    `)
+      .bind(continuationId)
+      .first();
+    const scheduledAtMs = Date.parse(metric?.scheduled_at || payload.scheduledAt || "");
+    const dueAtMs = Date.parse(payload.dueAt || "");
+    const actualDelayMs = Number.isFinite(scheduledAtMs) ? Math.max(0, now.getTime() - scheduledAtMs) : 0;
+    const precisionErrorMs = Number.isFinite(dueAtMs) ? now.getTime() - dueAtMs : 0;
+    const expectedDelayMs = Number(metric?.expected_delay_ms || Math.max(0, dueAtMs - scheduledAtMs) || 0);
+
+    await env.DB.prepare(`
+      INSERT INTO delay_metrics (
+        id, continuation_id, scheduled_at, executed_at, expected_delay_ms,
+        actual_delay_ms, precision_error_ms, status, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(continuation_id) DO UPDATE SET
+        executed_at = excluded.executed_at,
+        actual_delay_ms = excluded.actual_delay_ms,
+        precision_error_ms = excluded.precision_error_ms,
+        status = excluded.status
+    `)
+      .bind(
+        makeId("delay_metric"),
+        continuationId,
+        metric?.scheduled_at || payload.scheduledAt || "",
+        now.toISOString(),
+        expectedDelayMs,
+        actualDelayMs,
+        precisionErrorMs,
+        `${status}:${details.method || "queue"}`,
+        now.toISOString()
+      )
+      .run();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureDelayMetricsSchema(env) {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS delay_metrics (
+      id TEXT PRIMARY KEY,
+      continuation_id TEXT UNIQUE,
+      scheduled_at TEXT NOT NULL,
+      executed_at TEXT,
+      expected_delay_ms INTEGER NOT NULL,
+      actual_delay_ms INTEGER,
+      precision_error_ms INTEGER,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_delay_metrics_created ON delay_metrics(created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_delay_metrics_status ON delay_metrics(status, created_at DESC)").run();
+  return true;
+}
+
+function queuesEnabled(env) {
+  return truthy(env.MESSENLEAD_QUEUE_ENABLED);
+}
+
+function messagesQueueEnabled(env) {
+  return queuesEnabled(env) && truthy(env.MESSENLEAD_USE_QUEUES_FOR_SENDS, true);
+}
+
+function flowQueueEnabled(env) {
+  return queuesEnabled(env) && truthy(env.MESSENLEAD_USE_QUEUES_FOR_DELAYS, true);
+}
+
+function legacyFallbackEnabled(env) {
+  return truthy(env.MESSENLEAD_LEGACY_FALLBACK_ENABLED, true);
+}
+
+function queueDelayThresholdSeconds(env) {
+  return clampNumber(env.MESSENLEAD_QUEUES_DELAY_THRESHOLD_SECONDS, 0, QUEUE_MAX_DELAY_SECONDS, QUEUE_MAX_DELAY_SECONDS);
+}
+
+function truthy(value, fallback = false) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return fallback;
+  return ["1", "true", "yes", "on", "enabled"].includes(normalized);
+}
+
 function authorize(request, env) {
   const expectedSecret = String(env.MESSENLEAD_SEND_RELAY_SECRET || "").trim();
   if (!expectedSecret) return json({ error: "Relay secret is not configured" }, 503);
@@ -1112,6 +1632,10 @@ function validateSchedulePayload(payload) {
 
 function workflowInstanceId(continuationId) {
   return `delay-${clean(continuationId, 92)}`;
+}
+
+function queueScheduleId(continuationId) {
+  return `queue-${clean(continuationId, 92)}`;
 }
 
 function json(payload, status = 200) {

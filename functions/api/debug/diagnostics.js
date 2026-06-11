@@ -192,6 +192,12 @@ async function readRelayDiagnostics(targets, checks) {
       error: result.error || "",
       service: health.service || "",
       hasD1: Boolean(health.hasD1),
+      hasPrimaryD1: Boolean(health.hasPrimaryD1),
+      hasMessagesQueue: Boolean(health.hasMessagesQueue),
+      hasFlowQueue: Boolean(health.hasFlowQueue),
+      queuesEnabled: Boolean(health.queuesEnabled),
+      messagesQueueEnabled: Boolean(health.messagesQueueEnabled),
+      flowQueueEnabled: Boolean(health.flowQueueEnabled),
       hasPrimaryQueue: Boolean(health.hasPrimaryQueue),
       hasDelayWorkflow: Boolean(health.hasDelayWorkflow),
       primaryQueueUrlConfigured: Boolean(health.primaryQueueUrlConfigured),
@@ -199,6 +205,7 @@ async function readRelayDiagnostics(targets, checks) {
       delayWorkflowSecretConfigured: Boolean(health.delayWorkflowSecretConfigured),
       scheduledPumpMs: Number(health.scheduledPumpMs || 0),
       scheduledPollMs: Number(health.scheduledPollMs || 0),
+      queueMetrics: health.queueMetrics && typeof health.queueMetrics === "object" ? health.queueMetrics : {},
       primaryQueue: {
         ok: Boolean(primaryQueue.ok),
         status: Number(primaryQueue.status || 0),
@@ -230,6 +237,22 @@ async function readRelayDiagnostics(targets, checks) {
       "Relay nao esta conseguindo chamar a fila principal do Pages.",
       result.primaryQueue
     );
+    if (result.queuesEnabled) {
+      addCheck(
+        checks,
+        `relay_queues:${result.host}`,
+        result.hasMessagesQueue && result.hasFlowQueue,
+        "warning",
+        "Relay esta com Queues habilitadas, mas uma ou mais bindings nao estao disponiveis.",
+        {
+          hasMessagesQueue: result.hasMessagesQueue,
+          hasFlowQueue: result.hasFlowQueue,
+          messagesQueueEnabled: result.messagesQueueEnabled,
+          flowQueueEnabled: result.flowQueueEnabled,
+          queueMetrics: result.queueMetrics
+        }
+      );
+    }
     if (result.possibleSecondaryAccount) {
       addCheck(
         checks,
@@ -621,6 +644,9 @@ function relayCheckSummary(result) {
     httpStatus: result.httpStatus,
     primaryQueue: result.primaryQueue,
     hasD1: result.hasD1,
+    hasMessagesQueue: result.hasMessagesQueue,
+    hasFlowQueue: result.hasFlowQueue,
+    queuesEnabled: result.queuesEnabled,
     hasPrimaryQueue: result.hasPrimaryQueue,
     hasDelayWorkflow: result.hasDelayWorkflow
   };

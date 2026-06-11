@@ -20,6 +20,36 @@ name = "messenlead-relay-delay-workflow"
 binding = "MESSENLEAD_DELAY_WORKFLOW"
 class_name = "MessenleadDelayWorkflow"
 
+[[queues.producers]]
+queue = "messenlead-messages"
+binding = "MESSAGES_QUEUE"
+
+[[queues.producers]]
+queue = "messenlead-flow"
+binding = "FLOW_QUEUE"
+
+[[queues.producers]]
+queue = "messenlead-dlq"
+binding = "DLQ_QUEUE"
+
+[[queues.consumers]]
+queue = "messenlead-messages"
+max_batch_size = 50
+max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "messenlead-dlq"
+max_concurrency = 5
+retry_delay = 15
+
+[[queues.consumers]]
+queue = "messenlead-flow"
+max_batch_size = 25
+max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "messenlead-dlq"
+max_concurrency = 5
+retry_delay = 15
+
 [vars]
 # Configure this as a secret in production:
 # wrangler secret put MESSENLEAD_SEND_RELAY_SECRET
@@ -33,6 +63,11 @@ MESSENLEAD_RELAY_MAX_QUEUED = "5000"
 # With a 5s poll, a 1-minute delay normally resumes within a few seconds after due_at.
 MESSENLEAD_RELAY_SCHEDULED_PUMP_MS = "52000"
 MESSENLEAD_RELAY_SCHEDULED_POLL_MS = "5000"
+MESSENLEAD_QUEUE_ENABLED = "true"
+MESSENLEAD_USE_QUEUES_FOR_SENDS = "true"
+MESSENLEAD_USE_QUEUES_FOR_DELAYS = "true"
+MESSENLEAD_QUEUES_DELAY_THRESHOLD_SECONDS = "86400"
+MESSENLEAD_LEGACY_FALLBACK_ENABLED = "true"
 # Optional: lets this Worker cron drain the main Pages queue, including delayed flow continuations.
 # Configure MESSENLEAD_PRIMARY_QUEUE_TOKEN as a secret with the same value as MESSENLEAD_OPERATOR_TOKEN.
 MESSENLEAD_PRIMARY_QUEUE_URL = "https://a997bcb4.messenlead.pages.dev/api/messenger/queue"
